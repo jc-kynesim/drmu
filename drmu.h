@@ -201,8 +201,18 @@ uint32_t drmu_crtc_height(const drmu_crtc_t * const dc);
 drmu_ufrac_t drmu_crtc_sar(const drmu_crtc_t * const dc);
 void drmu_crtc_max_bpc_allow(drmu_crtc_t * const dc, const bool max_bpc_allowed);
 
-typedef int (* drmu_mode_score_fn)(void * v, const struct _drmModeModeInfo * mode);
-int drmu_crtc_mode_pick(drmu_crtc_t * const dc, drmu_mode_score_fn score_fn, void * const score_v);
+typedef int drmu_mode_score_fn(void * v, const struct _drmModeModeInfo * mode);
+int drmu_crtc_mode_pick(drmu_crtc_t * const dc, drmu_mode_score_fn * const score_fn, void * const score_v);
+
+// Simple mode picker cb - looks for width / height and then refresh
+// If nothing "plausible" defaults to EDID preferred mode
+typedef struct drmu_mode_pick_simple_params_s {
+    unsigned int width;
+    unsigned int height;
+    unsigned int hz_x_1000;  // Refresh rate * 1000 i.e. 50Hz = 50000
+    uint32_t flags;          // Nothing currently - but things like interlace could turn up here
+} drmu_mode_pick_simple_params_t;
+drmu_mode_score_fn drmu_mode_pick_simple_cb;
 
 drmu_crtc_t * drmu_crtc_new_find(drmu_env_t * const du);
 

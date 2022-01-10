@@ -76,8 +76,6 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
 {
     const enum AVPixelFormat *p;
 
-    fprintf(stderr, "3: px_fmt=%d, sw=%d\n", ctx->pix_fmt, ctx->sw_pix_fmt);
-
     for (p = pix_fmts; *p != -1; p++) {
         if (*p == hw_pix_fmt)
             return *p;
@@ -95,9 +93,6 @@ static int decode_write(AVCodecContext * const avctx,
     uint8_t *buffer = NULL;
     int size;
     int ret = 0;
-    unsigned int i;
-
-    fprintf(stderr, "PTS In=%"PRId64"\n", packet->pts);
 
     ret = avcodec_send_packet(avctx, packet);
     if (ret < 0) {
@@ -122,8 +117,6 @@ static int decode_write(AVCodecContext * const avctx,
             goto fail;
         }
 
-        fprintf(stderr, "PTS Out=%"PRId64", delta=%"PRId64", key=%d\n", frame->pts, packet->pts - frame->pts, frame->key_frame);
-
         // push the decoded frame into the filtergraph if it exists
         if (filter_graph != NULL &&
             (ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF)) < 0) {
@@ -144,6 +137,10 @@ static int decode_write(AVCodecContext * const avctx,
                         fprintf(stderr, "Failed to get frame: %s", av_err2str(ret));
                     goto fail;
                 }
+                drmprime_out_modeset(dpo, av_buffersink_get_w(buffersink_ctx), av_buffersink_get_h(buffersink_ctx), av_buffersink_get_time_base(buffersink_ctx));
+            }
+            else {
+                drmprime_out_modeset(dpo, avctx->coded_width, avctx->coded_height, avctx->framerate);
             }
 
             drmprime_out_display(dpo, frame);
@@ -491,12 +488,8 @@ loopy:
 
         frames = frame_count;
         while (ret >= 0) {
-            fprintf(stderr, "px_fmt=%d, sw=%d\n", decoder_ctx->pix_fmt, decoder_ctx->sw_pix_fmt);
-
             if ((ret = av_read_frame(input_ctx, &packet)) < 0)
                 break;
-
-            fprintf(stderr, "2: px_fmt=%d, sw=%d\n", decoder_ctx->pix_fmt, decoder_ctx->sw_pix_fmt);
 
             if (video_stream == packet.stream_index) {
                 if (pace_input_hz > 0) {
@@ -518,7 +511,6 @@ loopy:
                     }
                 }
 
-                fprintf(stderr, "Pkt flags=%#x\n", packet.flags);
                 ret = decode_write(decoder_ctx, dpo, &packet);
             }
 

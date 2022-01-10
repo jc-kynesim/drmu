@@ -30,6 +30,7 @@
 #include <semaphore.h>
 
 #include "libavutil/frame.h"
+#include "libavcodec/avcodec.h"
 #include "libavutil/hwcontext.h"
 
 #include "drmu.h"
@@ -48,6 +49,8 @@ typedef struct drmprime_out_env_s
     drmu_pool_t * pic_pool;
     drmu_atomic_t * display_set;
 
+    int mode_id;
+    drmu_mode_pick_simple_params_t picked;
 } drmprime_out_env_t;
 
 int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
@@ -89,6 +92,44 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
     return 0;
 }
 
+int drmprime_out_modeset(drmprime_out_env_t * de, int w, int h, const AVRational rate)
+{
+    drmu_mode_pick_simple_params_t pick = {
+        .width = w,
+        .height = h,
+        .hz_x_1000 = rate.den <= 0 ? 0 : rate.num * 1000 / rate.den
+    };
+
+    if (pick.width == de->picked.width &&
+        pick.height == de->picked.height &&
+        pick.hz_x_1000 == de->picked.hz_x_1000)
+    {
+        return 0;
+    }
+
+    drmu_env_modeset_allow(de->du, true);
+
+    de->mode_id = drmu_crtc_mode_pick(de->dc, drmu_mode_pick_simple_cb, &pick);
+
+    // This will set the mode on the crtc var but won't actually change the output
+    if (de->mode_id >= 0) {
+        drmu_atomic_t * da = drmu_atomic_new(de->du);
+        if (da != NULL) {
+            drmu_atomic_crtc_mode_id_set(da, de->dc, de->mode_id);
+            drmu_atomic_unref(&da);
+            fprintf(stderr, "Req %dx%d Hz %d.%03d got %dx%d\n", pick.width, pick.height, pick.hz_x_1000 / 1000, pick.hz_x_1000%1000,
+                    drmu_crtc_width(de->dc), drmu_crtc_height(de->dc));
+        }
+    }
+    else {
+        fprintf(stderr, "Req %dx%d Hz %d.%03d got nothing\n", pick.width, pick.height, pick.hz_x_1000 / 1000, pick.hz_x_1000%1000);
+    }
+
+    de->picked = pick;
+
+    return 0;
+}
+
 void drmprime_out_delete(drmprime_out_env_t *de)
 {
     drmu_plane_delete(&de->dp);
@@ -114,6 +155,8 @@ drmprime_out_env_t* drmprime_out_new()
     if (de == NULL)
         return NULL;
 
+    de->mode_id = -1;
+
     {
         const drmu_log_env_t log = {
             .fn = drmu_log_stderr_cb,
@@ -124,8 +167,6 @@ drmprime_out_env_t* drmprime_out_new()
             (de->du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }
-
-    drmu_env_modeset_allow(de->du, false);
 
     if ((de->dc = drmu_crtc_new_find(de->du)) == NULL)
         goto fail;
@@ -139,8 +180,6 @@ drmprime_out_env_t* drmprime_out_new()
     // This wants to be the primary
     if ((de->dp = drmu_plane_new_find(de->dc, DRM_FORMAT_NV12)) == NULL)
         goto fail;
-
-    // ** Could pick mode here
 
     return de;
 
