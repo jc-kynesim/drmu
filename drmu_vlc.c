@@ -130,33 +130,28 @@ pic_fb_delete_cb(drmu_fb_t * dfb, void * v)
     free(aux);
 }
 
-static uint8_t
-pic_transfer_to_eotf(const video_transfer_func_t vtf)
+static int
+pic_hdr_metadata(struct hdr_output_metadata * const m, const struct video_format_t * const fmt)
 {
-    switch (vtf) {
-        case TRANSFER_FUNC_SMPTE_ST2084:
-            return HDMI_EOTF_SMPTE_ST2084;
-        case TRANSFER_FUNC_ARIB_B67:
-            return HDMI_EOTF_BT_2100_HLG;
-        default:
-            break;
-    }
-    // ?? Trad HDR ??
-    return HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
-}
-
-static struct hdr_output_metadata
-pic_hdr_metadata(const struct video_format_t * const fmt)
-{
-    struct hdr_output_metadata m;
-    struct hdr_metadata_infoframe * const inf = &m.hdmi_metadata_type1;
+    struct hdr_metadata_infoframe * const inf = &m->hdmi_metadata_type1;
     unsigned int i;
 
-    memset(&m, 0, sizeof(m));
-    m.metadata_type = HDMI_STATIC_METADATA_TYPE1;
-
-    inf->eotf = pic_transfer_to_eotf(fmt->transfer);
+    memset(m, 0, sizeof(*m));
+    m->metadata_type = HDMI_STATIC_METADATA_TYPE1;
     inf->metadata_type = HDMI_STATIC_METADATA_TYPE1;
+
+    switch (fmt->transfer) {
+        case TRANSFER_FUNC_SMPTE_ST2084:
+            inf->eotf = HDMI_EOTF_SMPTE_ST2084;
+            break;
+        case TRANSFER_FUNC_ARIB_B67:
+            inf->eotf = HDMI_EOTF_BT_2100_HLG;
+            break;
+        default:
+            // HDMI_EOTF_TRADITIONAL_GAMMA_HDR for 10bit?
+            inf->eotf = HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
+            return -ENOENT;
+    }
 
     // VLC & HDMI use the same scales for everything but max_luma
     for (i = 0; i != 3; ++i) {
@@ -171,14 +166,8 @@ pic_hdr_metadata(const struct video_format_t * const fmt)
     inf->max_cll = fmt->lighting.MaxCLL;
     inf->max_fall = fmt->lighting.MaxFALL;
 
-    return m;
+    return 0;
 }
-
-
-// VLC specific helper fb fns
-// *** If we make a lib from the drmu fns this should be separated to avoid
-//     unwanted library dependancies - For the general case we will need to
-//     think harder about how we split this
 
 static const char *
 fb_vlc_color_encoding(const video_format_t * const fmt)
@@ -297,12 +286,10 @@ drmu_fb_vlc_new_pic_attach(drmu_env_t * const du, picture_t * const pic)
         }
     }
 
-    if (pic->format.mastering.max_luminance == 0) {
-        drmu_fb_int_hdr_metadata_set(dfb, NULL);
-    }
-    else {
-        const struct hdr_output_metadata meta = pic_hdr_metadata(&pic->format);
-        drmu_fb_int_hdr_metadata_set(dfb, &meta);
+    {
+        struct hdr_output_metadata meta;
+        if (pic_hdr_metadata(&meta, &pic->format) == 0)
+            drmu_fb_int_hdr_metadata_set(dfb, &meta);
     }
 
     if (drmu_fb_int_make(dfb) != 0)
