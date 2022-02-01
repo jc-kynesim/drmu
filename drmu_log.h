@@ -29,5 +29,24 @@ void drmu_log_generic(const struct drmu_log_env_s * const log, const enum drmu_l
 #define drmu_info(_du, ...)     drmu_info_log(drmu_env_log(_du), __VA_ARGS__)
 #define drmu_debug(_du, ...)    drmu_debug_log(drmu_env_log(_du), __VA_ARGS__)
 
+static inline char drmu_log_safechar(int c)
+{
+    return (c < ' ' || c >=0x7f) ? '?' : c;
+}
+
+static inline const char * drmu_log_fourcc_to_str(char buf[5], uint32_t fcc)
+{
+    if (fcc == 0)
+        return "----";
+    buf[0] = drmu_log_safechar((fcc >> 0) & 0xff);
+    buf[1] = drmu_log_safechar((fcc >> 8) & 0xff);
+    buf[2] = drmu_log_safechar((fcc >> 16) & 0xff);
+    buf[3] = drmu_log_safechar((fcc >> 24) & 0xff);
+    return buf;
+}
+
+#define drmu_log_fourcc(fcc) drmu_log_fourcc_to_str((char[5]){0}, fcc)
+
+
 #endif
 
