@@ -4,12 +4,13 @@ project(
 
 libavutil_dep = dependency('libavutil')
 threads_dep = dependency('threads')
+libdrm_dep = dependency('libdrm')
 
 drmu_base = library('drmu_base',
 	'drmu.c', 'drmu_atomic.c', 'pollqueue.c',
 	dependencies : [
 		threads_dep,
-		dependency('libdrm'),
+		libdrm_dep
 	],
 )
 
@@ -38,7 +39,7 @@ executable(
 	link_with : [ drmu_base, drmu_xlease, drmu_av ],
 	dependencies : [
 		threads_dep,
-		dependency('libdrm'),
+		libdrm_dep,
 		dependency('libavcodec'),
 		dependency('libavfilter'),
 		dependency('libavformat'),
