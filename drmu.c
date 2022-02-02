@@ -246,6 +246,14 @@ drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name
     return NULL;
 }
 
+uint64_t
+drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const name)
+{
+    const uint64_t *const p = drmu_prop_enum_value(pen, name);
+    return p == NULL || *p >= 64 || (pen->flags & DRM_MODE_PROP_BITMASK) == 0 ?
+        (uint64_t)0 : (uint64_t)1 << *p;
+}
+
 uint32_t
 drmu_prop_enum_id(const drmu_prop_enum_t * const pen)
 {
@@ -345,6 +353,22 @@ drmu_atomic_add_prop_enum(drmu_atomic_t * const da, const uint32_t obj_id, const
     if (rv != 0 && name != NULL)
         drmu_warn(drmu_atomic_env(da), "%s: Failed to add enum obj_id=%#x, prop_id=%#x, name='%s': %s", __func__,
                   obj_id, drmu_prop_enum_id(pen), name, strerror(-rv));
+
+    return rv;
+}
+
+int
+drmu_atomic_add_prop_bitmask(struct drmu_atomic_s * const da, const uint32_t obj_id, const drmu_prop_enum_t * const pen, const uint64_t val)
+{
+    int rv;
+
+    rv = !pen ? -ENOENT :
+        ((pen->flags & DRM_MODE_PROP_BITMASK) == 0) ? -EINVAL :
+            drmu_atomic_add_prop_generic(da, obj_id, drmu_prop_enum_id(pen), val, 0, 0, NULL);
+
+    if (rv != 0)
+        drmu_warn(drmu_atomic_env(da), "%s: Failed to add bitmask obj_id=%#x, prop_id=%#x, val=%#"PRIx64": %s", __func__,
+                  obj_id, drmu_prop_enum_id(pen), val, strerror(-rv));
 
     return rv;
 }

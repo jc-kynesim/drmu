@@ -111,13 +111,23 @@ drmu_blob_t * drmu_blob_ref(drmu_blob_t * const blob);
 drmu_blob_t * drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len);
 int drmu_atomic_add_prop_blob(struct drmu_atomic_s * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_blob_t * const blob);
 
-// Enum
+// Enum & bitmask
+// These are very close to the same thing so we use the same struct
+typedef drmu_prop_enum_t drmu_prop_bitmask_t;
 
+// Ptr to value of the named enum/bit, NULL if not found or pen == NULL. If bitmask then bit number
 const uint64_t * drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name);
+// Bitmask only - value as a (single-bit) bitmask - 0 if not found or not bitmask or pen == NULL
+uint64_t drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const name);
+
 uint32_t drmu_prop_enum_id(const drmu_prop_enum_t * const pen);
+#define drmu_prop_bitmask_id drmu_prop_enum_id
 void drmu_prop_enum_delete(drmu_prop_enum_t ** const pppen);
+#define drmu_prop_bitmask_delete drmu_prop_enum_delete
 drmu_prop_enum_t * drmu_prop_enum_new(drmu_env_t * const du, const uint32_t id);
+#define drmu_prop_bitmask_new drmu_prop_enum_new
 int drmu_atomic_add_prop_enum(struct drmu_atomic_s * const da, const uint32_t obj_id, const drmu_prop_enum_t * const pen, const char * const name);
+int drmu_atomic_add_prop_bitmask(struct drmu_atomic_s * const da, const uint32_t obj_id, const drmu_prop_enum_t * const pen, const uint64_t value);
 
 // Range
 
