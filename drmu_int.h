@@ -45,12 +45,16 @@ typedef enum drmu_isset_e {
     DRMU_ISSET_SET,        // Thing has valid data
 } drmu_isset_t;
 
+struct drmu_format_info_s;
+
 typedef struct drmu_fb_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
     struct drmu_fb_s * prev;
     struct drmu_fb_s * next;
 
     struct drmu_env_s * du;
+
+    const struct drmu_format_info_s * fmt_info;
 
     struct drm_mode_fb_cmd2 fb;
 

@@ -25,6 +25,61 @@ drmu_ufrac_reduce(drmu_ufrac_t x)
 
 //----------------------------------------------------------------------------
 //
+// Format properties
+
+typedef struct drmu_format_info_s {
+    uint32_t fourcc;
+    uint8_t  bpp;  // For dumb BO alloc
+    uint8_t  plane_count;
+    struct {
+        uint8_t wdiv;
+        uint8_t hdiv;
+    } planes[4];
+} drmu_format_info_t;
+
+static const drmu_format_info_t format_info[] = {
+    { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRX8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ARGB8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRX1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ARGB2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_AYUV, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+
+    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
+
+    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}}},
+
+    { .fourcc = 0 }
+};
+
+static const drmu_format_info_t *
+format_info_find(const uint32_t fourcc)
+{
+    for (const drmu_format_info_t * p = format_info; p->fourcc; ++p) {
+        if (p->fourcc == fourcc)
+            return p;
+    }
+    return NULL;
+}
+
+//----------------------------------------------------------------------------
+//
 // Blob fns
 
 typedef struct drmu_blob_s {
@@ -688,6 +743,7 @@ drmu_fb_crop(const drmu_fb_t *const dfb)
 void
 drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t crop)
 {
+    dfb->fmt_info = format_info_find(fmt);
     dfb->fb.pixel_format = fmt;
     dfb->fb.width        = w;
     dfb->fb.height       = h;
@@ -772,82 +828,36 @@ drmu_fb_int_alloc(drmu_env_t * const du)
 unsigned int
 drmu_fb_pixel_bits(const drmu_fb_t * const dfb)
 {
-    switch (dfb->fb.pixel_format) {
-        case DRM_FORMAT_XRGB8888:
-        case DRM_FORMAT_XBGR8888:
-        case DRM_FORMAT_RGBX8888:
-        case DRM_FORMAT_BGRX8888:
-        case DRM_FORMAT_ARGB8888:
-        case DRM_FORMAT_ABGR8888:
-        case DRM_FORMAT_RGBA8888:
-        case DRM_FORMAT_BGRA8888:
-        case DRM_FORMAT_AYUV:
-            return 32;
-        case DRM_FORMAT_YUYV:
-        case DRM_FORMAT_YVYU:
-        case DRM_FORMAT_VYUY:
-        case DRM_FORMAT_UYVY:
-            return 16;
-        case DRM_FORMAT_NV12:
-        case DRM_FORMAT_NV21:
-        case DRM_FORMAT_YUV420:
-            return 8;
-        default:
-            break;
-    }
-    return 0;
+    return dfb->fmt_info->bpp;
 }
 
 // For allocation purposes given fb_pixel bits how tall
-// does the frame have to be to fit all planes
+// does the frame have to be to fit all planes if constant width
 static unsigned int
-fb_total_height(const drmu_fb_t * const dfb, unsigned int h)
+fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
 {
-    switch (dfb->fb.pixel_format) {
-        case DRM_FORMAT_NV12:
-        case DRM_FORMAT_NV21:
-        case DRM_FORMAT_YUV420:
-            return h * 3 / 2;
-        default:
-            break;
-    }
-    return h;
+    unsigned int i;
+    const drmu_format_info_t *const f = dfb->fmt_info;
+    unsigned int t = 0;
+
+    for (i = 0; i != f->plane_count; ++i)
+        t += h / (f->planes[i].hdiv * f->planes[i].wdiv);
+
+    return t;
 }
 
 static void
 fb_pitches_set(drmu_fb_t * const dfb)
 {
+    const drmu_format_info_t *const f = dfb->fmt_info;
     const uint32_t pitch0 = dfb->map_pitch;
     const uint32_t h = drmu_fb_height(dfb);
+    uint32_t t = 0;
+    unsigned int i;
 
-    switch (dfb->fb.pixel_format) {
-        case DRM_FORMAT_XRGB8888:
-        case DRM_FORMAT_XBGR8888:
-        case DRM_FORMAT_RGBX8888:
-        case DRM_FORMAT_BGRX8888:
-        case DRM_FORMAT_ARGB8888:
-        case DRM_FORMAT_ABGR8888:
-        case DRM_FORMAT_RGBA8888:
-        case DRM_FORMAT_BGRA8888:
-        case DRM_FORMAT_AYUV:
-        case DRM_FORMAT_YUYV:
-        case DRM_FORMAT_YVYU:
-        case DRM_FORMAT_VYUY:
-        case DRM_FORMAT_UYVY:
-            drmu_fb_int_layer_set(dfb, 0, 0, pitch0, 0);
-            break;
-        case DRM_FORMAT_NV12:
-        case DRM_FORMAT_NV21:
-            drmu_fb_int_layer_set(dfb, 0, 0, pitch0, 0);
-            drmu_fb_int_layer_set(dfb, 1, 0, pitch0, pitch0 * h);
-            break;
-        case DRM_FORMAT_YUV420:
-            drmu_fb_int_layer_set(dfb, 0, 0, pitch0, 0);
-            drmu_fb_int_layer_set(dfb, 1, 0, pitch0 / 2, pitch0 * h);
-            drmu_fb_int_layer_set(dfb, 2, 0, pitch0 / 2, pitch0 * h * 5 / 4);
-            break;
-        default:
-            break;
+    for (i = 0; i != f->plane_count; ++i) {
+        drmu_fb_int_layer_set(dfb, i, 0, pitch0 / f->planes[i].wdiv, t);
+        t += (pitch0 * h) / (f->planes[i].hdiv * f->planes[i].wdiv);
     }
 }
 
