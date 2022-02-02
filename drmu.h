@@ -292,6 +292,9 @@ int drmu_atomic_add_prop_value(drmu_atomic_t * const da, const uint32_t obj_id, 
 
 drmu_env_t * drmu_env_new_xlease(const struct drmu_log_env_s * const log);
 
+// drmu_xdri3
+
+drmu_env_t * drmu_env_new_xdri3(const drmu_log_env_t * const log);
 
 #ifdef __cplusplus
 }

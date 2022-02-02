@@ -24,6 +24,18 @@ drmu_xlease = library('drmu_xlease',
 	],
 )
 
+drmu_xdri3 = library('drmu_xdri3',
+	'drmu_xdri3.c',
+	link_with : drmu_base,
+	dependencies : [
+		threads_dep,
+		dependency('x11'),
+		dependency('x11-xcb'),
+		dependency('xcb'),
+		dependency('xcb-dri3'),
+	],
+)
+
 drmu_av = library('drmu_av',
 	'drmu_av.c',
 	link_with : drmu_base,
