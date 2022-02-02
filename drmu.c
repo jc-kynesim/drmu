@@ -910,7 +910,8 @@ drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t f
     if (drmu_fb_int_make(dfb))
         goto fail;
 
-    drmu_debug(du, "Create dumb %p %dx%d / %dx%d size: %zd", dfb, dfb->fb.width, dfb->fb.height, dfb->cropped.w, dfb->cropped.h, dfb->map_size);
+    drmu_debug(du, "Create dumb %p %s %dx%d / %dx%d size: %zd", dfb,
+               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->cropped.w, dfb->cropped.h, dfb->map_size);
     return dfb;
 
 fail:
