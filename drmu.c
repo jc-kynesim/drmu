@@ -734,6 +734,13 @@ drmu_fb_pre_delete_unset(drmu_fb_t *const dfb)
     dfb->pre_delete_v  = NULL;
 }
 
+int
+drmu_fb_pixel_blend_mode_set(drmu_fb_t *const dfb, const char * const mode)
+{
+    dfb->pixel_blend_mode = mode;
+    return 0;
+}
+
 uint32_t
 drmu_fb_pitch(const drmu_fb_t *const dfb, const unsigned int layer)
 {
@@ -2012,6 +2019,24 @@ plane_set_atomic(drmu_atomic_t * const da,
 }
 
 int
+drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int alpha)
+{
+    if (alpha == DRMU_PLANE_ALPHA_UNSET)
+        return 0;
+    return drmu_atomic_add_prop_range(da, dp->plane->plane_id, dp->pid.alpha, alpha);
+}
+
+int
+drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot)
+{
+    if (!dp->pid.rotation)
+        return rot == DRMU_PLANE_ROTATION_0 ? 0 : -EINVAL;
+    if (rot < 0 || rot >= 8 || !dp->rot_vals[rot])
+        return -EINVAL;
+    return drmu_atomic_add_prop_bitmask(da, dp->plane->plane_id, dp->pid.rotation, dp->rot_vals[rot]);
+}
+
+int
 drmu_atomic_plane_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_fb_t * const dfb, const drmu_rect_t pos)
 {
@@ -2031,6 +2056,7 @@ drmu_atomic_plane_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     if (rv != 0 || dfb == NULL)
         return rv;
 
+    drmu_atomic_add_prop_enum(da, plid, dp->pid.pixel_blend_mode, dfb->pixel_blend_mode);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding, dfb->color_encoding);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,    dfb->color_range);
 
@@ -2072,8 +2098,11 @@ drmu_plane_delete(drmu_plane_t ** const ppdp)
         return;
     *ppdp = NULL;
 
+    drmu_prop_range_delete(&dp->pid.alpha);
     drmu_prop_enum_delete(&dp->pid.color_encoding);
     drmu_prop_enum_delete(&dp->pid.color_range);
+    drmu_prop_enum_delete(&dp->pid.pixel_blend_mode);
+    drmu_prop_enum_delete(&dp->pid.rotation);
     dp->dc = NULL;
 }
 
@@ -2179,6 +2208,9 @@ drmu_env_planes_populate(drmu_env_t * const du)
             goto fail2;
         }
 
+        drmu_info(du, "Plane %d:", i);
+        props_dump(props);
+
         if ((dp->pid.crtc_id = props_name_to_id(props, "CRTC_ID")) == 0 ||
             (dp->pid.fb_id  = props_name_to_id(props, "FB_ID")) == 0 ||
             (dp->pid.crtc_h = props_name_to_id(props, "CRTC_H")) == 0 ||
@@ -2195,8 +2227,23 @@ drmu_env_planes_populate(drmu_env_t * const du)
             goto fail2;
         }
 
-        dp->pid.color_encoding = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_ENCODING"));
-        dp->pid.color_range    = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_RANGE"));
+        dp->pid.alpha            = drmu_prop_range_new(du, props_name_to_id(props, "alpha"));
+        dp->pid.color_encoding   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_ENCODING"));
+        dp->pid.color_range      = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_RANGE"));
+        dp->pid.pixel_blend_mode = drmu_prop_enum_new(du, props_name_to_id(props, "pixel blend mode"));
+        dp->pid.rotation         = drmu_prop_enum_new(du, props_name_to_id(props, "rotation"));
+
+        dp->rot_vals[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-0");
+        if (dp->rot_vals[DRMU_PLANE_ROTATION_0]) {
+            // Flips MUST be combined with a rotate
+            if ((dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] = drmu_prop_bitmask_value(dp->pid.rotation, "reflect-x")) != 0)
+                dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] |= dp->rot_vals[DRMU_PLANE_ROTATION_0];
+            if ((dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(dp->pid.rotation, "reflect-y")) != 0)
+                dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP] |= dp->rot_vals[DRMU_PLANE_ROTATION_0];
+        }
+        dp->rot_vals[DRMU_PLANE_ROTATION_180] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-180");
+        if (!dp->rot_vals[DRMU_PLANE_ROTATION_180] && dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] && dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP])
+            dp->rot_vals[DRMU_PLANE_ROTATION_180] = dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] | dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP];
 
         props_free(props);
         du->plane_count = i + 1;

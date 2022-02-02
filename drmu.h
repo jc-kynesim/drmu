@@ -166,6 +166,12 @@ drmu_fb_t * drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_
 void drmu_fb_unref(drmu_fb_t ** const ppdfb);
 drmu_fb_t * drmu_fb_ref(drmu_fb_t * const dfb);
 
+#define DRMU_FB_PIXEL_BLEND_UNSET               NULL
+#define DRMU_FB_PIXEL_BLEND_PRE_MULTIPLIED      "Pre-multiplied"  // Default
+#define DRMU_FB_PIXEL_BLEND_COVERAGE            "Coverage"        // Not premultipled
+#define DRMU_FB_PIXEL_BLEND_NONE                "None"            // Ignore pixel alpha (opaque)
+int drmu_fb_pixel_blend_mode_set(drmu_fb_t *const dfb, const char * const mode);
+
 uint32_t drmu_fb_pitch(const drmu_fb_t *const dfb, const unsigned int layer);
 void * drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer);
 uint32_t drmu_fb_width(const drmu_fb_t *const dfb);
@@ -236,6 +242,24 @@ uint32_t drmu_plane_id(const drmu_plane_t * const dp);
 const uint32_t * drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount);
 void drmu_plane_delete(drmu_plane_t ** const ppdp);
 drmu_plane_t * drmu_plane_new_find(drmu_crtc_t * const dc, const uint32_t fmt);
+
+// Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
+#define DRMU_PLANE_ALPHA_UNSET                  (-1)
+#define DRMU_PLANE_ALPHA_TRANSPARENT            0
+#define DRMU_PLANE_ALPHA_OPAQUE                 0xffff
+int drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int alpha);
+
+// X, Y & TRANSPOSE can be ORed to get all others
+#define DRMU_PLANE_ROTATION_0                   0
+#define DRMU_PLANE_ROTATION_X_FLIP              1
+#define DRMU_PLANE_ROTATION_Y_FLIP              2
+#define DRMU_PLANE_ROTATION_180                 3
+// *** These don't exist on Pi - no inherent transpose
+#define DRMU_PLANE_ROTATION_TRANSPOSE           4
+#define DRMU_PLANE_ROTATION_90                  5  // Rotate 90 clockwise
+#define DRMU_PLANE_ROTATION_270                 6  // Rotate 90 anti-cockwise
+#define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
 int drmu_atomic_plane_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 

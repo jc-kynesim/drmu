@@ -75,6 +75,7 @@ typedef struct drmu_fb_s {
 
     const char * color_encoding; // Assumed to be constant strings that don't need freeing
     const char * color_range;
+    const char * pixel_blend_mode;
 
     // Do not set colorspace or metadata if not the "master" plane
     const char * colorspace;
@@ -125,9 +126,13 @@ typedef struct drmu_plane_s {
         uint32_t src_w;
         uint32_t src_x;
         uint32_t src_y;
+        drmu_prop_range_t * alpha;
         drmu_prop_enum_t * color_encoding;
         drmu_prop_enum_t * color_range;
+        drmu_prop_enum_t * pixel_blend_mode;
+        drmu_prop_bitmask_t * rotation;
     } pid;
+    uint64_t rot_vals[8];
 
 } drmu_plane_t;
 
