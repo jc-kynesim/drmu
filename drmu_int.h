@@ -10,7 +10,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#define TRACE_PROP_NEW 1
+#define TRACE_PROP_NEW 0
 
 enum drmu_bo_type_e {
     BO_TYPE_NONE = 0,
@@ -58,19 +58,12 @@ typedef struct drmu_fb_s {
 
     struct drm_mode_fb_cmd2 fb;
 
-//    uint32_t width;
-//    uint32_t height;
-//    uint32_t format;
     drmu_rect_t cropped;
-//    unsigned int handle;
 
     void * map_ptr;
     size_t map_size;
     size_t map_pitch;
 
-//    uint32_t pitches[4];
-//    uint32_t offsets[4];
-//    uint64_t modifiers[4];
     drmu_bo_t * bo_list[4];
 
     const char * color_encoding; // Assumed to be constant strings that don't need freeing
