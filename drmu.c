@@ -973,33 +973,38 @@ drmu_atomic_add_prop_fb(drmu_atomic_t * const da, const uint32_t obj_id, const u
 //
 // props fns (internal)
 
+typedef struct drmu_propinfo_s {
+    uint64_t val;
+    struct drm_mode_get_property prop;
+} drmu_propinfo_t;
+
 typedef struct drmu_props_s {
     struct drmu_env_s * du;
-    unsigned int prop_count;
-    drmModePropertyPtr * props;
+    unsigned int n;
+    drmu_propinfo_t * info;
+    const drmu_propinfo_t ** by_name;
 } drmu_props_t;
 
 static void
 props_free(drmu_props_t * const props)
 {
-    unsigned int i;
-    for (i = 0; i != props->prop_count; ++i)
-        drmModeFreeProperty(props->props[i]);
+    free(props->info);  // As yet nothing else is allocated off this
+    free(props->by_name);
     free(props);
 }
 
 static uint32_t
-props_name_to_id(drmu_props_t * const props, const char * const name)
+props_name_to_id(const drmu_props_t * const props, const char * const name)
 {
-    unsigned int i = props->prop_count / 2;
+    unsigned int i = props->n / 2;
     unsigned int a = 0;
-    unsigned int b = props->prop_count;
+    unsigned int b = props->n;
 
     while (a < b) {
-        const int r = strcmp(name, props->props[i]->name);
+        const int r = strcmp(name, props->by_name[i]->prop.name);
 
         if (r == 0)
-            return props->props[i]->prop_id;
+            return props->by_name[i]->prop.prop_id;
 
         if (r < 0) {
             b = i;
@@ -1020,32 +1025,85 @@ props_dump(const drmu_props_t * const props)
         unsigned int i;
         drmu_env_t * const du = props->du;
 
-        for (i = 0; i != props->prop_count; ++i) {
-            drmModePropertyPtr p = props->props[i];
-            drmu_info(du, "Prop%02d/%02d: id=%#02x, name=%s, flags=%#x, values=%d, value[0]=%#"PRIx64", blobs=%d, blob[0]=%#x", i, props->prop_count, p->prop_id,
-                      p->name, p->flags,
-                      p->count_values, !p->values ? (uint64_t)0 : p->values[0],
-                      p->count_blobs, !p->blob_ids ? 0 : p->blob_ids[0]);
+        for (i = 0; i != props->n; ++i) {
+            const drmu_propinfo_t * const inf = props->info + i;
+            const struct drm_mode_get_property * const p = &inf->prop;
+            char flagbuf[256];
+
+            flagbuf[0] = 0;
+            if (p->flags & DRM_MODE_PROP_PENDING)
+                strcat(flagbuf, ":pending");
+            if (p->flags & DRM_MODE_PROP_RANGE)
+                strcat(flagbuf, ":urange");
+            if (p->flags & DRM_MODE_PROP_IMMUTABLE)
+                strcat(flagbuf, ":immutable");
+            if (p->flags & DRM_MODE_PROP_ENUM)
+                strcat(flagbuf, ":enum");
+            if (p->flags & DRM_MODE_PROP_BLOB)
+                strcat(flagbuf, ":blob");
+            if (p->flags & DRM_MODE_PROP_BITMASK)
+                strcat(flagbuf, ":bitmask");
+            if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_OBJECT)
+                strcat(flagbuf, ":object");
+            else if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE)
+                strcat(flagbuf, ":srange");
+            else if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) != 0)
+                strcat(flagbuf, ":?xtype?");
+            if (p->flags & ~(DRM_MODE_PROP_LEGACY_TYPE |
+                             DRM_MODE_PROP_EXTENDED_TYPE |
+                             DRM_MODE_PROP_PENDING |
+                             DRM_MODE_PROP_IMMUTABLE |
+                             DRM_MODE_PROP_ATOMIC))
+                strcat(flagbuf, ":?other?");
+            if (p->flags & DRM_MODE_PROP_ATOMIC)
+                strcat(flagbuf, ":atomic");
+
+
+            drmu_info(du, "Prop%02d/%02d: %#-4x %-16s val=%#-4"PRIx64" flags=%#x%s, values=%d, blobs=%d",
+                      i, props->n, p->prop_id,
+                      p->name, inf->val,
+                      p->flags, flagbuf,
+                      p->count_values,
+                      p->count_enum_blobs);
         }
     }
 }
 #endif
 
 static int
-props_qsort_cb(const void * va, const void * vb)
+props_qsort_by_name_cb(const void * va, const void * vb)
 {
-    const drmModePropertyPtr a = *(drmModePropertyPtr *)va;
-    const drmModePropertyPtr b = *(drmModePropertyPtr *)vb;
-    return strcmp(a->name, b->name);
+    const drmu_propinfo_t * const a = *(drmu_propinfo_t **)va;
+    const drmu_propinfo_t * const b = *(drmu_propinfo_t **)vb;
+    return strcmp(a->prop.name, b->prop.name);
+}
+
+// At the moment we don't need / want to fill in the values / blob arrays
+// we just want the name - will get the extra info if we need it
+static int
+propinfo_fill(drmu_env_t * const du, drmu_propinfo_t * const inf, uint32_t propid, uint64_t val)
+{
+    int rv;
+
+    inf->val = val;
+    inf->prop.prop_id = propid;
+    if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPERTY, &inf->prop)) != 0)
+        drmu_err(du, "Failed to get property %d: %s", propid, strerror(-rv));
+    return rv;
 }
 
 static drmu_props_t *
 props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
 {
     drmu_props_t * const props = calloc(1, sizeof(*props));
-    drmModeObjectProperties * objprops;
-    int err;
-    unsigned int i;
+    int rv;
+	struct drm_mode_obj_get_properties obj_props = {
+        .obj_id = objid,
+        .obj_type = objtype,
+    };
+    uint64_t * values = NULL;
+    uint32_t * propids = NULL;
+    unsigned int n = 0;
 
     if (props == NULL) {
         drmu_err(du, "%s: Failed struct alloc", __func__);
@@ -1053,35 +1111,53 @@ props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
     }
     props->du = du;
 
-    if ((objprops = drmModeObjectGetProperties(du->fd, objid, objtype)) == NULL) {
-        err = errno;
-        drmu_err(du, "%s: drmModeObjectGetProperties failed: %s", __func__, strerror(err));
-        return NULL;
-    }
-
-    if ((props->props = calloc(objprops->count_props, sizeof(*props))) == NULL) {
-        drmu_err(du, "%s: Failed array alloc", __func__);
-        goto fail1;
-    }
-
-    for (i = 0; i != objprops->count_props; ++i) {
-        if ((props->props[i] = drmModeGetProperty(du->fd, objprops->props[i])) == NULL) {
-            err = errno;
-            drmu_err(du, "%s: drmModeGetPropertiy %#x failed: %s", __func__, objprops->props[i], strerror(err));
-            goto fail2;
+    for (;;) {
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &obj_props)) != 0) {
+            drmu_err(du, "drmModeObjectGetProperties failed: %s", strerror(-rv));
+            goto fail;
         }
-        ++props->prop_count;
+
+        if (obj_props.count_props <= n)
+            break;
+
+        free(values);
+        values = NULL;
+        free(propids);
+        propids = NULL;
+        n = obj_props.count_props;
+        if ((values = malloc(n * sizeof(*values))) == NULL ||
+            (propids = malloc(n * sizeof(*propids))) == NULL) {
+            drmu_err(du, "obj/value array alloc failed");
+            goto fail;
+        }
+        obj_props.prop_values_ptr = (uintptr_t)values;
+        obj_props.props_ptr = (uintptr_t)propids;
+    }
+
+    if ((props->info = calloc(n, sizeof(*props->info))) == NULL ||
+        (props->by_name = malloc(n * sizeof(*props->by_name))) == NULL) {
+        drmu_err(du, "info/name array alloc failed");
+        goto fail;
+    }
+    props->n = n;
+
+    for (unsigned int i = 0; i < n; ++i) {
+        drmu_propinfo_t * const inf = props->info + i;
+
+        props->by_name[i] = inf;
+        if ((rv = propinfo_fill(du, inf, propids[i], values[i])) != 0)
+            goto fail;
     }
 
     // Sort into name order for faster lookup
-    qsort(props->props, props->prop_count, sizeof(*props->props), props_qsort_cb);
+    qsort(props->by_name, n, sizeof(*props->by_name), props_qsort_by_name_cb);
 
     return props;
 
-fail2:
+fail:
     props_free(props);
-fail1:
-    drmModeFreeObjectProperties(objprops);
+    free(values);
+    free(propids);
     return NULL;
 }
 
