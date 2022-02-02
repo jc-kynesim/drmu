@@ -177,7 +177,7 @@ drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name
             const int r = strcmp(name, pen->enums[i].name);
 
             if (r == 0)
-                return &pen->enums[i].value;
+                return (const uint64_t *)&pen->enums[i].value;  // __u64 defn != uint64_t defn always :-(
 
             if (r < 0) {
                 b = i;
