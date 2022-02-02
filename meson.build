@@ -58,3 +58,25 @@ executable(
 		libavutil_dep,
 	],
 )
+
+executable(
+	'argbtest',
+	'argbtest.c',
+	link_with : [ drmu_base, drmu_xlease ],
+	dependencies : [
+		threads_dep,
+		libdrm_dep,
+	],
+)
+
+executable(
+	'10bittest',
+	'10bittest.c',
+	link_with : [ drmu_base, drmu_xlease ],
+	dependencies : [
+		threads_dep,
+		libdrm_dep,
+	],
+)
+
+
