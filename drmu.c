@@ -1583,8 +1583,6 @@ drmu_atomic_crtc_mode_id_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
     if (dc->cur_mode_id == mode_id && dc->mode_id_blob != NULL)
         return 0;
 
-    drmu_info(du, "Set mode_id");
-
     mode = (const struct drm_mode_modeinfo *)(dc->con->modes + mode_id);
     if ((blob = drmu_blob_new(du, mode, sizeof(*mode))) == NULL) {
         return -ENOMEM;
