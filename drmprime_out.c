@@ -82,6 +82,24 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
         drmu_atomic_t * da = drmu_atomic_new(de->du);
         drmu_fb_t * dfb = drmu_fb_av_new_frame_attach(de->du, src_frame);
         drmu_rect_t r = drmu_rect_wh(drmu_crtc_width(de->dc), drmu_crtc_height(de->dc));
+#if 0
+        const struct hdr_output_metadata * const meta = drmu_fb_hdr_metadata_get(dfb);
+        const struct hdr_metadata_infoframe *const info = &meta->hdmi_metadata_type1;
+
+        if (meta) {
+            printf("Meta found: type=%d, eotf=%d, type=%d, primaries: %d,%d:%d,%d:%d,%d white: %d,%d maxluma=%d minluma=%d maxcll=%d maxfall=%d\n",
+                   meta->metadata_type,
+                   info->eotf, info->metadata_type,
+                   info->display_primaries[0].x, info->display_primaries[0].y,
+                   info->display_primaries[1].x, info->display_primaries[1].y,
+                   info->display_primaries[2].x, info->display_primaries[2].y,
+                   info->white_point.x, info->white_point.y,
+                   info->max_display_mastering_luminance,
+                   info->min_display_mastering_luminance,
+                   info->max_cll,
+                   info->max_fall);
+        }
+#endif
         drmu_atomic_plane_set(da, de->dp, dfb, r);
         drmu_fb_unref(&dfb);
         drmu_atomic_queue(&da);
