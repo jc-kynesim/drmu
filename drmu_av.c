@@ -55,6 +55,7 @@ drmu_crtc_av_hdr_metadata_from_av(struct hdr_output_metadata * const out_meta,
     switch (av_trans) {
         case AVCOL_TRC_BT2020_10:
         case AVCOL_TRC_BT2020_12:
+        case AVCOL_TRC_SMPTE2084:
             info->eotf = HDMI_EOTF_SMPTE_ST2084;
             break;
         case AVCOL_TRC_ARIB_STD_B67:
