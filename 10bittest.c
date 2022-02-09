@@ -150,6 +150,22 @@ int main(int argc, char *argv[])
     else
         fillgraduated10(drmu_fb_data(fb1, 0), stripe_h, width_k);
 
+    {
+        const static struct hdr_output_metadata meta = {
+            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+            .hdmi_metadata_type1 = {
+                .eotf = HDMI_EOTF_SMPTE_ST2084,
+                .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+                .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
+                .white_point = {15635,16450},
+                .max_display_mastering_luminance = 1000,
+                .min_display_mastering_luminance = 5,
+                .max_cll = 1000,
+                .max_fall = 400
+            }
+        };
+        drmu_fb_int_hdr_metadata_set(fb1, &meta);
+    }
     da = drmu_atomic_new(du);
 
     drmu_atomic_plane_set(da, p0, fb0, drmu_rect_wh(dw, dh));
