@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -12,15 +13,22 @@
 drmu_ufrac_t
 drmu_ufrac_reduce(drmu_ufrac_t x)
 {
-    static const unsigned int primes[] = {2,3,5,7,11,13,17,19,23,0};
+    // UINT_MAX guarantees x.den/UINT_MAX < UINT_MAX and so exits
+    static const unsigned int primes[] = {2,3,5,7,11,13,17,19,23,29,31,UINT_MAX};
     const unsigned int * p;
-    for (p = primes; *p != 0; ++p) {
-        while (x.den % *p == 0 && x.num % *p ==0) {
-            x.den /= *p;
-            x.num /= *p;
+    for (p = primes;; ++p) {
+        const unsigned int n = *p;
+        for (;;) {
+            const unsigned int xd = x.den / n;
+            const unsigned int xn = x.num / n;
+            if (xn < n || xd < n)
+                return x;
+            if (xn * n != x.num || xd * n != x.den)
+                break;
+            x.num = xn;
+            x.den = xd;
         }
     }
-    return x;
 }
 
 //----------------------------------------------------------------------------
