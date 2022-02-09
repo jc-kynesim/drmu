@@ -852,6 +852,12 @@ drmu_fb_int_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metad
     }
 }
 
+const struct hdr_output_metadata *
+drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb)
+{
+    return dfb->hdr_metadata_isset == DRMU_ISSET_SET ? &dfb->hdr_metadata : NULL;
+}
+
 drmu_fb_t *
 drmu_fb_int_alloc(drmu_env_t * const du)
 {
