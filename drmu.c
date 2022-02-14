@@ -1574,6 +1574,9 @@ drmu_atomic_crtc_hdr_metadata_set(drmu_atomic_t * const da, drmu_crtc_t * const 
     drmu_env_t * const du = drmu_atomic_env(da);
     int rv;
 
+    if (!du || !dc)  // du will be null if da is null
+        return -ENOENT;
+
     if (dc->pid.hdr_output_metadata == 0 || !du->modeset_allow)
         return 0;
 
