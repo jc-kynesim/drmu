@@ -233,6 +233,7 @@ drmu_mode_score_fn drmu_mode_pick_simple_cb;
 
 drmu_crtc_t * drmu_crtc_new_find(drmu_env_t * const du);
 
+#define DRMU_CRTC_COLORSPACE_DEFAULT            "Default"
 int drmu_atomic_crtc_colorspace_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const char * colorspace, int hi_bpc);
 int drmu_atomic_crtc_mode_id_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const int mode_id);
 int drmu_atomic_crtc_hdr_metadata_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const struct hdr_output_metadata * const m);

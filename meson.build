@@ -79,4 +79,12 @@ executable(
 	],
 )
 
-
+executable(
+	'resethdr',
+	'resethdr.c',
+	link_with : [ drmu_base, drmu_xlease ],
+	dependencies : [
+		threads_dep,
+		libdrm_dep,
+	],
+)
