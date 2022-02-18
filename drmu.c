@@ -10,6 +10,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+// Update return value with a new one for cases where we don't stop on error
+static inline int rvup(int rv1, int rv2)
+{
+    return rv2 ? rv2 : rv1;
+}
+
 drmu_ufrac_t
 drmu_ufrac_reduce(drmu_ufrac_t x)
 {
@@ -38,6 +44,7 @@ drmu_ufrac_reduce(drmu_ufrac_t x)
 typedef struct drmu_format_info_s {
     uint32_t fourcc;
     uint8_t  bpp;  // For dumb BO alloc
+    uint8_t  bit_depth;  // For display
     uint8_t  plane_count;
     struct {
         uint8_t wdiv;
@@ -46,32 +53,35 @@ typedef struct drmu_format_info_s {
 } drmu_format_info_t;
 
 static const drmu_format_info_t format_info[] = {
-    { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRX8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ARGB8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRX1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ARGB2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_AYUV, .bpp = 32, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ARGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ARGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_AYUV, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
 
-    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
+    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
 
-    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
-    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
-    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .bit_depth = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}}},
+
+    // 3 pel in 32 bits. So code as 32bpp with wdiv 3.
+    { .fourcc = DRM_FORMAT_P030,   .bpp = 32, .bit_depth = 10, .plane_count = 2, .planes = {{.wdiv = 3, .hdiv = 1}, {.wdiv = 3, .hdiv = 2}}},
 
     { .fourcc = 0 }
 };
@@ -419,6 +429,18 @@ drmu_prop_range_validate(const drmu_prop_range_t * const pra, const uint64_t x)
         return (int64_t)pra->range[0] <= (int64_t)x && (int64_t)pra->range[1] >= (int64_t)x;
     }
     return pra->range[0] <= x && pra->range[1] >= x;
+}
+
+uint64_t
+drmu_prop_range_max(const drmu_prop_range_t * const pra)
+{
+    return pra == NULL ? 0 : pra->range[1];
+}
+
+uint64_t
+drmu_prop_range_min(const drmu_prop_range_t * const pra)
+{
+    return pra == NULL ? 0 : pra->range[0];
 }
 
 uint32_t
@@ -841,7 +863,7 @@ drmu_fb_int_make(drmu_fb_t *const dfb)
 }
 
 void
-drmu_fb_int_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta)
+drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta)
 {
     if (meta == NULL) {
         dfb->hdr_metadata_isset = DRMU_ISSET_NULL;
@@ -852,10 +874,28 @@ drmu_fb_int_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metad
     }
 }
 
+bool
+drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb)
+{
+    return dfb->hdr_metadata_isset != DRMU_ISSET_UNSET;
+}
+
 const struct hdr_output_metadata *
 drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb)
 {
     return dfb->hdr_metadata_isset == DRMU_ISSET_SET ? &dfb->hdr_metadata : NULL;
+}
+
+const char *
+drmu_fb_colorspace_get(const drmu_fb_t * const dfb)
+{
+    return dfb->colorspace;
+}
+
+const struct drmu_format_info_s *
+drmu_fb_format_info_get(const drmu_fb_t * const dfb)
+{
+    return dfb->fmt_info;
 }
 
 drmu_fb_t *
@@ -884,9 +924,10 @@ fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
     unsigned int i;
     const drmu_format_info_t *const f = dfb->fmt_info;
     unsigned int t = 0;
+    unsigned int h0 = h * f->planes[0].wdiv;
 
     for (i = 0; i != f->plane_count; ++i)
-        t += h / (f->planes[i].hdiv * f->planes[i].wdiv);
+        t += h0 / (f->planes[i].hdiv * f->planes[i].wdiv);
 
     return t;
 }
@@ -895,7 +936,7 @@ static void
 fb_pitches_set(drmu_fb_t * const dfb)
 {
     const drmu_format_info_t *const f = dfb->fmt_info;
-    const uint32_t pitch0 = dfb->map_pitch;
+    const uint32_t pitch0 = dfb->map_pitch * f->planes[0].wdiv;
     const uint32_t h = drmu_fb_height(dfb);
     uint32_t t = 0;
     unsigned int i;
@@ -928,7 +969,7 @@ drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t f
     {
         struct drm_mode_create_dumb dumb = {
             .height = fb_total_height(dfb, dfb->fb.height),
-            .width = dfb->fb.width,
+            .width = dfb->fb.width / dfb->fmt_info->planes[0].wdiv,
             .bpp = bpp
         };
 
@@ -1647,14 +1688,40 @@ drmu_atomic_crtc_mode_id_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
 }
 
 int
-drmu_atomic_crtc_colorspace_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, const char * colorspace, int hi_bpc)
+drmu_atomic_crtc_hi_bpc_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, bool hi_bpc)
 {
-    if (!hi_bpc || !dc->hi_bpc_ok || !colorspace || strcmp(colorspace, "BT2020_RGB") != 0) {
-        return atomic_crtc_bpc_set(da, dc, colorspace, 8);
-    }
-    else {
-        return atomic_crtc_hi_bpc_set(da, dc);
-    }
+    if (!dc->du->modeset_allow || !dc->hi_bpc_ok || !dc->pid.max_bpc)
+        return 0;
+    return drmu_atomic_add_prop_range(da, dc->con->connector_id, dc->pid.max_bpc, !hi_bpc ? 8 :
+                                      drmu_prop_range_max(dc->pid.max_bpc));
+}
+
+int
+drmu_atomic_crtc_colorspace_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, const char * colorspace)
+{
+    if (!dc->du->modeset_allow || !dc->pid.colorspace)
+        return 0;
+
+    return drmu_atomic_add_prop_enum(da, dc->con->connector_id, dc->pid.colorspace, colorspace);
+}
+
+// Set all the fb info props that might apply to a crtc on the crtc
+// (e.g. hdr_metadata, colorspace) but do not set the mode (resolution
+// and refresh)
+int
+drmu_atomic_crtc_fb_info_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, const drmu_fb_t * const fb)
+{
+    const drmu_format_info_t * const fmt_info = drmu_fb_format_info_get(fb);
+    const char * const colorspace = drmu_fb_colorspace_get(fb);
+    int rv = 0;
+
+    if (fmt_info)
+        rv = rvup(rv, drmu_atomic_crtc_hi_bpc_set(da, dc, (fmt_info->bit_depth > 8)));
+    if (colorspace)
+        rv = rvup(rv, drmu_atomic_crtc_colorspace_set(da, dc, colorspace));
+    if (drmu_fb_hdr_metadata_isset(fb))
+        rv = rvup(rv, drmu_atomic_crtc_hdr_metadata_set(da, dc, drmu_fb_hdr_metadata_get(fb)));
+    return rv;
 }
 
 //----------------------------------------------------------------------------
@@ -2054,7 +2121,7 @@ drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane
 }
 
 int
-drmu_atomic_plane_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
+drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_fb_t * const dfb, const drmu_rect_t pos)
 {
     int rv;
@@ -2076,19 +2143,6 @@ drmu_atomic_plane_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_atomic_add_prop_enum(da, plid, dp->pid.pixel_blend_mode, dfb->pixel_blend_mode);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding, dfb->color_encoding);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,    dfb->color_range);
-
-    // *** Need to rethink this
-    if (dp->dc != NULL) {
-        drmu_crtc_t * const dc = dp->dc;
-
-        if (dfb->colorspace != NULL) {
-            drmu_atomic_crtc_colorspace_set(da, dc, dfb->colorspace, 1);
-        }
-        if (dfb->hdr_metadata_isset == DRMU_ISSET_NULL)
-            drmu_atomic_crtc_hdr_metadata_set(da, dc, NULL);
-        else if (dfb->hdr_metadata_isset == DRMU_ISSET_SET)
-            drmu_atomic_crtc_hdr_metadata_set(da, dc, &dfb->hdr_metadata);
-    }
 
     return rv != 0 ? -errno : 0;
 }

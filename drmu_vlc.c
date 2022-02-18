@@ -289,7 +289,7 @@ drmu_fb_vlc_new_pic_attach(drmu_env_t * const du, picture_t * const pic)
     {
         struct hdr_output_metadata meta;
         if (pic_hdr_metadata(&meta, &pic->format) == 0)
-            drmu_fb_int_hdr_metadata_set(dfb, &meta);
+            drmu_fb_hdr_metadata_set(dfb, &meta);
     }
 
     if (drmu_fb_int_make(dfb) != 0)

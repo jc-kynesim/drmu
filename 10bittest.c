@@ -164,18 +164,20 @@ int main(int argc, char *argv[])
                 .max_fall = 400
             }
         };
-        drmu_fb_int_hdr_metadata_set(fb1, &meta);
+        drmu_fb_hdr_metadata_set(fb1, &meta);
     }
     da = drmu_atomic_new(du);
 
-    drmu_atomic_plane_set(da, p0, fb0, drmu_rect_wh(dw, dh));
+    drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(dw, dh));
     if (total_h > dh || total_w > dw)
-        drmu_atomic_plane_set(da, p1, fb1, drmu_rect_wh(dw, dh));
+        drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
     else
-        drmu_atomic_plane_set(da, p1, fb1, drmu_rect_wh(total_w, total_h));
+        drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(total_w, total_h));
 
-    if (drmu_atomic_crtc_colorspace_set(da, dc, "BT2020_RGB", 1) != 0)
-        fprintf(stderr, "Failed HBPC set\n");
+    if (drmu_atomic_crtc_colorspace_set(da, dc, "BT2020_RGB") != 0)
+        fprintf(stderr, "Failed colorspace set\n");
+    if (drmu_atomic_crtc_hi_bpc_set(da, dc, true) != 0)
+        fprintf(stderr, "Failed hi bpc set\n");
 
 //    drmu_atomic_plane_set(da, p1, fb1, (drmu_rect_t){100, 100, 1024, total_h});
     drmu_atomic_queue(&da);

@@ -10,7 +10,11 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#define TRACE_PROP_NEW 0
+#define TRACE_PROP_NEW 1
+
+#ifndef DRM_FORMAT_P030
+#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
+#endif
 
 enum drmu_bo_type_e {
     BO_TYPE_NONE = 0,

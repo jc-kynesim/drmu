@@ -100,7 +100,8 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
                    info->max_fall);
         }
 #endif
-        drmu_atomic_plane_set(da, de->dp, dfb, r);
+        drmu_atomic_crtc_fb_info_set(da, de->dc, dfb);
+        drmu_atomic_plane_fb_set(da, de->dp, dfb, r);
         drmu_fb_unref(&dfb);
         drmu_atomic_queue(&da);
     }

@@ -51,8 +51,10 @@ int main(int argc, char *argv[])
 
     if (drmu_atomic_crtc_hdr_metadata_set(da, dc, NULL))
         goto fail;
-    if (drmu_atomic_crtc_colorspace_set(da, dc, colorspace, false))
+    if (drmu_atomic_crtc_colorspace_set(da, dc, colorspace))
         fprintf(stderr, "Failed to set colorspace '%s'\n", colorspace);
+    if (drmu_atomic_crtc_hi_bpc_set(da, dc, false))
+        fprintf(stderr, "Failed to reset hi bpc\n");
 
     if (drmu_atomic_commit(da, 0) != 0)
         fprintf(stderr, "Failed to commit modechange\n");

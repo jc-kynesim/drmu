@@ -53,14 +53,17 @@ drmu_crtc_av_hdr_metadata_from_av(struct hdr_output_metadata * const out_meta,
 
     info->metadata_type = HDMI_STATIC_METADATA_TYPE1;
     switch (av_trans) {
-        case AVCOL_TRC_BT2020_10:
-        case AVCOL_TRC_BT2020_12:
         case AVCOL_TRC_SMPTE2084:
             info->eotf = HDMI_EOTF_SMPTE_ST2084;
             break;
         case AVCOL_TRC_ARIB_STD_B67:
             info->eotf = HDMI_EOTF_BT_2100_HLG;
             break;
+        case AVCOL_TRC_BT709:
+        case AVCOL_TRC_BT2020_10:
+        case AVCOL_TRC_BT2020_12:
+            info->eotf = HDMI_EOTF_TRADITIONAL_GAMMA_HDR;
+            return -ENOENT;
         default:
             info->eotf = HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
             return -ENOENT;
@@ -141,14 +144,50 @@ fb_av_color_range(const AVFrame * const frame)
     return "YCbCr full range";
 }
 
+
+// Best guess at this mapping
 static const char *
 fb_av_colorspace(const AVFrame * const frame)
 {
-    switch (frame->colorspace) {
-        case AVCOL_SPC_BT2020_NCL:
-        case AVCOL_SPC_BT2020_CL:
-        case AVCOL_SPC_ICTCP:
-            return "BT2020_RGB";
+    switch (frame->color_primaries) {
+        case AVCOL_PRI_BT709:  // = 1, also ITU-R BT1361 / IEC 61966-2-4 / SMPTE RP177 Annex B
+            switch (frame->color_trc) {
+                case AVCOL_TRC_IEC61966_2_4:
+                    return "XVYCC_709";
+                default:
+                    return "BT709_YCC";
+            }
+
+        case AVCOL_PRI_BT470BG:   // 5, also ITU-R BT601-6 625 / ITU-R BT1358 625 / ITU-R BT1700 625 PAL & SECAM
+        case AVCOL_PRI_SMPTE170M: // 6, also ITU-R BT601-6 525 / ITU-R BT1358 525 / ITU-R BT1700 NTSC
+        case AVCOL_PRI_SMPTE240M: // 7  functionally identical to above
+            switch (frame->color_trc) {
+                case AVCOL_TRC_IEC61966_2_1:
+                    return "SYCC_601";
+                case AVCOL_TRC_IEC61966_2_4:
+                    return "XVYCC_601";
+                default:
+                    return "SMPTE_170M_YCC";
+            }
+
+        case AVCOL_PRI_BT2020:    // ITU-R BT2020
+            switch (frame->colorspace) {
+                case AVCOL_SPC_BT2020_CL:
+                    return "BT2020_CYCC";
+                default:
+                    return "BT2020_YCC";
+            }
+
+        case AVCOL_PRI_SMPTE432:  // 12, SMPTE ST 432-1 (2010) / P3 D65 / Display P3
+            return "DCI-P3_RGB_D65";
+
+        case AVCOL_PRI_SMPTE431:  // 11, SMPTE ST 431-2 (2011) / DCI P3
+            return "DCI-P3_RGB_Theater";
+
+        case AVCOL_PRI_BT470M:    // also FCC Title 47 Code of Federal Regulations 73.682 (a)(20)
+        case AVCOL_PRI_FILM:      // 8  colour filters using Illuminant C
+        case AVCOL_PRI_SMPTE428:  // 10, SMPTE ST 428-1 (CIE 1931 XYZ)
+        case AVCOL_PRI_EBU3213:   // 22, EBU Tech. 3213-E / JEDEC P22 phosphors
         default:
             break;
     }
@@ -234,7 +273,7 @@ drmu_fb_av_new_frame_attach(drmu_env_t * const du, AVFrame * const frame)
             !side_disp ? NULL : (const AVMasteringDisplayMetadata *)side_disp->data,
             !side_light ? NULL : (const AVContentLightMetadata *)side_light->data);
         if (rv == 0)
-            drmu_fb_int_hdr_metadata_set(dfb, &meta);
+            drmu_fb_hdr_metadata_set(dfb, &meta);
     }
 
     if (drmu_fb_int_make(dfb) != 0)
