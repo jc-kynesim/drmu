@@ -152,6 +152,7 @@ void drmu_bo_env_init(drmu_bo_env_t * boe);
 
 // fb
 struct hdr_output_metadata;
+struct drmu_format_info_s;
 
 // Called pre delete.
 // Zero returned means continue delete.
@@ -194,6 +195,8 @@ void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int ob
 void drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier);
 bool drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb);
 const struct hdr_output_metadata * drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb);
+const char * drmu_fb_colorspace_get(const drmu_fb_t * const dfb);
+const struct drmu_format_info_s * drmu_fb_format_info_get(const drmu_fb_t * const dfb);
 void drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta);
 int drmu_fb_int_make(drmu_fb_t *const dfb);
 
