@@ -1,5 +1,9 @@
 project(
-	'drmu', 'c'
+	'drmu', 'c',
+	default_options: ['warning_level=3',
+		'werror=true',
+		'buildtype=debugoptimized',
+		'optimisation=3']
 )
 
 libavutil_dep = dependency('libavutil')

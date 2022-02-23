@@ -16,6 +16,8 @@ get_drm_fd(const drmu_log_env_t * const log)
    xcb_window_t root = RootWindow(dpy, DefaultScreen(dpy));
    int fd;
 
+   (void)log;
+
    const xcb_query_extension_reply_t *extension =
       xcb_get_extension_data(c, &xcb_dri3_id);
    if (!(extension && extension->present))

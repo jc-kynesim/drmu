@@ -12,6 +12,10 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 {
     char buf[256];
     int n = vsnprintf(buf, 255, fmt, vl);
+
+    (void)v;
+    (void)level;
+
     if (n >= 255)
         n = 255;
     buf[n] = '\n';

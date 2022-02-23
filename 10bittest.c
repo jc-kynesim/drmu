@@ -81,6 +81,10 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 {
     char buf[256];
     int n = vsnprintf(buf, 255, fmt, vl);
+
+    (void)v;
+    (void)level;
+
     if (n >= 255)
         n = 255;
     buf[n] = '\n';
@@ -103,7 +107,10 @@ int main(int argc, char *argv[])
     unsigned int stripe_h, width_k;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     unsigned int dw, dh;
+    drmu_atomic_t * save = NULL;
 
+    (void)argc;
+    (void)argv;
 
     {
         const drmu_log_env_t log = {
@@ -116,8 +123,20 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
+    save = drmu_atomic_new(du);
+
     if ((dc = drmu_crtc_new_find(du)) == NULL)
         goto fail;
+
+    if (drmu_atomic_crtc_add_snapshot(save, dc) != 0) {
+        fprintf(stderr, "Failed to snapshot crtc\n");
+        goto fail;
+    }
+    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET)) {
+        fprintf(stderr, "Failed crtc restore test\n");
+        drmu_atomic_dump(save);
+    }
+
     drmu_crtc_max_bpc_allow(dc, 1);
     dw = drmu_crtc_width(dc);
     dh = drmu_crtc_height(dc);
@@ -131,6 +150,10 @@ int main(int argc, char *argv[])
     // This wants to be the primary
     if ((p0 = drmu_plane_new_find(dc, DRM_FORMAT_ARGB8888)) == NULL)
         goto fail;
+    drmu_atomic_plane_add_snapshot(save, p0);
+    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET))
+        fprintf(stderr, "Failed p0 restore test\n");
+
     {
         unsigned int n = 0;
         const uint32_t * p = drmu_plane_formats(p0, &n);
@@ -139,8 +162,10 @@ int main(int argc, char *argv[])
         }
     }
 
+
     if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL)
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
+    drmu_atomic_plane_add_snapshot(save, p1);
 
     fb0 = drmu_fb_new_dumb(du, 128, 128, DRM_FORMAT_ARGB8888);
     memset(drmu_fb_data(fb0, 0), 128, 128*128*4);
@@ -151,7 +176,7 @@ int main(int argc, char *argv[])
         fillgraduated10(drmu_fb_data(fb1, 0), stripe_h, width_k);
 
     {
-        const static struct hdr_output_metadata meta = {
+        static const struct hdr_output_metadata meta = {
             .metadata_type = HDMI_STATIC_METADATA_TYPE1,
             .hdmi_metadata_type1 = {
                 .eotf = HDMI_EOTF_SMPTE_ST2084,
@@ -182,9 +207,14 @@ int main(int argc, char *argv[])
 //    drmu_atomic_plane_set(da, p1, fb1, (drmu_rect_t){100, 100, 1024, total_h});
     drmu_atomic_queue(&da);
 
-    sleep(3000);
+    sleep(10);
+
+    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_ALLOW_MODESET) != 0)
+        fprintf(stderr, "Failed restore\n");
 
 fail:
+    drmu_atomic_unref(&save);
+    drmu_atomic_unref(&da);
     drmu_fb_unref(&fb1);
     drmu_plane_delete(&p1);
     drmu_fb_unref(&fb0);

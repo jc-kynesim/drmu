@@ -18,12 +18,14 @@ typedef struct aprop_obj_s {
     uint32_t id;
     unsigned int n;
     unsigned int size;
+    bool unsorted;
     aprop_prop_t * props;
 } aprop_obj_t;
 
 typedef struct aprop_hdr_s {
     unsigned int n;
     unsigned int size;
+    bool unsorted;
     aprop_obj_t * objs;
 } aprop_hdr_t;
 
@@ -56,12 +58,21 @@ aprop_prop_ref(aprop_prop_t * const pp)
 }
 
 static void
+aprop_prop_opt_move(aprop_prop_t * const pc, aprop_prop_t * const pa)
+{
+    if (pc != pa) {
+        *pc = *pa;
+    }
+}
+
+static void
 aprop_obj_uninit(aprop_obj_t * const po)
 {
     unsigned int i;
     for (i = 0; i != po->n; ++i)
         aprop_prop_unref(po->props + i);
     free(po->props);
+    memset(po, 0, sizeof(*po));
 }
 
 static int
@@ -86,12 +97,11 @@ aprop_obj_copy(aprop_obj_t * const po_c, const aprop_obj_t * const po_a)
     return 0;
 }
 
-static int
+static void
 aprop_obj_move(aprop_obj_t * const po_c, aprop_obj_t * const po_a)
 {
     *po_c = *po_a;
     memset(po_a, 0, sizeof(*po_a));
-    return 0;
 }
 
 static int
@@ -102,7 +112,17 @@ aprop_prop_qsort_cb(const void * va, const void * vb)
     return a->id == b->id ? 0 : a->id < b->id ? -1 : 1;
 }
 
-// Merge b into a. b is zeroed on exit so must be discarded
+static void
+aprop_obj_props_sort(aprop_obj_t * const po)
+{
+    if (!po->unsorted)
+        return;
+    qsort(po->props, po->n, sizeof(po->props[0]), aprop_prop_qsort_cb);
+    po->unsorted = false;
+}
+
+// Merge b into a and put the result in c. a & b are uninit on exit
+// Could (easily) merge into a but its more convienient for the caller to create new
 static int
 aprop_obj_merge(aprop_obj_t * const po_c, aprop_obj_t * const po_a, aprop_obj_t * const po_b)
 {
@@ -113,8 +133,8 @@ aprop_obj_merge(aprop_obj_t * const po_c, aprop_obj_t * const po_a, aprop_obj_t 
     aprop_prop_t * const b = po_b->props;
 
     // As we should have no identical els we don't care that qsort is unstable
-    qsort(a, po_a->n, sizeof(a[0]), aprop_prop_qsort_cb);
-    qsort(b, po_b->n, sizeof(b[0]), aprop_prop_qsort_cb);
+    aprop_obj_props_sort(po_a);
+    aprop_obj_props_sort(po_b);
 
     // Pick a size
     c_size = max_uint(po_a->size, po_b->size);
@@ -123,7 +143,7 @@ aprop_obj_merge(aprop_obj_t * const po_c, aprop_obj_t * const po_a, aprop_obj_t 
     if ((c = calloc(c_size, sizeof(*c))) == NULL)
         return -ENOMEM;
 
-    for (i = 0, j = 0, k = 0; i < po_a->n && j < po_a->n; ++k) {
+    for (i = 0, j = 0, k = 0; i < po_a->n && j < po_b->n; ++k) {
         if (a[i].id < b[j].id)
             c[k] = a[i++];
         else if (a[i].id > b[j].id)
@@ -134,26 +154,61 @@ aprop_obj_merge(aprop_obj_t * const po_c, aprop_obj_t * const po_a, aprop_obj_t 
         }
     }
     for (; i < po_a->n; ++i, ++k)
-        c[k] = a[i++];
+        c[k] = a[i];
     for (; j < po_b->n; ++j, ++k)
-        c[k] = b[j++];
+        c[k] = b[j];
 
     *po_c = (aprop_obj_t){
         .id = po_a->id,
         .n = k,
         .size = c_size,
+        .unsorted = false,
         .props = c
     };
 
-    // We have avoided excess ref / unref by simple copy so just free the objs
-    free(po_a->props);
-    free(po_b->props);
+    // We have avoided excess ref / unref by simple copy so just free the props array
+    free(a);
+    free(b);
 
     memset(po_a, 0, sizeof(*po_a));
     memset(po_b, 0, sizeof(*po_b));
 
     return 0;
 }
+
+// Remove any props in a that are also in b
+// b must be sorted
+// Returns count of props remaining in a
+static unsigned int
+aprop_obj_sub(aprop_obj_t * const po_a, const aprop_obj_t * const po_b)
+{
+    unsigned int i, j, k;
+    aprop_prop_t * const a = po_a->props;
+    aprop_prop_t * const b = po_b->props;
+
+    // As we should have no identical els we don't care that qsort is unstable
+    aprop_obj_props_sort(po_a);
+    assert(!po_b->unsorted);
+
+    for (i = 0, j = 0, k = 0; i < po_a->n && j < po_b->n;) {
+        if (a[i].id < b[j].id)
+            aprop_prop_opt_move(a + k++, a + i++);
+        else if (a[i].id > b[j].id)
+            j++;
+        else {
+            j++;
+            aprop_prop_unref(a + i++);
+        }
+    }
+    if (i != k) {
+        for (; i < po_a->n; ++i, ++k)
+            a[k] = a[i];
+        po_a->n = k;
+    }
+
+    return k;
+}
+
 
 static aprop_prop_t *
 aprop_obj_prop_get(aprop_obj_t * const po, const uint32_t id)
@@ -176,6 +231,8 @@ aprop_obj_prop_get(aprop_obj_t * const po, const uint32_t id)
         po->size = newsize;
         pp += po->n;
     }
+    if (!po->unsorted && po->n != 0 && pp[-1].id > id)
+        po->unsorted = true;
     ++po->n;
 
     pp->id = id;
@@ -232,6 +289,8 @@ aprop_hdr_obj_get(aprop_hdr_t * const ph, const uint32_t id)
         ph->size = newsize;
         po += ph->n;
     }
+    if (!ph->unsorted && ph->n != 0 && po[-1].id > id)
+        ph->unsorted = true;
     ++ph->n;
 
     po->id = id;
@@ -263,6 +322,7 @@ aprop_hdr_copy(aprop_hdr_t * const ph_c, const aprop_hdr_t * const ph_a)
 
     ph_c->n = ph_a->n;
     ph_c->size = ph_a->size;
+    ph_c->unsorted = ph_a->unsorted;
 
     for (i = 0; i != ph_a->n; ++i)
         aprop_obj_copy(ph_c->objs + i, ph_a->objs + i);
@@ -286,6 +346,17 @@ aprop_obj_qsort_cb(const void * va, const void * vb)
     return a->id == b->id ? 0 : a->id < b->id ? -1 : 1;
 }
 
+// As we should have no identical els we don't care that qsort is unstable
+// Doesn't sort props
+static void
+aprop_hdr_sort(aprop_hdr_t * const ph)
+{
+    if (!ph->unsorted)
+        return;
+    qsort(ph->objs, ph->n, sizeof(ph->objs[0]), aprop_obj_qsort_cb);
+    ph->unsorted = false;
+}
+
 // Merge b into a. b will be uninited
 static int
 aprop_hdr_merge(aprop_hdr_t * const ph_a, aprop_hdr_t * const ph_b)
@@ -301,9 +372,8 @@ aprop_hdr_merge(aprop_hdr_t * const ph_a, aprop_hdr_t * const ph_b)
     if (ph_a->n == 0)
         return aprop_hdr_move(ph_a, ph_b);
 
-    // As we should have no identical els we don't care that qsort is unstable
-    qsort(a, ph_a->n, sizeof(a[0]), aprop_obj_qsort_cb);
-    qsort(b, ph_b->n, sizeof(b[0]), aprop_obj_qsort_cb);
+    aprop_hdr_sort(ph_a);
+    aprop_hdr_sort(ph_b);
 
     // Pick a size
     c_size = max_uint(ph_a->size, ph_b->size);
@@ -312,7 +382,7 @@ aprop_hdr_merge(aprop_hdr_t * const ph_a, aprop_hdr_t * const ph_b)
     if ((c = calloc(c_size, sizeof(*c))) == NULL)
         return -ENOMEM;
 
-    for (i = 0, j = 0, k = 0; i < ph_a->n && j < ph_a->n; ++k) {
+    for (i = 0, j = 0, k = 0; i < ph_a->n && j < ph_b->n; ++k) {
         if (a[i].id < b[j].id)
             aprop_obj_move(c + k, a + i++);
         else if (a[i].id > b[j].id)
@@ -321,9 +391,9 @@ aprop_hdr_merge(aprop_hdr_t * const ph_a, aprop_hdr_t * const ph_b)
             aprop_obj_merge(c + k, a + i++, b + j++);
     }
     for (; i < ph_a->n; ++i, ++k)
-        aprop_obj_move(c + k, a + i++);
+        aprop_obj_move(c + k, a + i);
     for (; j < ph_b->n; ++j, ++k)
-        aprop_obj_move(c + k, b + j++);
+        aprop_obj_move(c + k, b + j);
 
     aprop_hdr_uninit(ph_a);
     aprop_hdr_uninit(ph_b);
@@ -331,8 +401,73 @@ aprop_hdr_merge(aprop_hdr_t * const ph_a, aprop_hdr_t * const ph_b)
     ph_a->n = k;
     ph_a->size = c_size;
     ph_a->objs = c;
+    // Merge will maintain sort so leave unsorted false
 
     return 0;
+}
+
+// Remove any props in a that are also in b
+// b must be sorted
+static void
+aprop_hdr_sub(aprop_hdr_t * const ph_a, const aprop_hdr_t * const ph_b)
+{
+    unsigned int i = 0, j = 0, k;
+    aprop_obj_t * const a = ph_a->objs;
+    aprop_obj_t * const b = ph_b->objs;
+
+    aprop_hdr_sort(ph_a);
+    assert(!ph_b->unsorted);
+
+    // Scan whilst we haven't deleted anything
+    for (;;) {
+        // If we run out of either array then nothing more needed
+        if (i == ph_a->n || j == ph_b->n)
+            return;
+
+        if (a[i].id < b[j].id)
+            ++i;
+        else if (a[i].id > b[j].id)
+            ++j;
+        else {
+            k = i;
+            if (aprop_obj_sub(a + i++, b + j++) == 0) {
+                aprop_obj_uninit(a + k);
+                break;
+            }
+        }
+    }
+
+    // Move & scan
+    while (i < ph_a->n && j < ph_b->n) {
+        if (a[i].id < b[j].id)
+            aprop_obj_move(a + k++, a + i++);
+        else if (a[i].id > b[j].id)
+            j++;
+        else {
+            if (aprop_obj_sub(a + i, b + j) == 0)
+                aprop_obj_uninit(a + i);
+            else
+                aprop_obj_move(a + k++, a + i);
+            i++;
+            j++;
+        }
+    }
+
+    // Move any remaining entries
+    for (; i < ph_a->n; ++i, ++k)
+        aprop_obj_move(a + k, a + i);
+    ph_a->n = k;
+
+    return;
+}
+
+// Sort header objs & obj props
+static void
+aprop_hdr_props_sort(aprop_hdr_t * const ph)
+{
+    aprop_hdr_sort(ph);
+    for (unsigned int i = 0; i != ph->n; ++i)
+        aprop_obj_props_sort(ph->objs + i);
 }
 
 static aprop_prop_t *
@@ -511,13 +646,107 @@ drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
     return 0;
 }
 
+void
+drmu_atomic_sub(drmu_atomic_t * const a, drmu_atomic_t * const b)
+{
+    aprop_hdr_props_sort(&b->props);
+    aprop_hdr_sub(&a->props, &b->props);
+}
+
+static void
+atomic_props_crop(struct drm_mode_atomic * const f, const unsigned int n, uint32_t ** const undo_p, uint32_t * const undo_v)
+{
+    unsigned int i;
+    unsigned int t = 0;
+    uint32_t * const c = (uint32_t *)f->count_props_ptr;
+
+    for (i = 0; i != f->count_objs; ++i) {
+        t += c[i];
+        if (t >= n) {
+            f->count_objs = i + 1;
+            *undo_p = c + i;
+            *undo_v = c[i];
+            c[i] -= t - n;
+            break;
+        }
+    }
+}
+
+static void
+atomic_props_del(struct drm_mode_atomic * const f, const unsigned int n, const unsigned int cp,
+                 uint32_t * const objid, uint32_t * const propid, uint64_t * const val)
+{
+    unsigned int i;
+    unsigned int t = 0;
+    uint32_t * const c = (uint32_t *)f->count_props_ptr;
+    uint32_t * const o = (uint32_t *)f->objs_ptr;
+    uint32_t * const p = (uint32_t *)f->props_ptr;
+    uint64_t * const v = (uint64_t *)f->prop_values_ptr;
+
+    for (i = 0; i != f->count_objs; ++i) {
+        t += c[i];
+        if (t > n) {
+            // Copy out what we are going to delete
+            *objid = o[i];
+            *propid = p[n];
+            *val = v[n];
+
+            memmove(p + n, p + n + 1, (cp - n - 1) * sizeof(*p));
+            memmove(v + n, v + n + 1, (cp - n - 1) * sizeof(*v));
+
+            if (--c[i] == 0) {
+                memmove(c + i, c + i + 1, (f->count_objs - i - 1) * sizeof(*c));
+                memmove(o + i, o + i + 1, (f->count_objs - i - 1) * sizeof(*o));
+                --f->count_objs;
+            }
+            break;
+        }
+    }
+}
+
+// Returns count of initial good els (i.e. n of 1st bad)
+static unsigned int
+commit_find_good(drmu_env_t * const du, const struct drm_mode_atomic * const atomic, const unsigned int n_props)
+{
+    unsigned int a = 0;             // N known good
+    unsigned int b = n_props + 1;   // N maybe good + 1
+
+    while (a + 1 < b) {
+        struct drm_mode_atomic at = *atomic;
+        unsigned int n = (a + b) / 2;
+        int rv;
+        uint32_t * undo_p = NULL;
+        uint32_t undo_v = 0;
+
+        at.flags = DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET;
+        atomic_props_crop(&at, n, &undo_p, &undo_v);
+
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &at)) == 0) {
+            drmu_debug(du, "%d good", n);
+            a = n;
+        }
+        else {
+            drmu_debug(du, "%d bad", n);
+            b = n;
+        }
+
+        *undo_p = undo_v;  // Should always be set
+    }
+
+    return a;
+}
+
+// da_fail does not keep refs to its values - for info only
 int
-drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags)
+drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_atomic_t * const da_fail)
 {
     drmu_env_t * const du = da->du;
     const unsigned int n_objs = aprop_hdr_objs_count(&da->props);
-    const unsigned int n_props = aprop_hdr_props_count(&da->props);
+    unsigned int n_props = aprop_hdr_props_count(&da->props);
     int rv = 0;
+
+    drmu_debug(du, "da on entry to test:");
+    drmu_atomic_dump(da);
 
     if (n_props != 0) {
         uint32_t obj_ids[n_objs];
@@ -536,20 +765,34 @@ drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags)
 
         aprop_hdr_atomic_fill(&da->props, obj_ids, prop_counts, prop_ids, prop_values);
 
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic)) == 0)
-            return 0;
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic)) == 0 || !da_fail)
+            return rv;
 
-        if (rv == -EINVAL && du->modeset_allow) {
-            drmu_debug(du, "%s: EINVAL try ALLOW_MODESET", __func__);
-            atomic.flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
-            if (drmIoctl(du->fd, DRM_IOCTL_MODE_ATOMIC, &atomic) == 0)
-                return 0;
+        for (;;) {
+            unsigned int a = commit_find_good(du, &atomic, n_props);
+            uint32_t objid = 0;
+            uint32_t propid = 0;
+            uint64_t val = 0;
+
+            if (a >= n_props)
+                break;
+
+            atomic_props_del(&atomic, a, n_props, &objid, &propid, &val);
+            drmu_debug(du, "Del %d/%d obj=%x prop=%x val=%"PRIx64 , a, n_props, objid, propid, val);
+            --n_props;
+
+            drmu_atomic_add_prop_generic(da_fail, objid, propid, val, 0, 0, NULL);
         }
-
-//        drmu_err(du, "%s: Atomic failed: %s", __func__, strerror(-rv));
     }
 
     return rv;
+}
+
+
+int
+drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags)
+{
+    return drmu_atomic_commit_test(da, flags, NULL);
 }
 
 

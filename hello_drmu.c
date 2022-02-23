@@ -76,6 +76,8 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
 {
     const enum AVPixelFormat *p;
 
+    (void)ctx;
+
     for (p = pix_fmts; *p != -1; p++) {
         if (*p == hw_pix_fmt)
             return *p;

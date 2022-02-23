@@ -1189,11 +1189,10 @@ propinfo_fill(drmu_env_t * const du, drmu_propinfo_t * const inf, uint32_t propi
     return rv;
 }
 
-static drmu_props_t *
-props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
+static int
+props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype,
+                     uint32_t ** const ppPropids, uint64_t ** const ppValues)
 {
-    drmu_props_t * const props = calloc(1, sizeof(*props));
-    int rv;
 	struct drm_mode_obj_get_properties obj_props = {
         .obj_id = objid,
         .obj_type = objtype,
@@ -1201,12 +1200,7 @@ props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
     uint64_t * values = NULL;
     uint32_t * propids = NULL;
     unsigned int n = 0;
-
-    if (props == NULL) {
-        drmu_err(du, "%s: Failed struct alloc", __func__);
-        return NULL;
-    }
-    props->du = du;
+    int rv;
 
     for (;;) {
         if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &obj_props)) != 0) {
@@ -1225,20 +1219,50 @@ props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
         if ((values = malloc(n * sizeof(*values))) == NULL ||
             (propids = malloc(n * sizeof(*propids))) == NULL) {
             drmu_err(du, "obj/value array alloc failed");
+            rv = -ENOMEM;
             goto fail;
         }
         obj_props.prop_values_ptr = (uintptr_t)values;
         obj_props.props_ptr = (uintptr_t)propids;
     }
 
-    if ((props->info = calloc(n, sizeof(*props->info))) == NULL ||
-        (props->by_name = malloc(n * sizeof(*props->by_name))) == NULL) {
+    *ppValues = values;
+    *ppPropids = propids;
+    return (int)n;
+
+fail:
+    free(values);
+    free(propids);
+    *ppPropids = NULL;
+    *ppValues = NULL;
+    return rv;
+}
+
+static drmu_props_t *
+props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
+{
+    drmu_props_t * const props = calloc(1, sizeof(*props));
+    int rv;
+    uint64_t * values;
+    uint32_t * propids;
+
+    if (props == NULL) {
+        drmu_err(du, "%s: Failed struct alloc", __func__);
+        return NULL;
+    }
+    props->du = du;
+
+    if ((rv = props_get_properties(du, objid, objtype, &propids, &values)) < 0)
+        goto fail;
+
+    props->n = rv;
+    if ((props->info = calloc(props->n, sizeof(*props->info))) == NULL ||
+        (props->by_name = malloc(props->n * sizeof(*props->by_name))) == NULL) {
         drmu_err(du, "info/name array alloc failed");
         goto fail;
     }
-    props->n = n;
 
-    for (unsigned int i = 0; i < n; ++i) {
+    for (unsigned int i = 0; i < props->n; ++i) {
         drmu_propinfo_t * const inf = props->info + i;
 
         props->by_name[i] = inf;
@@ -1247,8 +1271,10 @@ props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
     }
 
     // Sort into name order for faster lookup
-    qsort(props->by_name, n, sizeof(*props->by_name), props_qsort_by_name_cb);
+    qsort(props->by_name, props->n, sizeof(*props->by_name), props_qsort_by_name_cb);
 
+    free(values);
+    free(propids);
     return props;
 
 fail:
@@ -1256,6 +1282,82 @@ fail:
     free(values);
     free(propids);
     return NULL;
+}
+
+int
+drmu_atomic_obj_add_snapshot(drmu_atomic_t * const da, const uint32_t objid, const uint32_t objtype)
+{
+#if 0
+    drmu_env_t * const du = drmu_atomic_env(da);
+    drmu_props_t * props = NULL;
+    unsigned int i;
+    int rv;
+
+    if (!du)
+        return -EINVAL;
+
+    if ((props = props_new(du, objid, objtype)) == NULL)
+        return -ENOENT;
+
+    for (i = 0; i != props->n; ++i) {
+        if ((props->info[i].prop.flags & (DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ATOMIC)) != 0 || props->info[i].prop.prop_id == 2)
+            continue;
+        if ((rv = drmu_atomic_add_prop_generic(da, objid, props->info[i].prop.prop_id, props->info[i].val, 0, 0, NULL)) != 0)
+            goto fail;
+    }
+    rv = 0;
+
+fail:
+    props_free(props);
+    return rv;
+#else
+    uint64_t * values;
+    uint32_t * propids;
+    int rv;
+    unsigned int i, n;
+    drmu_env_t * const du = drmu_atomic_env(da);
+
+    if (!du)
+        return -EINVAL;
+
+    if ((rv = props_get_properties(du, objid, objtype, &propids, &values)) < 0)
+        goto fail;
+    n = rv;
+
+    for (i = 0; i != n; ++i) {
+        if ((rv = drmu_atomic_add_prop_generic(da, objid, propids[i], values[i], 0, 0, NULL)) != 0)
+            goto fail;
+    }
+
+fail:
+    free(values);
+    free(propids);
+    return rv;
+#endif
+}
+
+int
+drmu_atomic_obj_add_save(drmu_atomic_t * const da, const uint32_t objid, const uint32_t objtype)
+{
+    int rv;
+    drmu_atomic_t * da_fail;
+    drmu_env_t * const du = drmu_atomic_env(da);
+
+    if ((rv = drmu_atomic_obj_add_snapshot(da, objid, objtype)) != 0)
+        return rv;
+
+    da_fail = drmu_atomic_new(du);
+    drmu_atomic_commit_test(da, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, da_fail);
+    drmu_debug(du, "Snapshot cannot add:");
+    drmu_atomic_dump(da_fail);
+    drmu_debug(du, "Snapshot da was:");
+    drmu_atomic_dump(da);
+    drmu_atomic_sub(da, da_fail);
+    drmu_debug(du, "Snapshot da post sub:");
+    drmu_atomic_dump(da);
+
+    drmu_atomic_unref(&da_fail);
+    return 0;
 }
 
 //----------------------------------------------------------------------------
@@ -1502,6 +1604,12 @@ crtc_from_con_id(drmu_env_t * const du, const uint32_t con_id)
             dc->pid.max_bpc             = drmu_prop_range_new(du, props_name_to_id(props, "max bpc"));
             dc->pid.colorspace          = drmu_prop_enum_new(du, props_name_to_id(props, "Colorspace"));
             dc->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
+
+            {
+                drmu_prop_enum_t * p = drmu_prop_enum_new(du, props_name_to_id(props, "DPMS"));
+                drmu_prop_enum_delete(&p);
+            }
+
             props_free(props);
         }
     }
@@ -1510,7 +1618,7 @@ crtc_from_con_id(drmu_env_t * const du, const uint32_t con_id)
         drmu_atomic_t * da = drmu_atomic_new(du);
         if (da != NULL &&
             atomic_crtc_hi_bpc_set(da, dc) == 0 &&
-            drmu_atomic_commit(da, DRM_MODE_ATOMIC_TEST_ONLY) == 0) {
+                drmu_atomic_commit(da, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET) == 0) {
             dc->hi_bpc_ok = true;
         }
         drmu_atomic_unref(&da);
@@ -1587,7 +1695,7 @@ drmu_crtc_t *
 drmu_crtc_new_find(drmu_env_t * const du)
 {
     int i;
-    drmu_crtc_t * dc;
+    drmu_crtc_t * dc = NULL;
 
     if (du->res->count_crtcs <= 0) {
         drmu_err(du, "%s: no crts", __func__);
@@ -1724,6 +1832,16 @@ drmu_atomic_crtc_fb_info_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
     return rv;
 }
 
+int
+drmu_atomic_crtc_add_snapshot(struct drmu_atomic_s * const da, drmu_crtc_t * const dc)
+{
+//    int rv;
+
+//    if ((rv = drmu_atomic_obj_add_snapshot(da, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC)) != 0)
+//        return rv;
+    return drmu_atomic_obj_add_save(da, dc->con->connector_id, DRM_MODE_OBJECT_CONNECTOR);
+}
+
 //----------------------------------------------------------------------------
 //
 // Atomic Q fns (internal)
@@ -1735,9 +1853,13 @@ static int
 atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
 {
     drmu_env_t * const du = drmu_atomic_env(aq->next_flip);
+    uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
     int rv;
 
-    if ((rv = drmu_atomic_commit(aq->next_flip, DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT)) == 0) {
+    if (du->modeset_allow)
+        flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
+
+    if ((rv = drmu_atomic_commit(aq->next_flip, flags)) == 0) {
         if (aq->retry_count != 0)
             drmu_warn(du, "%s: Atomic commit OK", __func__);
         aq->cur_flip = aq->next_flip;
@@ -2212,6 +2334,26 @@ drmu_plane_new_find(drmu_crtc_t * const dc, const uint32_t fmt)
 
     dp->dc = dc;
     return dp;
+}
+
+int
+drmu_atomic_plane_add_snapshot(struct drmu_atomic_s * const da, drmu_plane_t * const dp)
+{
+    int rv;
+    drmu_atomic_t * da_fail;
+    drmu_env_t * const du = drmu_atomic_env(da);
+
+    if ((rv = drmu_atomic_obj_add_snapshot(da, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE)) != 0)
+        return rv;
+
+    da_fail = drmu_atomic_new(du);
+    drmu_atomic_commit_test(da, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, da_fail);
+    drmu_atomic_sub(da, da_fail);
+
+    drmu_debug(du, "Snapshot cannot add:");
+    drmu_atomic_dump(da_fail);
+    drmu_atomic_unref(&da_fail);
+    return 0;
 }
 
 static void
