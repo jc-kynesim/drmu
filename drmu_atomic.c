@@ -58,14 +58,6 @@ aprop_prop_ref(aprop_prop_t * const pp)
 }
 
 static void
-aprop_prop_opt_move(aprop_prop_t * const pc, aprop_prop_t * const pa)
-{
-    if (pc != pa) {
-        *pc = *pa;
-    }
-}
-
-static void
 aprop_obj_uninit(aprop_obj_t * const po)
 {
     unsigned int i;
@@ -182,31 +174,46 @@ aprop_obj_merge(aprop_obj_t * const po_c, aprop_obj_t * const po_a, aprop_obj_t 
 static unsigned int
 aprop_obj_sub(aprop_obj_t * const po_a, const aprop_obj_t * const po_b)
 {
-    unsigned int i, j, k;
+    unsigned int i = 0, j = 0, k;
     aprop_prop_t * const a = po_a->props;
-    aprop_prop_t * const b = po_b->props;
+    const aprop_prop_t * const b = po_b->props;
+
+    if (po_a->n == 0 || po_b->n == 0)
+        return po_a->n;
 
     // As we should have no identical els we don't care that qsort is unstable
     aprop_obj_props_sort(po_a);
     assert(!po_b->unsorted);
 
-    for (i = 0, j = 0, k = 0; i < po_a->n && j < po_b->n;) {
-        if (a[i].id < b[j].id)
-            aprop_prop_opt_move(a + k++, a + i++);
-        else if (a[i].id > b[j].id)
-            j++;
+    // Skip initial non-matches, returning if no match found
+    while (a[i].id != b[j].id) {
+        if (a[i].id < b[j].id) {
+            if (++i == po_a->n)
+                return po_a->n;
+        }
         else {
-            j++;
-            aprop_prop_unref(a + i++);
+            if (++j == po_b->n)
+                return po_a->n;
         }
     }
-    if (i != k) {
-        for (; i < po_a->n; ++i, ++k)
-            a[k] = a[i];
-        po_a->n = k;
-    }
+    // We have a match - next loop will do the unref
+    k = i;
 
-    return k;
+    do {
+        if (a[i].id < b[j].id)
+            a[k++] = a[i++];
+        else {
+            if (a[i].id == b[j].id)
+                aprop_prop_unref(a + i++);
+            j++;
+        }
+    } while (i != po_a->n && j != po_b->n);
+
+    for (; i < po_a->n; ++i, ++k)
+        a[k] = a[i];
+    po_a->n = k;
+
+    return po_a->n;
 }
 
 
@@ -413,7 +420,7 @@ aprop_hdr_sub(aprop_hdr_t * const ph_a, const aprop_hdr_t * const ph_b)
 {
     unsigned int i = 0, j = 0, k;
     aprop_obj_t * const a = ph_a->objs;
-    aprop_obj_t * const b = ph_b->objs;
+    const aprop_obj_t * const b = ph_b->objs;
 
     aprop_hdr_sort(ph_a);
     assert(!ph_b->unsorted);
