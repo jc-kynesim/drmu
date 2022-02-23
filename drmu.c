@@ -1114,7 +1114,7 @@ props_name_to_id(const drmu_props_t * const props, const char * const name)
     return 0;
 }
 
-#if TRACE_PROP_NEW || 1
+#if TRACE_PROP_NEW
 static void
 props_dump(const drmu_props_t * const props)
 {
@@ -1336,27 +1336,23 @@ fail:
 #endif
 }
 
-int
-drmu_atomic_obj_add_save(drmu_atomic_t * const da, const uint32_t objid, const uint32_t objtype)
+static int
+drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const drmu_props_t * props)
 {
+    unsigned int i;
     int rv;
-    drmu_atomic_t * da_fail;
-    drmu_env_t * const du = drmu_atomic_env(da);
 
-    if ((rv = drmu_atomic_obj_add_snapshot(da, objid, objtype)) != 0)
-        return rv;
+    if (props == NULL)
+        return 0;
+    if (da == NULL)
+        return -EINVAL;
 
-    da_fail = drmu_atomic_new(du);
-    drmu_atomic_commit_test(da, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, da_fail);
-    drmu_debug(du, "Snapshot cannot add:");
-    drmu_atomic_dump(da_fail);
-    drmu_debug(du, "Snapshot da was:");
-    drmu_atomic_dump(da);
-    drmu_atomic_sub(da, da_fail);
-    drmu_debug(du, "Snapshot da post sub:");
-    drmu_atomic_dump(da);
-
-    drmu_atomic_unref(&da_fail);
+    for (i = 0; i != props->n; ++i) {
+        if ((props->info[i].prop.flags & DRM_MODE_PROP_IMMUTABLE) != 0)
+            continue;
+        if ((rv = drmu_atomic_add_prop_generic(da, objid, props->info[i].prop.prop_id, props->info[i].val, 0, 0, NULL)) != 0)
+            return rv;
+    }
     return 0;
 }
 
@@ -1589,6 +1585,13 @@ crtc_from_con_id(drmu_env_t * const du, const uint32_t con_id)
 #endif
 
             dc->pid.mode_id = props_name_to_id(props, "MODE_ID");
+
+            if (drmu_env_restore_is_enabled(du)) {
+                drmu_atomic_t * da = drmu_atomic_new(du);
+                drmu_atomic_props_add_save(da, dc->crtc.crtc_id, props);
+                drmu_atomic_env_restore_add_snapshot(&da);
+            }
+
             props_free(props);
         }
     }
@@ -1605,9 +1608,11 @@ crtc_from_con_id(drmu_env_t * const du, const uint32_t con_id)
             dc->pid.colorspace          = drmu_prop_enum_new(du, props_name_to_id(props, "Colorspace"));
             dc->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
 
-            {
-                drmu_prop_enum_t * p = drmu_prop_enum_new(du, props_name_to_id(props, "DPMS"));
-                drmu_prop_enum_delete(&p);
+            // DPMS can't be set but that should be dealt with in general logic
+            if (drmu_env_restore_is_enabled(du)) {
+                drmu_atomic_t * da = drmu_atomic_new(du);
+                drmu_atomic_props_add_save(da, dc->con->connector_id, props);
+                drmu_atomic_env_restore_add_snapshot(&da);
             }
 
             props_free(props);
@@ -1830,16 +1835,6 @@ drmu_atomic_crtc_fb_info_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
     if (drmu_fb_hdr_metadata_isset(fb))
         rv = rvup(rv, drmu_atomic_crtc_hdr_metadata_set(da, dc, drmu_fb_hdr_metadata_get(fb)));
     return rv;
-}
-
-int
-drmu_atomic_crtc_add_snapshot(struct drmu_atomic_s * const da, drmu_crtc_t * const dc)
-{
-//    int rv;
-
-//    if ((rv = drmu_atomic_obj_add_snapshot(da, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC)) != 0)
-//        return rv;
-    return drmu_atomic_obj_add_save(da, dc->con->connector_id, DRM_MODE_OBJECT_CONNECTOR);
 }
 
 //----------------------------------------------------------------------------
@@ -2332,28 +2327,16 @@ drmu_plane_new_find(drmu_crtc_t * const dc, const uint32_t fmt)
         return NULL;
     }
 
+    if (drmu_env_restore_is_enabled(du)) {
+        drmu_props_t * props = props_new(du, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE);
+        drmu_atomic_t * da = drmu_atomic_new(du);
+        drmu_atomic_props_add_save(da, dc->crtc.crtc_id, props);
+        props_free(props);
+        drmu_atomic_env_restore_add_snapshot(&da);
+    }
+
     dp->dc = dc;
     return dp;
-}
-
-int
-drmu_atomic_plane_add_snapshot(struct drmu_atomic_s * const da, drmu_plane_t * const dp)
-{
-    int rv;
-    drmu_atomic_t * da_fail;
-    drmu_env_t * const du = drmu_atomic_env(da);
-
-    if ((rv = drmu_atomic_obj_add_snapshot(da, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE)) != 0)
-        return rv;
-
-    da_fail = drmu_atomic_new(du);
-    drmu_atomic_commit_test(da, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, da_fail);
-    drmu_atomic_sub(da, da_fail);
-
-    drmu_debug(du, "Snapshot cannot add:");
-    drmu_atomic_dump(da_fail);
-    drmu_atomic_unref(&da_fail);
-    return 0;
 }
 
 static void
@@ -2421,8 +2404,10 @@ drmu_env_planes_populate(drmu_env_t * const du)
             goto fail2;
         }
 
+#if TRACE_PROP_NEW
         drmu_info(du, "Plane %d:", i);
         props_dump(props);
+#endif
 
         if ((dp->pid.crtc_id = props_name_to_id(props, "CRTC_ID")) == 0 ||
             (dp->pid.fb_id  = props_name_to_id(props, "FB_ID")) == 0 ||
@@ -2496,10 +2481,18 @@ drmu_env_delete(drmu_env_t ** const ppdu)
     pollqueue_unref(&du->pq);
     polltask_delete(&du->pt);
 
+    drmu_atomic_q_uninit(&du->aq);
+
+    if (du->da_restore) {
+        int rv;
+        if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
+            drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
+        drmu_atomic_unref(&du->da_restore);
+    }
+
     if (du->res != NULL)
         drmModeFreeResources(du->res);
     free_planes(du);
-    drmu_atomic_q_uninit(&du->aq);
     drmu_bo_env_uninit(&du->boe);
 
     close(du->fd);
@@ -2511,6 +2504,45 @@ void
 drmu_env_modeset_allow(drmu_env_t * const du, const bool modeset_allowed)
 {
     du->modeset_allow = modeset_allowed;
+}
+
+int
+drmu_env_restore_enable(drmu_env_t * const du)
+{
+    if (du->da_restore)
+        return 0;
+    if ((du->da_restore = drmu_atomic_new(du)) == NULL)
+        return -ENOMEM;
+    return 0;
+}
+
+bool
+drmu_env_restore_is_enabled(const drmu_env_t * const du)
+{
+    return du->da_restore != NULL;
+}
+
+int
+drmu_atomic_env_restore_add_snapshot(drmu_atomic_t ** const ppda)
+{
+    drmu_atomic_t * da = *ppda;
+    drmu_atomic_t * fails = NULL;
+    drmu_env_t * const du = drmu_atomic_env(da);
+
+    *ppda = NULL;
+
+    if (!du || !du->da_restore) {
+        drmu_atomic_unref(&da);
+        return 0;
+    }
+
+    // Lose anything we can't restore
+    fails = drmu_atomic_new(du);
+    if (drmu_atomic_commit_test(da, DRM_MODE_ATOMIC_ALLOW_MODESET | DRM_MODE_ATOMIC_TEST_ONLY, fails) != 0)
+        drmu_atomic_sub(da, fails);
+    drmu_atomic_unref(&fails);
+
+    return drmu_atomic_merge(du->da_restore, &da);
 }
 
 static void

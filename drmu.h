@@ -215,8 +215,6 @@ void drmu_pool_delete(drmu_pool_t ** const pppool);
 //   should but if so we need to avoid accidentally closing BOs that we inherit
 //   from outside when we delete the atomic.
 int drmu_atomic_obj_add_snapshot(struct drmu_atomic_s * const da, const uint32_t objid, const uint32_t objtype);
-// As snapshot but tries to commit and removes anything that can't be committed
-int drmu_atomic_obj_add_save(struct drmu_atomic_s * const da, const uint32_t objid, const uint32_t objtype);
 
 // CRTC
 
@@ -264,9 +262,6 @@ int drmu_atomic_crtc_hdr_metadata_set(struct drmu_atomic_s * const da, drmu_crtc
 // and refresh)
 int drmu_atomic_crtc_fb_info_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const drmu_fb_t * const fb);
 
-// Snapshot all props of this crtc (and con) and add to da
-int drmu_atomic_crtc_add_snapshot(struct drmu_atomic_s * const da, drmu_crtc_t * const dc);
-
 // Plane
 
 uint32_t drmu_plane_id(const drmu_plane_t * const dp);
@@ -294,9 +289,6 @@ int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_p
 
 int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 
-// Snapshot all props of this crtc (and con) and add to da
-int drmu_atomic_plane_add_snapshot(struct drmu_atomic_s * const da, drmu_plane_t * const dp);
-
 // Env
 struct drmu_log_env_s;
 
@@ -310,6 +302,14 @@ int drmu_fd(const drmu_env_t * const du);
 const struct drmu_log_env_s * drmu_env_log(const drmu_env_t * const du);
 void drmu_env_delete(drmu_env_t ** const ppdu);
 void drmu_env_modeset_allow(drmu_env_t * const du, const bool modeset_allowed);
+// Restore state on env close
+int drmu_env_restore_enable(drmu_env_t * const du);
+bool drmu_env_restore_is_enabled(const drmu_env_t * const du);
+// Add an object snapshot to the restore state
+// Tests for commitability and removes any props that won't commit
+int drmu_atomic_env_restore_add_snapshot(struct drmu_atomic_s ** const ppda);
+
+
 drmu_env_t * drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log);
 drmu_env_t * drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log);
 

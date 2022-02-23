@@ -665,7 +665,7 @@ atomic_props_crop(struct drm_mode_atomic * const f, const unsigned int n, uint32
 {
     unsigned int i;
     unsigned int t = 0;
-    uint32_t * const c = (uint32_t *)f->count_props_ptr;
+    uint32_t * const c = (uint32_t *)(uintptr_t)f->count_props_ptr;
 
     for (i = 0; i != f->count_objs; ++i) {
         t += c[i];
@@ -685,10 +685,10 @@ atomic_props_del(struct drm_mode_atomic * const f, const unsigned int n, const u
 {
     unsigned int i;
     unsigned int t = 0;
-    uint32_t * const c = (uint32_t *)f->count_props_ptr;
-    uint32_t * const o = (uint32_t *)f->objs_ptr;
-    uint32_t * const p = (uint32_t *)f->props_ptr;
-    uint64_t * const v = (uint64_t *)f->prop_values_ptr;
+    uint32_t * const c = (uint32_t *)(uintptr_t)f->count_props_ptr;
+    uint32_t * const o = (uint32_t *)(uintptr_t)f->objs_ptr;
+    uint32_t * const p = (uint32_t *)(uintptr_t)f->props_ptr;
+    uint64_t * const v = (uint64_t *)(uintptr_t)f->prop_values_ptr;
 
     for (i = 0; i != f->count_objs; ++i) {
         t += c[i];
@@ -725,15 +725,13 @@ commit_find_good(drmu_env_t * const du, const struct drm_mode_atomic * const ato
         uint32_t * undo_p = NULL;
         uint32_t undo_v = 0;
 
-        at.flags = DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET;
+        at.flags = DRM_MODE_ATOMIC_TEST_ONLY | (DRM_MODE_ATOMIC_ALLOW_MODESET & atomic->flags);
         atomic_props_crop(&at, n, &undo_p, &undo_v);
 
         if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &at)) == 0) {
-            drmu_debug(du, "%d good", n);
             a = n;
         }
         else {
-            drmu_debug(du, "%d bad", n);
             b = n;
         }
 
@@ -751,9 +749,6 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
     const unsigned int n_objs = aprop_hdr_objs_count(&da->props);
     unsigned int n_props = aprop_hdr_props_count(&da->props);
     int rv = 0;
-
-    drmu_debug(du, "da on entry to test:");
-    drmu_atomic_dump(da);
 
     if (n_props != 0) {
         uint32_t obj_ids[n_objs];
@@ -785,7 +780,6 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
                 break;
 
             atomic_props_del(&atomic, a, n_props, &objid, &propid, &val);
-            drmu_debug(du, "Del %d/%d obj=%x prop=%x val=%"PRIx64 , a, n_props, objid, propid, val);
             --n_props;
 
             drmu_atomic_add_prop_generic(da_fail, objid, propid, val, 0, 0, NULL);

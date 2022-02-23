@@ -28,6 +28,7 @@ int main(int argc, char *argv[])
     drmu_env_t * du = NULL;
     drmu_crtc_t * dc = NULL;
     drmu_atomic_t * da = NULL;
+    int rv;
 
     const char * colorspace = DRMU_CRTC_COLORSPACE_DEFAULT;
 
@@ -60,8 +61,8 @@ int main(int argc, char *argv[])
     if (drmu_atomic_crtc_hi_bpc_set(da, dc, false))
         fprintf(stderr, "Failed to reset hi bpc\n");
 
-    if (drmu_atomic_commit(da, 0) != 0)
-        fprintf(stderr, "Failed to commit modechange\n");
+    if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
+        fprintf(stderr, "Failed to commit modechange: %s\n", strerror(-rv));
 
     printf("Set colorspace '%s'\n", colorspace);
 

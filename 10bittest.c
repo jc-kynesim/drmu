@@ -107,7 +107,6 @@ int main(int argc, char *argv[])
     unsigned int stripe_h, width_k;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     unsigned int dw, dh;
-    drmu_atomic_t * save = NULL;
 
     (void)argc;
     (void)argv;
@@ -123,19 +122,11 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    save = drmu_atomic_new(du);
+    drmu_env_restore_enable(du);
+    drmu_env_modeset_allow(du, true);
 
     if ((dc = drmu_crtc_new_find(du)) == NULL)
         goto fail;
-
-    if (drmu_atomic_crtc_add_snapshot(save, dc) != 0) {
-        fprintf(stderr, "Failed to snapshot crtc\n");
-        goto fail;
-    }
-    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET)) {
-        fprintf(stderr, "Failed crtc restore test\n");
-        drmu_atomic_dump(save);
-    }
 
     drmu_crtc_max_bpc_allow(dc, 1);
     dw = drmu_crtc_width(dc);
@@ -150,9 +141,6 @@ int main(int argc, char *argv[])
     // This wants to be the primary
     if ((p0 = drmu_plane_new_find(dc, DRM_FORMAT_ARGB8888)) == NULL)
         goto fail;
-    drmu_atomic_plane_add_snapshot(save, p0);
-    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET))
-        fprintf(stderr, "Failed p0 restore test\n");
 
     {
         unsigned int n = 0;
@@ -165,7 +153,6 @@ int main(int argc, char *argv[])
 
     if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL)
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
-    drmu_atomic_plane_add_snapshot(save, p1);
 
     fb0 = drmu_fb_new_dumb(du, 128, 128, DRM_FORMAT_ARGB8888);
     memset(drmu_fb_data(fb0, 0), 128, 128*128*4);
@@ -175,22 +162,6 @@ int main(int argc, char *argv[])
     else
         fillgraduated10(drmu_fb_data(fb1, 0), stripe_h, width_k);
 
-    {
-        static const struct hdr_output_metadata meta = {
-            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-            .hdmi_metadata_type1 = {
-                .eotf = HDMI_EOTF_SMPTE_ST2084,
-                .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-                .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
-                .white_point = {15635,16450},
-                .max_display_mastering_luminance = 1000,
-                .min_display_mastering_luminance = 5,
-                .max_cll = 1000,
-                .max_fall = 400
-            }
-        };
-        drmu_fb_hdr_metadata_set(fb1, &meta);
-    }
     da = drmu_atomic_new(du);
 
     drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(dw, dh));
@@ -199,21 +170,31 @@ int main(int argc, char *argv[])
     else
         drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(total_w, total_h));
 
+    static const struct hdr_output_metadata meta = {
+        .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+        .hdmi_metadata_type1 = {
+            .eotf = HDMI_EOTF_SMPTE_ST2084,
+            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+            .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
+            .white_point = {15635,16450},
+            .max_display_mastering_luminance = 1000,
+            .min_display_mastering_luminance = 5,
+            .max_cll = 1000,
+            .max_fall = 400
+        }
+    };
+    if (drmu_atomic_crtc_hdr_metadata_set(da, dc, &meta) != 0)
+        fprintf(stderr, "Failed metadata set");
     if (drmu_atomic_crtc_colorspace_set(da, dc, "BT2020_RGB") != 0)
         fprintf(stderr, "Failed colorspace set\n");
     if (drmu_atomic_crtc_hi_bpc_set(da, dc, true) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
-//    drmu_atomic_plane_set(da, p1, fb1, (drmu_rect_t){100, 100, 1024, total_h});
     drmu_atomic_queue(&da);
 
     sleep(10);
 
-    if (drmu_atomic_commit(save, DRM_MODE_ATOMIC_ALLOW_MODESET) != 0)
-        fprintf(stderr, "Failed restore\n");
-
 fail:
-    drmu_atomic_unref(&save);
     drmu_atomic_unref(&da);
     drmu_fb_unref(&fb1);
     drmu_plane_delete(&p1);
