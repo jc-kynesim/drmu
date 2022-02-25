@@ -1,0 +1,22 @@
+Compile is quite simple (Pi):
+
+sudo apt install meson\
+ libavutil-dev libavcodec-dev libavfilter-dev\
+ libdrm-dev libxcb1-dev libxcb-randr0-dev libx11-dev\
+ libx11-xcb-dev libxcb-dri3-dev
+meson setup build
+cd build
+meson compile
+
+This builds various executables
+
+hello_drmu    A demo of how to use drmu to play video from libav*
+              Very similar to my hello_drmprime project
+
+resethdr      Trivial utility to reset HDR if it has become set and is burning
+              your eyes
+
+10bittest     Tries to set 10 bit mode and displays graduated colour bars
+              Hit return to terminate
+
+argbtest      Trivial test prog to check colour ordering in ARGB
