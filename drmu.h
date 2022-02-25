@@ -245,6 +245,10 @@ typedef struct drmu_mode_pick_simple_params_s {
 } drmu_mode_pick_simple_params_t;
 drmu_mode_score_fn drmu_mode_pick_simple_cb;
 
+// Get simple properties of a mode_id
+// If mode_id == -1 retrieves params for current mode
+drmu_mode_pick_simple_params_t drmu_crtc_mode_simple_params(const drmu_crtc_t * const dc, const int mode_id);
+
 drmu_crtc_t * drmu_crtc_new_find(drmu_env_t * const du);
 
 // False set max_bpc to 8, true max value

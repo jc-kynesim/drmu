@@ -1640,6 +1640,22 @@ fail:
     return NULL;
 }
 
+drmu_mode_pick_simple_params_t
+drmu_crtc_mode_simple_params(const drmu_crtc_t * const dc, const int mode_id)
+{
+    drmu_mode_pick_simple_params_t params = { 0 };
+
+    if (mode_id >= -1 && mode_id < dc->con->count_modes) {
+        const struct drm_mode_modeinfo * const mode = mode_id == -1 ?
+            &dc->crtc.mode :
+            (const struct drm_mode_modeinfo *)(dc->con->modes + mode_id);
+        params.width = mode->hdisplay;
+        params.height = mode->vdisplay;
+        params.hz_x_1000 = (uint32_t)(((uint64_t)mode->clock * 1000000) / (mode->htotal * mode->vtotal));
+    }
+    return params;
+}
+
 int
 drmu_mode_pick_simple_cb(void * v, const drmModeModeInfo * mode)
 {
@@ -2485,8 +2501,15 @@ drmu_env_delete(drmu_env_t ** const ppdu)
 
     if (du->da_restore) {
         int rv;
-        if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
+        if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
             drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
+            if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG) {
+                drmu_atomic_t * bad = drmu_atomic_new(du);
+                drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, bad);
+                drmu_atomic_dump(bad);
+                drmu_atomic_unref(&bad);
+            }
+        }
         drmu_atomic_unref(&du->da_restore);
     }
 
@@ -2555,7 +2578,7 @@ drmu_env_polltask_cb(void * v, short revents)
     };
 
     if (revents == 0) {
-        drmu_warn(du, "%s: Timeout", __func__);
+        drmu_debug(du, "%s: Timeout", __func__);
     }
     else {
         drmHandleEvent(du->fd, &ctx);
