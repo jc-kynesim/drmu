@@ -36,7 +36,7 @@
 #define DRM_MODULE "vc4"
 
 #define STRIPES (7 * 4 * 2)
-#define SWIDTH 1024
+#define SWIDTH 256
 
 static void
 fillstripe(uint8_t * const p,
@@ -57,22 +57,67 @@ fillstripe(uint8_t * const p,
 }
 
 static void
-fillgraduated10(uint8_t * const p, const unsigned int h, const unsigned int k)
+fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
-    const unsigned int w = SWIDTH;
-    const unsigned int stripestride = h * w * k * 4;
+    const unsigned int vstripes = 4;
+    const unsigned int w = (1024 / vstripes);
+    const unsigned int k = dw / w;
+    const unsigned int h = dh / (vstripes * 2 * 8);
+    const unsigned int stripestride = h * stride;
+
     for (i = 1; i != 8; ++i) {
         uint8_t * const p1 = p + (i - 1) * 8 * stripestride;
         for (j = 0; j != 4; ++j) {
             uint8_t * const p2 = p1  + j * 2 * stripestride;
+            uint32_t inc8  = ((i & 1) << 2) | ((i & 2) << 11) | ((i & 4) << 20);
+            uint32_t inc10 = ((i & 1) << 0) | ((i & 2) << 9)  | ((i & 4) << 18);
+            uint32_t val0 = (3U << 30) | (inc10 * w * j);
             fillstripe(p2,
-                       w, h, w * 4 * k, 4 * k,
-                       (j << 30), ((i & 1) << 2) | ((i & 2) << 11) | ((i & 4) << 20));
+                       w / 4, h, stride, 4 * k,
+                       val0,
+                       inc8);
             fillstripe(p2 + stripestride,
-                       w, h, w * 4 * k, k,
-                       (j << 30), ((i & 1) << 0) | ((i & 2) << 9) | ((i & 4) << 18));
+                       w, h, stride, k,
+                       val0, inc10);
         }
+    }
+}
+
+static void
+fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
+{
+    unsigned int j;
+    const unsigned int vstripes = 16;
+    const unsigned int w = (1024 / vstripes);
+    const unsigned int k = dw / w;
+    const unsigned int h = dh / (vstripes * 2);
+    const unsigned int stripestride = h * stride;
+
+    for (j = 0; j != vstripes; ++j) {
+        uint8_t * const p2 = p  + j * 2 * stripestride;
+        uint32_t inc8  = (1 << 2) | (2 << 11) | (4 << 20);
+        uint32_t inc10 = (1 << 0) | (2 << 9)  | (4 << 18);
+        uint32_t val0 = (3U << 30) | (inc10 * w * j);
+        fillstripe(p2,
+                   w / 4, h, stride, 4 * k,
+                   val0,
+                   inc8);
+        fillstripe(p2 + stripestride,
+                   w, h, stride, k,
+                   val0, inc10);
+    }
+}
+
+static void
+allgrey(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride)
+{
+    unsigned int i;
+    for (i = 0; i != dh; ++i) {
+        unsigned int j;
+        uint32_t * p = (uint32_t *)(data + i * stride);
+        for (j = 0; j != dw; ++j)
+            *p++ = ((3U << 30) | (1 << 29) | (1 << 19) | (1 << 9));
     }
 }
 
@@ -93,20 +138,29 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 
 int main(int argc, char *argv[])
 {
-    unsigned int i;
-
     drmu_env_t * du = NULL;
     drmu_crtc_t * dc = NULL;
-    drmu_plane_t * p0 = NULL;
     drmu_plane_t * p1 = NULL;
-    drmu_fb_t * fb0 = NULL;
     drmu_fb_t * fb1 = NULL;
     drmu_atomic_t * da = NULL;
-    unsigned int total_h;
-    unsigned int total_w;
-    unsigned int stripe_h, width_k;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     unsigned int dw, dh;
+    unsigned int stride;
+    uint8_t * data;
+    int grey_only = 1;
+
+    if (argc == 1)
+        grey_only = 0;
+    else if (argc == 2 && strcmp(argv[1], "-g") == 0)
+        grey_only = 1;
+    else {
+        printf("Usage: 10bittest [-g]\n\n"
+               "-g  grey blocks only, otherwise colour stripes\n\n"
+               "Hit return to exit\n\n"
+               "Each stripe has values incrementing as for 8-bit data at the top and\n"
+               "incrementing for 10-bit at the bottom\n");
+        exit(1);
+    }
 
     (void)argc;
     (void)argv;
@@ -132,43 +186,28 @@ int main(int argc, char *argv[])
     dw = drmu_crtc_width(dc);
     dh = drmu_crtc_height(dc);
 
-    stripe_h = dh / STRIPES;
-    total_h = stripe_h * STRIPES;
-    width_k = dw / SWIDTH;
-    total_w = width_k * SWIDTH;
-
-    // **** Plane selection needs noticable improvement
-    // This wants to be the primary
-    if ((p0 = drmu_plane_new_find(dc, DRM_FORMAT_ARGB8888)) == NULL)
-        goto fail;
-
-    {
-        unsigned int n = 0;
-        const uint32_t * p = drmu_plane_formats(p0, &n);
-        for (i = 0; i != n; ++i, ++p) {
-            printf("Format[%d]: %.4s\n", i, (const char *)p);
-        }
-    }
-
-
     if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL)
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
 
-    fb0 = drmu_fb_new_dumb(du, 128, 128, DRM_FORMAT_ARGB8888);
-    memset(drmu_fb_data(fb0, 0), 128, 128*128*4);
+    if ((fb1 = drmu_fb_new_dumb(du, dw, dh, p1fmt)) == NULL) {
+        fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
+        goto fail;
+    }
 
-    if ((fb1 = drmu_fb_new_dumb(du, total_w, total_h, p1fmt)) == NULL)
-        fprintf(stderr, "Cannot find make dumb for %s\n", drmu_log_fourcc(p1fmt));
+    stride = drmu_fb_pitch(fb1, 0);
+    data = drmu_fb_data(fb1, 0);
+
+    // Start with grey fill
+    allgrey(data, dw, dh, stride);
+
+    if (grey_only)
+        fillgradgrey10(data, dw, dh, stride);
     else
-        fillgraduated10(drmu_fb_data(fb1, 0), stripe_h, width_k);
+        fillgraduated10(data, dw, dh, stride);
 
     da = drmu_atomic_new(du);
 
-    drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(dw, dh));
-    if (total_h > dh || total_w > dw)
-        drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
-    else
-        drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(total_w, total_h));
+    drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
 
     static const struct hdr_output_metadata meta = {
         .metadata_type = HDMI_STATIC_METADATA_TYPE1,
@@ -192,14 +231,12 @@ int main(int argc, char *argv[])
 
     drmu_atomic_queue(&da);
 
-    sleep(10);
+    getchar();
 
 fail:
     drmu_atomic_unref(&da);
     drmu_fb_unref(&fb1);
     drmu_plane_delete(&p1);
-    drmu_fb_unref(&fb0);
-    drmu_plane_delete(&p0);
     drmu_crtc_delete(&dc);
     drmu_env_delete(&du);
     return 0;
