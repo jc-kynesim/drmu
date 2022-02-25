@@ -22,6 +22,7 @@
 // *** This module is a work in progress and its utility is strictly
 //     limited to testing.
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -136,6 +137,47 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
     fwrite(buf, n + 1, 1, stderr);
 }
 
+static int
+parse_mode(const char * s, unsigned int * pw, unsigned int * ph, unsigned int * phz)
+{
+    unsigned long w = 0, h = 0, hz = 0;
+    if (isdigit(*s)) {
+        w = strtoul(s, (char **)&s, 10);
+        if (*s != 'x')
+            return -1;
+        h = strtoul(s + 1, (char **)&s, 10);
+    }
+
+    if (*s == '@')
+        hz = strtoul(s + 1, (char **)&s, 10) * 1000;
+    if (*s == '.') {
+        unsigned int m = 100;
+        while (isdigit(*++s)) {
+            hz += (*s - '0') * m;
+            m /= 10;
+        }
+    }
+
+    if (*s != '\0')
+        return -1;
+
+    *pw = (unsigned int)w;
+    *ph = (unsigned int)h;
+    *phz = (unsigned int)hz;
+    return 0;
+}
+
+static void
+usage()
+{
+    printf("Usage: 10bittest [-g]\n\n"
+           "-g  grey blocks only, otherwise colour stripes\n\n"
+           "Hit return to exit\n\n"
+           "Each stripe has values incrementing as for 8-bit data at the top and\n"
+           "incrementing for 10-bit at the bottom\n");
+    exit(1);
+}
+
 int main(int argc, char *argv[])
 {
     drmu_env_t * du = NULL;
@@ -144,32 +186,47 @@ int main(int argc, char *argv[])
     drmu_fb_t * fb1 = NULL;
     drmu_atomic_t * da = NULL;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
-    unsigned int dw, dh;
+    unsigned int dw = 0, dh = 0;
+    unsigned int hz = 0;
     unsigned int stride;
     uint8_t * data;
-    int grey_only = 1;
+    bool grey_only = false;
+    bool mode_req = false;
+    bool hi_bpc = true;
+    int verbose = 0;
+    int c;
 
-    if (argc == 1)
-        grey_only = 0;
-    else if (argc == 2 && strcmp(argv[1], "-g") == 0)
-        grey_only = 1;
-    else {
-        printf("Usage: 10bittest [-g]\n\n"
-               "-g  grey blocks only, otherwise colour stripes\n\n"
-               "Hit return to exit\n\n"
-               "Each stripe has values incrementing as for 8-bit data at the top and\n"
-               "incrementing for 10-bit at the bottom\n");
-        exit(1);
+    while ((c = getopt(argc, argv, "8gv")) != -1) {
+        switch (c) {
+            case 'g':
+                grey_only = true;
+                break;
+            case '8':
+                hi_bpc = false;
+                break;
+            case 'v':
+                ++verbose;
+                break;
+            default:
+                usage();
+        }
     }
 
-    (void)argc;
-    (void)argv;
+    if (optind < argc) {
+        if (parse_mode(argv[optind], &dw, &dh, &hz) == 0) {
+            mode_req = true;
+            ++optind;
+        }
+    }
+
+    if (optind != argc)
+        usage();
 
     {
         const drmu_log_env_t log = {
             .fn = drmu_log_stderr_cb,
             .v = NULL,
-            .max_level = DRMU_LOG_LEVEL_ALL
+            .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
         if ((du = drmu_env_new_xlease(&log)) == NULL &&
             (du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
@@ -179,15 +236,56 @@ int main(int argc, char *argv[])
     drmu_env_restore_enable(du);
     drmu_env_modeset_allow(du, true);
 
+    da = drmu_atomic_new(du);
+
     if ((dc = drmu_crtc_new_find(du)) == NULL)
         goto fail;
 
-    drmu_crtc_max_bpc_allow(dc, 1);
-    dw = drmu_crtc_width(dc);
-    dh = drmu_crtc_height(dc);
+    drmu_crtc_max_bpc_allow(dc, hi_bpc);
 
-    if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL)
+    if (!mode_req) {
+        drmu_mode_pick_simple_params_t pickparam = drmu_crtc_mode_simple_params(dc, -1);
+        dw = pickparam.width;
+        dh = pickparam.height;
+        printf("Mode %dx%d@%d.%03d\n",
+               pickparam.width, pickparam.height, pickparam.hz_x_1000 / 1000, pickparam.hz_x_1000 % 1000);
+    }
+    else
+    {
+        drmu_mode_pick_simple_params_t pickparam = drmu_crtc_mode_simple_params(dc, -1);
+        int mode;
+
+        if (dw || dh) {
+            pickparam.width = dw;
+            pickparam.height = dh;
+        }
+        pickparam.hz_x_1000 = hz;  // 0 is legit -pick something
+
+        mode = drmu_crtc_mode_pick(dc, drmu_mode_pick_simple_cb, &pickparam);
+
+        if (mode != -1) {
+            const drmu_mode_pick_simple_params_t m = drmu_crtc_mode_simple_params(dc, mode);
+            printf("Mode requested %dx%d@%d.%03d; found %dx%d@%d.%03d\n",
+                   pickparam.width, pickparam.height, pickparam.hz_x_1000 / 1000, pickparam.hz_x_1000 % 1000,
+                   m.width, m.height, m.hz_x_1000 / 1000, m.hz_x_1000 % 1000);
+
+            if (m.width != pickparam.width || m.height != pickparam.height ||
+                !(pickparam.hz_x_1000 == 0 ||
+                  (pickparam.hz_x_1000 < m.hz_x_1000 + 100 && pickparam.hz_x_1000 + 100 > m.hz_x_1000))) {
+                fprintf(stderr, "Mode not close enough\n");
+                goto fail;
+            }
+
+            drmu_atomic_crtc_mode_id_set(da, dc, mode);
+        }
+    }
+    printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
+
+
+    if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL) {
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
+        goto fail;
+    }
 
     if ((fb1 = drmu_fb_new_dumb(du, dw, dh, p1fmt)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
@@ -204,8 +302,6 @@ int main(int argc, char *argv[])
         fillgradgrey10(data, dw, dh, stride);
     else
         fillgraduated10(data, dw, dh, stride);
-
-    da = drmu_atomic_new(du);
 
     drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
 
@@ -226,7 +322,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed metadata set");
     if (drmu_atomic_crtc_colorspace_set(da, dc, "BT2020_RGB") != 0)
         fprintf(stderr, "Failed colorspace set\n");
-    if (drmu_atomic_crtc_hi_bpc_set(da, dc, true) != 0)
+    if (drmu_atomic_crtc_hi_bpc_set(da, dc, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
     drmu_atomic_queue(&da);
