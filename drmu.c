@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 // Update return value with a new one for cases where we don't stop on error
@@ -176,6 +177,35 @@ drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len)
 
     atomic_init(&blob->ref_count, 0);
     blob->blob_id = cblob.blob_id;
+    return blob;
+}
+
+// Copy existing blob into a new one
+// Useful when saving preexisiting values
+drmu_blob_t *
+drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id)
+{
+    drmu_blob_t * blob = NULL;
+    void * data;
+    struct drm_mode_get_blob gblob = {.blob_id = blob_id};
+
+    if (blob_id == 0)
+        return NULL;
+
+    if (drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPBLOB, &gblob) != 0)
+        return NULL;
+
+    if (gblob.length == 0)
+        return NULL;
+
+    if ((data = malloc(gblob.length)) == NULL)
+        return NULL;
+
+    gblob.data = (uintptr_t)data;
+    if (drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPBLOB, &gblob) == 0)
+        blob = drmu_blob_new(du, data, gblob.length);
+
+    free(data);
     return blob;
 }
 
@@ -1341,15 +1371,31 @@ drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const
 {
     unsigned int i;
     int rv;
+    drmu_env_t * const du = drmu_atomic_env(da);
 
     if (props == NULL)
         return 0;
-    if (da == NULL)
+    if (du == NULL)
         return -EINVAL;
 
     for (i = 0; i != props->n; ++i) {
         if ((props->info[i].prop.flags & DRM_MODE_PROP_IMMUTABLE) != 0)
             continue;
+
+        // Blobs, if set, are prone to running out of refs and vanishing, so we
+        // must copy. If we fail to copy the blob for any reason drop through
+        // to the generic add and hope that that will do
+        if ((props->info[i].prop.flags & DRM_MODE_PROP_BLOB) != 0) {
+            drmu_blob_t * b = drmu_blob_copy_id(du, (uint32_t)props->info[i].val);
+            if (b != NULL) {
+                rv = drmu_atomic_add_prop_blob(da, objid, props->info[i].prop.prop_id, b);
+                drmu_blob_unref(&b);
+                if (rv == 0)
+                    continue;
+            }
+        }
+
+        // Generic value
         if ((rv = drmu_atomic_add_prop_generic(da, objid, props->info[i].prop.prop_id, props->info[i].val, 0, 0, NULL)) != 0)
             return rv;
     }
@@ -1953,7 +1999,31 @@ drmu_atomic_page_flip_cb(int fd, unsigned int sequence, unsigned int tv_sec, uns
     if (aq->next_flip != NULL)
         atomic_q_attempt_commit_next(aq);
 
+    pthread_cond_broadcast(&aq->cond);
     pthread_mutex_unlock(&aq->lock);
+}
+
+static int
+atomic_q_flush(drmu_atomic_q_t * const aq)
+{
+    struct timespec ts;
+    int rv = 0;
+
+    pthread_mutex_lock(&aq->lock);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
+
+    // Can flush next safely
+    drmu_atomic_unref(&aq->next_flip);
+
+    // Wait for cur to finish - seems to confuse the world otherwise
+    while (aq->cur_flip != NULL) {
+        if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
+            break;
+    }
+
+    pthread_mutex_unlock(&aq->lock);
+    return rv;
 }
 
 // 'consumes' da
@@ -1994,21 +2064,51 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
     return atomic_q_queue(&drmu_atomic_env(da)->aq, da);
 }
 
+int
+drmu_env_queue_wait(drmu_env_t * const du)
+{
+
+    drmu_atomic_q_t *const aq = &du->aq;
+    struct timespec ts;
+    int rv = 0;
+
+    pthread_mutex_lock(&aq->lock);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
+
+    // Next should clear quickly
+    while (aq->next_flip != NULL) {
+        if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
+            break;
+    }
+
+    pthread_mutex_unlock(&aq->lock);
+    return rv;
+}
+
 static void
-drmu_atomic_q_uninit(drmu_atomic_q_t * const aq)
+atomic_q_uninit(drmu_atomic_q_t * const aq)
 {
     polltask_delete(&aq->retry_task);
     drmu_atomic_unref(&aq->next_flip);
     drmu_atomic_unref(&aq->cur_flip);
     drmu_atomic_unref(&aq->last_flip);
+    pthread_cond_destroy(&aq->cond);
     pthread_mutex_destroy(&aq->lock);
 }
 
 static void
-drmu_atomic_q_init(drmu_atomic_q_t * const aq)
+atomic_q_init(drmu_atomic_q_t * const aq)
 {
+    pthread_condattr_t condattr;
+
     aq->next_flip = NULL;
     pthread_mutex_init(&aq->lock, NULL);
+
+    pthread_condattr_init(&condattr);
+    pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
+    pthread_cond_init(&aq->cond, &condattr);
+    pthread_condattr_destroy(&condattr);
 }
 
 //----------------------------------------------------------------------------
@@ -2494,21 +2594,27 @@ drmu_env_delete(drmu_env_t ** const ppdu)
         return;
     *ppdu = NULL;
 
+    atomic_q_flush(&du->aq);
+
     pollqueue_unref(&du->pq);
     polltask_delete(&du->pt);
 
-    drmu_atomic_q_uninit(&du->aq);
+    atomic_q_uninit(&du->aq);
 
     if (du->da_restore) {
         int rv;
         if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
-            drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
-            if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG) {
-                drmu_atomic_t * bad = drmu_atomic_new(du);
-                drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, bad);
+            drmu_atomic_t * bad = drmu_atomic_new(du);
+            drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, bad);
+            drmu_atomic_sub(du->da_restore, bad);
+            if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
+                drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
+            else
+                drmu_err(du, "Failed to completely restore old mode on exit");
+
+            if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG)
                 drmu_atomic_dump(bad);
-                drmu_atomic_unref(&bad);
-            }
+            drmu_atomic_unref(&bad);
         }
         drmu_atomic_unref(&du->da_restore);
     }
@@ -2603,7 +2709,7 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     du->modeset_allow = true;
 
     drmu_bo_env_init(&du->boe);
-    drmu_atomic_q_init(&du->aq);
+    atomic_q_init(&du->aq);
 
     if ((du->pq = pollqueue_new()) == NULL) {
         drmu_err(du, "Failed to create pollqueue");

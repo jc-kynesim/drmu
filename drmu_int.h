@@ -136,6 +136,7 @@ typedef struct drmu_plane_s {
 
 typedef struct drmu_atomic_q_s {
     pthread_mutex_t lock;
+    pthread_cond_t cond;
     drmu_atomic_t * next_flip;
     drmu_atomic_t * cur_flip;
     drmu_atomic_t * last_flip;

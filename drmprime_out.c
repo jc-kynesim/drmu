@@ -78,6 +78,7 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
         return AVERROR(EINVAL);
     }
 
+    drmu_env_queue_wait(de->du);
     {
         drmu_atomic_t * da = drmu_atomic_new(de->du);
         drmu_fb_t * dfb = drmu_fb_av_new_frame_attach(de->du, src_frame);

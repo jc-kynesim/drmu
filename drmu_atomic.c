@@ -262,7 +262,10 @@ aprop_obj_dump(drmu_env_t * const du, const aprop_obj_t * const po)
     unsigned int i;
     drmu_info(du, "Obj: %02x: size %d n %d", po->id, po->size, po->n);
     for (i = 0; i != po->n; ++i) {
-        drmu_info(du, "Obj %02x: Prop %02x Value %"PRIx64" v %p", po->id, po->props[i].id, po->props[i].value, po->props[i].v);
+        struct drm_mode_get_property pattr = {.prop_id = po->props[i].id};
+        drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPERTY, &pattr);
+
+        drmu_info(du, "Obj %02x: Prop %02x (%s) Value %"PRIx64" v %p", po->id, po->props[i].id, pattr.name, po->props[i].value, po->props[i].v);
     }
 }
 

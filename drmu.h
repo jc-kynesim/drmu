@@ -109,6 +109,8 @@ void drmu_blob_unref(drmu_blob_t ** const ppBlob);
 uint32_t drmu_blob_id(const drmu_blob_t * const blob);
 drmu_blob_t * drmu_blob_ref(drmu_blob_t * const blob);
 drmu_blob_t * drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len);
+// Create a new blob from an existing blob_id
+drmu_blob_t * drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id);
 int drmu_atomic_add_prop_blob(struct drmu_atomic_s * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_blob_t * const blob);
 
 // Enum & bitmask
@@ -297,7 +299,11 @@ int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * con
 struct drmu_log_env_s;
 
 // Q the atomic on its associated env
+// If there is a pending commit this atomic wiill be merged with it
 int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
+// Wait for there to be no pending commit (there may be a commit in
+// progress)
+int drmu_env_queue_wait(drmu_env_t * const du);
 
 // Do ioctl - returns -errno on error, 0 on success
 // deals with recalling the ioctl when required
