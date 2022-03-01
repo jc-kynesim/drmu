@@ -3,7 +3,7 @@ project(
 	default_options: ['warning_level=3',
 		'werror=true',
 		'buildtype=debugoptimized',
-		'optimisation=3']
+		'default_library=static']
 )
 
 libavutil_dep = dependency('libavutil')
