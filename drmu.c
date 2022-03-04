@@ -1863,20 +1863,19 @@ drmu_atomic_crtc_mode_id_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
     if (mode_id < 0 || dc->pid.mode_id == 0 || !du->modeset_allow)
         return 0;
 
-    if (dc->cur_mode_id == mode_id && dc->mode_id_blob != NULL)
-        return 0;
+    if (dc->cur_mode_id != mode_id || dc->mode_id_blob == NULL) {
+        mode = (const struct drm_mode_modeinfo *)(dc->con->modes + mode_id);
+        if ((blob = drmu_blob_new(du, mode, sizeof(*mode))) == NULL) {
+            return -ENOMEM;
+        }
 
-    mode = (const struct drm_mode_modeinfo *)(dc->con->modes + mode_id);
-    if ((blob = drmu_blob_new(du, mode, sizeof(*mode))) == NULL) {
-        return -ENOMEM;
+        drmu_blob_unref(&dc->mode_id_blob);
+        dc->cur_mode_id = mode_id;
+        dc->mode_id_blob = blob;
+
+        dc->crtc.mode = *mode;
+        crtc_mode_set_vars(dc);
     }
-
-    drmu_blob_unref(&dc->mode_id_blob);
-    dc->cur_mode_id = mode_id;
-    dc->mode_id_blob = blob;
-
-    dc->crtc.mode = *mode;
-    crtc_mode_set_vars(dc);
 
     return drmu_atomic_add_prop_blob(da, dc->enc->crtc_id, dc->pid.mode_id, dc->mode_id_blob);
 }
