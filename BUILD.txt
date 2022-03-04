@@ -18,5 +18,6 @@ resethdr      Trivial utility to reset HDR if it has become set and is burning
 
 10bittest     Tries to set 10 bit mode and displays graduated colour bars
               Hit return to terminate
+	      "./10bittest -h" should give options
 
 argbtest      Trivial test prog to check colour ordering in ARGB

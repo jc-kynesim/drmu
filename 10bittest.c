@@ -58,6 +58,22 @@ fillstripe(uint8_t * const p,
 }
 
 static void
+fillpin(uint8_t * const p,
+           const unsigned int w, const unsigned int h, const unsigned int stride,
+           const unsigned int r,
+           const uint32_t val0)
+{
+    unsigned int i, j;
+    for (i = 0; i != h; ++i) {
+        uint32_t * p2 = (uint32_t *)( p + i * stride);
+        for (j = 0; j != w; ++j) {
+            *p2++ = (j % r == 0) ? val0 : 0;
+        }
+    }
+}
+
+
+static void
 fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
@@ -107,6 +123,25 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
         fillstripe(p2 + stripestride,
                    w, h, stride, k,
                    val0, inc10);
+    }
+}
+
+static void
+fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
+{
+    unsigned int i, j;
+    const unsigned int vstripes = 8;
+    const unsigned int h = dh / (vstripes * 7);
+    const unsigned int stripestride = h * stride;
+
+    for (i = 0; i != vstripes; ++i) {
+        uint8_t * const p1 = p + i * 7 * stripestride;
+        for (j = 1; j != 8; ++j) {
+            uint8_t * const p2 = p1 + (j - 1) * stripestride;
+            uint32_t inc10 = ((j & 1) << 0) | ((j & 2) << 9)  | ((j & 4) << 18);
+            uint32_t val0 = (3U << 30) | (inc10 << 9);
+            fillpin(p2 + stripestride, dw, h, stride, i + 2, val0);
+        }
     }
 }
 
@@ -170,11 +205,18 @@ parse_mode(const char * s, unsigned int * pw, unsigned int * ph, unsigned int * 
 static void
 usage()
 {
-    printf("Usage: 10bittest [-g]\n\n"
-           "-g  grey blocks only, otherwise colour stripes\n\n"
-           "Hit return to exit\n\n"
-           "Each stripe has values incrementing as for 8-bit data at the top and\n"
-           "incrementing for 10-bit at the bottom\n");
+    printf("Usage: 10bittest [-g|-p] [-8] [-v] [<w>x<h>][@<hz>]\n\n"
+           "-g  grey blocks only, otherwise colour stripes\n"
+           "-p  pinstripes\n"
+           "-8  keep max_bpc 8\n"
+           "-v  verbose\n"
+           "\n"
+           "Hit return to exit\n"
+           "\n"
+           "Stripes have values incrementing as for 8-bit data at the top and\n"
+           "incrementing for 10-bit at the bottom\n"
+           "Pinstripes iterate through the 7 easy colours and then get 1 pixel\n"
+           "wider on repeat\n");
     exit(1);
 }
 
@@ -191,15 +233,19 @@ int main(int argc, char *argv[])
     unsigned int stride;
     uint8_t * data;
     bool grey_only = false;
+    bool fill_pin = false;
     bool mode_req = false;
     bool hi_bpc = true;
     int verbose = 0;
     int c;
 
-    while ((c = getopt(argc, argv, "8gv")) != -1) {
+    while ((c = getopt(argc, argv, "8gpv")) != -1) {
         switch (c) {
             case 'g':
                 grey_only = true;
+                break;
+            case 'p':
+                fill_pin = true;
                 break;
             case '8':
                 hi_bpc = false;
@@ -298,7 +344,9 @@ int main(int argc, char *argv[])
     // Start with grey fill
     allgrey(data, dw, dh, stride);
 
-    if (grey_only)
+    if (fill_pin)
+        fillpin10(data, dw, dh, stride);
+    else if (grey_only)
         fillgradgrey10(data, dw, dh, stride);
     else
         fillgraduated10(data, dw, dh, stride);
