@@ -323,7 +323,16 @@ int main(int argc, char *argv[])
             }
 
             drmu_atomic_crtc_mode_id_set(da, dc, mode);
+
+            dw = m.width;
+            dh = m.height;
         }
+        else {
+            fprintf(stderr, "No mode that matches request found\n");
+            goto fail;
+        }
+
+
     }
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
 
