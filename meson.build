@@ -11,7 +11,7 @@ threads_dep = dependency('threads')
 libdrm_dep = dependency('libdrm')
 
 drmu_base = library('drmu_base',
-	'drmu.c', 'drmu_atomic.c', 'pollqueue.c',
+	'drmu.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
 	dependencies : [
 		threads_dep,
 		libdrm_dep

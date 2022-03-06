@@ -30,6 +30,7 @@
 
 #include "drmu.h"
 #include "drmu_log.h"
+#include "drmu_util.h"
 #include <drm_fourcc.h>
 
 #define TRACE_ALL 0
@@ -172,36 +173,6 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
     fwrite(buf, n + 1, 1, stderr);
 }
 
-static int
-parse_mode(const char * s, unsigned int * pw, unsigned int * ph, unsigned int * phz)
-{
-    unsigned long w = 0, h = 0, hz = 0;
-    if (isdigit(*s)) {
-        w = strtoul(s, (char **)&s, 10);
-        if (*s != 'x')
-            return -1;
-        h = strtoul(s + 1, (char **)&s, 10);
-    }
-
-    if (*s == '@')
-        hz = strtoul(s + 1, (char **)&s, 10) * 1000;
-    if (*s == '.') {
-        unsigned int m = 100;
-        while (isdigit(*++s)) {
-            hz += (*s - '0') * m;
-            m /= 10;
-        }
-    }
-
-    if (*s != '\0')
-        return -1;
-
-    *pw = (unsigned int)w;
-    *ph = (unsigned int)h;
-    *phz = (unsigned int)hz;
-    return 0;
-}
-
 static void
 usage()
 {
@@ -259,7 +230,7 @@ int main(int argc, char *argv[])
     }
 
     if (optind < argc) {
-        if (parse_mode(argv[optind], &dw, &dh, &hz) == 0) {
+        if (*drmu_util_parse_mode(argv[optind], &dw, &dh, &hz) == '\0') {
             mode_req = true;
             ++optind;
         }
