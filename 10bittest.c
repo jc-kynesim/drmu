@@ -205,10 +205,11 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-g|-p|-y <y>,<u>,<v>] [-8] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-g|-p|-y <y>,<u>,<v>] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
-           "-y  solid y,u,v 10-bit values"
+           "-y  solid y,u,v 10-bit values\n"
+           "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
            "-v  verbose\n"
            "\n"
@@ -234,6 +235,7 @@ int main(int argc, char *argv[])
     unsigned int hz = 0;
     unsigned int stride;
     uint8_t * data;
+    const char * colorspace = "BT2020_RGB";
     bool grey_only = false;
     bool fill_pin = false;
     bool fill_yuv = false;
@@ -243,8 +245,11 @@ int main(int argc, char *argv[])
     int c;
     unsigned long fillvals[3] = {0};
 
-    while ((c = getopt(argc, argv, "8gpvy:")) != -1) {
+    while ((c = getopt(argc, argv, "8c:gpvy:")) != -1) {
         switch (c) {
+            case 'c':
+                colorspace = optarg;
+                break;
             case 'g':
                 grey_only = true;
                 break;
@@ -398,10 +403,14 @@ int main(int argc, char *argv[])
             .max_fall = 400
         }
     };
-    if (drmu_atomic_crtc_hdr_metadata_set(da, dc, &meta) != 0)
+    if (drmu_atomic_crtc_hdr_metadata_set(da, dc, &meta) != 0) {
         fprintf(stderr, "Failed metadata set");
-    if (drmu_atomic_crtc_colorspace_set(da, dc, "BT2020_RGB") != 0)
-        fprintf(stderr, "Failed colorspace set\n");
+        goto fail;
+    }
+    if (drmu_atomic_crtc_colorspace_set(da, dc, colorspace) != 0) {
+        fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
+        goto fail;
+    }
     if (drmu_atomic_crtc_hi_bpc_set(da, dc, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
