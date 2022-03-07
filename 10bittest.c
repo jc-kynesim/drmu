@@ -209,6 +209,8 @@ usage()
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
            "-y  solid y,u,v 10-bit values\n"
+           "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
+           "-r  YUV range full, limited (default)\n"
            "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
            "-v  verbose\n"
@@ -236,6 +238,8 @@ int main(int argc, char *argv[])
     unsigned int stride;
     uint8_t * data;
     const char * colorspace = "BT2020_RGB";
+    const char * encoding = "ITU-R BT.2020 YCbCr";
+    const char * range = "YCbCr limited range";
     bool grey_only = false;
     bool fill_pin = false;
     bool fill_yuv = false;
@@ -245,17 +249,43 @@ int main(int argc, char *argv[])
     int c;
     unsigned long fillvals[3] = {0};
 
-    while ((c = getopt(argc, argv, "8c:gpvy:")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:gpr:vy:")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
                 break;
+            case 'e': {
+                const char * s = optarg;
+                if (strcmp(s, "601") == 0)
+                    encoding = "ITU-R BT.601 YCbCr";
+                else if (strcmp(s, "709") == 0)
+                    encoding = "ITU-R BT.709 YCbCr";
+                else if (strcmp(s, "2020") == 0)
+                    encoding = "ITU-R BT.2020 YCbCr";
+                else {
+                    printf("Unrecognised encoding - valid values are 601, 709, 2020\n");
+                    exit(1);
+                }
+                break;
+            }
             case 'g':
                 grey_only = true;
                 break;
             case 'p':
                 fill_pin = true;
                 break;
+            case 'r': {
+                const char * s = optarg;
+                if (strcmp(s, "full") == 0)
+                    range = "YCbCr full range";
+                else if (strcmp(s, "limited") == 0)
+                    range = "YCbCr limited range";
+                else {
+                    printf("Unrecognised range - valid values are limited, full\n");
+                    exit(1);
+                }
+                break;
+            }
             case 'y': {
                 const char * s = optarg;
                 fillvals[0] = strtoul(s, (char**)&s, 0);
@@ -371,6 +401,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
+
+    if (fill_yuv)
+        drmu_fb_int_color_set(fb1, encoding, range, colorspace);
 
     stride = drmu_fb_pitch(fb1, 0);
     data = drmu_fb_data(fb1, 0);

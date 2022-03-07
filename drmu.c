@@ -1287,7 +1287,7 @@ static int
 props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype,
                      uint32_t ** const ppPropids, uint64_t ** const ppValues)
 {
-	struct drm_mode_obj_get_properties obj_props = {
+    struct drm_mode_obj_get_properties obj_props = {
         .obj_id = objid,
         .obj_type = objtype,
     };
