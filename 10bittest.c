@@ -33,6 +33,10 @@
 #include "drmu_util.h"
 #include <drm_fourcc.h>
 
+#ifndef DRM_FORMAT_P030
+#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
+#endif
+
 #define TRACE_ALL 0
 
 #define DRM_MODULE "vc4"
@@ -147,6 +151,31 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
 }
 
 static void
+fillyuv_sand30(uint8_t * const py, uint8_t * const pc, unsigned int dw, unsigned int dh, unsigned int stride2,
+               const unsigned long vals[3])
+{
+    unsigned int c;
+    const unsigned int colw = (128 / 4) * 3;
+    const unsigned int stride1 = 128;
+    const uint32_t y   = vals[0] | (vals[0] << 10) | (vals[0] << 20);
+    const uint32_t uv0 = vals[1] | (vals[2] << 10) | (vals[1] << 20);
+    const uint32_t uv1 = vals[2] | (vals[1] << 10) | (vals[2] << 20);
+
+    for (c = 0; c < (dw + colw - 1) / colw; ++c) {
+        unsigned int i;
+        uint32_t * py2 = (uint32_t *)(py + c * stride2 * stride1);
+        uint32_t * pc2 = (uint32_t *)(pc + c * stride2 * stride1);
+        for (i = 0; i != dh * stride1 / 4; ++i) {
+            *py2++ = y;
+        }
+        for (i = 0; i != dh/2 * stride1 / 8; ++i) {
+            *pc2++ = uv0;
+            *pc2++ = uv1;
+        }
+    }
+}
+
+static void
 allgrey(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i;
@@ -176,9 +205,10 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-g|-p] [-8] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-g|-p|-y <y>,<u>,<v>] [-8] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
+           "-y  solid y,u,v 10-bit values"
            "-8  keep max_bpc 8\n"
            "-v  verbose\n"
            "\n"
@@ -199,18 +229,21 @@ int main(int argc, char *argv[])
     drmu_fb_t * fb1 = NULL;
     drmu_atomic_t * da = NULL;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
+    uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
     unsigned int dw = 0, dh = 0;
     unsigned int hz = 0;
     unsigned int stride;
     uint8_t * data;
     bool grey_only = false;
     bool fill_pin = false;
+    bool fill_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
     int verbose = 0;
     int c;
+    unsigned long fillvals[3] = {0};
 
-    while ((c = getopt(argc, argv, "8gpv")) != -1) {
+    while ((c = getopt(argc, argv, "8gpvy:")) != -1) {
         switch (c) {
             case 'g':
                 grey_only = true;
@@ -218,6 +251,22 @@ int main(int argc, char *argv[])
             case 'p':
                 fill_pin = true;
                 break;
+            case 'y': {
+                const char * s = optarg;
+                fillvals[0] = strtoul(s, (char**)&s, 0);
+                if (*s != ',')
+                    usage();
+                fillvals[1] = strtoul(s + 1, (char**)&s, 0);
+                if (*s != ',')
+                    usage();
+                fillvals[2] = strtoul(s + 1, (char**)&s, 0);
+                if (*s != '\0')
+                    usage();
+                fill_yuv = true;
+                p1fmt = DRM_FORMAT_P030;
+                p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+                break;
+            }
             case '8':
                 hi_bpc = false;
                 break;
@@ -313,7 +362,7 @@ int main(int argc, char *argv[])
         goto fail;
     }
 
-    if ((fb1 = drmu_fb_new_dumb(du, dw, dh, p1fmt)) == NULL) {
+    if ((fb1 = drmu_fb_new_dumb_mod(du, dw, dh, p1fmt, p1mod)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
@@ -322,12 +371,15 @@ int main(int argc, char *argv[])
     data = drmu_fb_data(fb1, 0);
 
     // Start with grey fill
-    allgrey(data, dw, dh, stride);
+    if (!fill_yuv)
+        allgrey(data, dw, dh, stride);
 
     if (fill_pin)
         fillpin10(data, dw, dh, stride);
     else if (grey_only)
         fillgradgrey10(data, dw, dh, stride);
+    else if (fill_yuv)
+        fillyuv_sand30(data, drmu_fb_data(fb1, 1), dw, dh, drmu_fb_pitch2(fb1, 0), fillvals);
     else
         fillgraduated10(data, dw, dh, stride);
 
