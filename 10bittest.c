@@ -211,6 +211,8 @@ usage()
            "-y  solid y,u,v 10-bit values\n"
            "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
            "-r  YUV range full, limited (default)\n"
+           "-R  Broadcast RGB: auto, full (default), limited\n"
+           "    if -r set then defaults to that\n"
            "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
            "-v  verbose\n"
@@ -239,7 +241,8 @@ int main(int argc, char *argv[])
     uint8_t * data;
     const char * colorspace = "BT2020_RGB";
     const char * encoding = "ITU-R BT.2020 YCbCr";
-    const char * range = "YCbCr limited range";
+    const char * range = NULL;
+    const char * broadcast_rgb = NULL;
     bool grey_only = false;
     bool fill_pin = false;
     bool fill_yuv = false;
@@ -249,7 +252,7 @@ int main(int argc, char *argv[])
     int c;
     unsigned long fillvals[3] = {0};
 
-    while ((c = getopt(argc, argv, "8c:e:gpr:vy:")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:gpr:R:vy:")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -282,6 +285,20 @@ int main(int argc, char *argv[])
                     range = "YCbCr limited range";
                 else {
                     printf("Unrecognised range - valid values are limited, full\n");
+                    exit(1);
+                }
+                break;
+            }
+            case 'R': {
+                const char * s = optarg;
+                if (strcmp(s, "full") == 0)
+                    range = DRMU_CRTC_BROADCAST_RGB_FULL;
+                else if (strcmp(s, "limited") == 0)
+                    range = DRMU_CRTC_BROADCAST_RGB_LIMITED_16_235;
+                else if (strcmp(s, "auto") == 0)
+                    range = DRMU_CRTC_BROADCAST_RGB_AUTOMATIC;
+                else {
+                    printf("Unrecognised broadcast range - valid values are auto, limited, full\n");
                     exit(1);
                 }
                 break;
@@ -322,6 +339,14 @@ int main(int argc, char *argv[])
 
     if (optind != argc)
         usage();
+
+    if (broadcast_rgb == NULL)
+        broadcast_rgb = (range != NULL) ?
+            drmu_color_range_to_broadcast_rgb(range) :
+            DRMU_CRTC_BROADCAST_RGB_FULL;
+
+    if (range == NULL)
+        range = "YCbCr limited range";
 
     {
         const drmu_log_env_t log = {
@@ -390,7 +415,7 @@ int main(int argc, char *argv[])
 
     }
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
-
+    printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
     if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL) {
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
@@ -402,8 +427,10 @@ int main(int argc, char *argv[])
         goto fail;
     }
 
-    if (fill_yuv)
+    if (fill_yuv) {
         drmu_fb_int_color_set(fb1, encoding, range, colorspace);
+        printf("YUV encoding: %s, range %s\n", encoding, range);
+    }
 
     stride = drmu_fb_pitch(fb1, 0);
     data = drmu_fb_data(fb1, 0);
@@ -442,6 +469,10 @@ int main(int argc, char *argv[])
     }
     if (drmu_atomic_crtc_colorspace_set(da, dc, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
+        goto fail;
+    }
+    if (drmu_atomic_crtc_broadcast_rgb_set(da, dc, broadcast_rgb) != 0) {
+        fprintf(stderr, "Failed to set broadcast_rgb to '%s'\n", broadcast_rgb);
         goto fail;
     }
     if (drmu_atomic_crtc_hi_bpc_set(da, dc, hi_bpc) != 0)
