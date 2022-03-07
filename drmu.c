@@ -956,6 +956,24 @@ drmu_fb_colorspace_get(const drmu_fb_t * const dfb)
     return dfb->colorspace;
 }
 
+const char *
+drmu_color_range_to_broadcast_rgb(const char * const range)
+{
+    if (range == NULL)
+        return NULL;
+    else if (strcmp(range, "YCbCr full range") == 0)
+        return DRMU_CRTC_BROADCAST_RGB_FULL;
+    else if (strcmp(range, "YCbCr limited range") == 0)
+        return DRMU_CRTC_BROADCAST_RGB_LIMITED_16_235;
+    return NULL;
+}
+
+const char *
+drmu_fb_color_range_get(const drmu_fb_t * const dfb)
+{
+    return dfb->color_range;
+}
+
 const struct drmu_format_info_s *
 drmu_fb_format_info_get(const drmu_fb_t * const dfb)
 {
@@ -1487,6 +1505,7 @@ typedef struct drmu_crtc_s {
         // connection
         drmu_prop_range_t * max_bpc;
         drmu_prop_enum_t * colorspace;
+        drmu_prop_enum_t * broadcast_rgb;
         uint32_t hdr_output_metadata;
     } pid;
 
@@ -1716,6 +1735,7 @@ crtc_from_con_id(drmu_env_t * const du, const uint32_t con_id)
 #endif
             dc->pid.max_bpc             = drmu_prop_range_new(du, props_name_to_id(props, "max bpc"));
             dc->pid.colorspace          = drmu_prop_enum_new(du, props_name_to_id(props, "Colorspace"));
+            dc->pid.broadcast_rgb       = drmu_prop_enum_new(du, props_name_to_id(props, "Broadcast RGB"));
             dc->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
 
             // DPMS can't be set but that should be dealt with in general logic
@@ -1943,6 +1963,15 @@ drmu_atomic_crtc_colorspace_set(drmu_atomic_t * const da, drmu_crtc_t * const dc
     return drmu_atomic_add_prop_enum(da, dc->con->connector_id, dc->pid.colorspace, colorspace);
 }
 
+int
+drmu_atomic_crtc_broadcast_rgb_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, const char * bcrgb)
+{
+    if (!dc->du->modeset_allow || !dc->pid.broadcast_rgb)
+        return 0;
+
+    return drmu_atomic_add_prop_enum(da, dc->con->connector_id, dc->pid.broadcast_rgb, bcrgb);
+}
+
 // Set all the fb info props that might apply to a crtc on the crtc
 // (e.g. hdr_metadata, colorspace) but do not set the mode (resolution
 // and refresh)
@@ -1951,12 +1980,16 @@ drmu_atomic_crtc_fb_info_set(drmu_atomic_t * const da, drmu_crtc_t * const dc, c
 {
     const drmu_format_info_t * const fmt_info = drmu_fb_format_info_get(fb);
     const char * const colorspace = drmu_fb_colorspace_get(fb);
+    const char * const color_range = drmu_fb_color_range_get(fb);
     int rv = 0;
 
     if (fmt_info)
         rv = rvup(rv, drmu_atomic_crtc_hi_bpc_set(da, dc, (fmt_info->bit_depth > 8)));
     if (colorspace)
         rv = rvup(rv, drmu_atomic_crtc_colorspace_set(da, dc, colorspace));
+    if (color_range)
+        rv = rvup(rv, drmu_atomic_crtc_broadcast_rgb_set(da, dc,
+            drmu_color_range_to_broadcast_rgb(color_range)));
     if (drmu_fb_hdr_metadata_isset(fb))
         rv = rvup(rv, drmu_atomic_crtc_hdr_metadata_set(da, dc, drmu_fb_hdr_metadata_get(fb)));
     return rv;
