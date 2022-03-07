@@ -167,6 +167,7 @@ void drmu_fb_pre_delete_set(drmu_fb_t *const dfb, drmu_fb_pre_delete_fn fn, void
 void drmu_fb_pre_delete_unset(drmu_fb_t *const dfb);
 unsigned int drmu_fb_pixel_bits(const drmu_fb_t * const dfb);
 drmu_fb_t * drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format);
+drmu_fb_t * drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 drmu_fb_t * drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format);
 void drmu_fb_unref(drmu_fb_t ** const ppdfb);
 drmu_fb_t * drmu_fb_ref(drmu_fb_t * const dfb);
@@ -178,6 +179,8 @@ drmu_fb_t * drmu_fb_ref(drmu_fb_t * const dfb);
 int drmu_fb_pixel_blend_mode_set(drmu_fb_t *const dfb, const char * const mode);
 
 uint32_t drmu_fb_pitch(const drmu_fb_t *const dfb, const unsigned int layer);
+// Pitch2 is only a sand thing
+uint32_t drmu_fb_pitch2(const drmu_fb_t *const dfb, const unsigned int layer);
 void * drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer);
 uint32_t drmu_fb_width(const drmu_fb_t *const dfb);
 uint32_t drmu_fb_height(const drmu_fb_t *const dfb);

@@ -826,6 +826,21 @@ drmu_fb_pitch(const drmu_fb_t *const dfb, const unsigned int layer)
     return layer >= 4 ? 0 : dfb->fb.pitches[layer];
 }
 
+uint32_t
+drmu_fb_pitch2(const drmu_fb_t *const dfb, const unsigned int layer)
+{
+    if (layer < 4){
+        const uint64_t m = dfb->fb.modifier[layer];
+        const uint64_t s2 = fourcc_mod_broadcom_param(m);
+
+        // No good masks to check modifier so check if we convert back it matches
+        if (m != 0 && m != DRM_FORMAT_MOD_INVALID &&
+            DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(s2) == m)
+            return (uint32_t)s2;
+    }
+    return 0;
+}
+
 void *
 drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer)
 {
@@ -982,7 +997,7 @@ fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
 }
 
 static void
-fb_pitches_set(drmu_fb_t * const dfb)
+fb_pitches_set_mod(drmu_fb_t * const dfb, uint64_t mod)
 {
     const drmu_format_info_t *const f = dfb->fmt_info;
     const uint32_t pitch0 = dfb->map_pitch * f->planes[0].wdiv;
@@ -990,25 +1005,49 @@ fb_pitches_set(drmu_fb_t * const dfb)
     uint32_t t = 0;
     unsigned int i;
 
+    // This should be true for anything we've allocated
+    if (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0)) {
+        // Cope with the joy that is sand
+        mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
+        drmu_fb_int_layer_mod_set(dfb, 0, 0, dfb->map_pitch, 0, mod);
+        drmu_fb_int_layer_mod_set(dfb, 1, 0, dfb->map_pitch, h * 128, mod);
+        return;
+    }
+
     for (i = 0; i != f->plane_count; ++i) {
-        drmu_fb_int_layer_set(dfb, i, 0, pitch0 / f->planes[i].wdiv, t);
+        drmu_fb_int_layer_mod_set(dfb, i, 0, pitch0 / f->planes[i].wdiv, t, mod);
         t += (pitch0 * h) / (f->planes[i].hdiv * f->planes[i].wdiv);
     }
 }
 
 drmu_fb_t *
-drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format)
+drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
+                     const uint32_t format, const uint64_t mod)
 {
     drmu_fb_t * const dfb = drmu_fb_int_alloc(du);
     uint32_t bpp;
     int rv;
+    uint32_t w2;
+    const uint32_t s30_cw = 128 / 4 * 3;
 
     if (dfb == NULL) {
         drmu_err(du, "%s: Alloc failure", __func__);
         return NULL;
     }
 
-    drmu_fb_int_fmt_size_set(dfb, format, (w + 63) & ~63, (h + 63) & ~63, drmu_rect_wh(w, h));
+    if (mod != DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0))
+        w2 = (w + 15) & ~15;
+    else if (format == DRM_FORMAT_NV12)
+        w2 = (w + 127) & ~127;
+    else if (format == DRM_FORMAT_P030)
+        w2 = ((w + s30_cw - 1) / s30_cw) * s30_cw;
+    else {
+        // Unknown form of sand128
+        drmu_err(du, "Sand modifier on unexpected format");
+        goto fail;
+    }
+
+    drmu_fb_int_fmt_size_set(dfb, format, w2, (h + 15) & ~15, drmu_rect_wh(w, h));
 
     if ((bpp = drmu_fb_pixel_bits(dfb)) == 0) {
         drmu_err(du, "%s: Unexpected format %#x", __func__, format);
@@ -1050,7 +1089,7 @@ drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t f
         }
     }
 
-    fb_pitches_set(dfb);
+    fb_pitches_set_mod(dfb, mod);
 
     if (drmu_fb_int_make(dfb))
         goto fail;
@@ -1062,6 +1101,12 @@ drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t f
 fail:
     drmu_fb_int_free(dfb);
     return NULL;
+}
+
+drmu_fb_t *
+drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format)
+{
+    return drmu_fb_new_dumb_mod(du, w, h, format, DRM_FORMAT_MOD_INVALID);
 }
 
 static int
