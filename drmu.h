@@ -302,6 +302,15 @@ int drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plan
 #define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
+#define DRMU_CHROMA_SITING_BOTTOM               "Bottom"
+#define DRMU_CHROMA_SITING_BOTTOM_LEFT          "Bottom Left"
+#define DRMU_CHROMA_SITING_CENTER               "Center"
+#define DRMU_CHROMA_SITING_LEFT                 "Left"
+#define DRMU_CHROMA_SITING_TOP                  "Top"
+#define DRMU_CHROMA_SITING_TOP_LEFT             "Top Left"
+#define DRMU_CHROMA_SITING_UNSPECIFIED          "Unspecified"
+int drmu_atomic_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting);
+
 int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 
 // Env

@@ -392,7 +392,10 @@ drmu_prop_enum_new(drmu_env_t * const du, const uint32_t id)
     pen->enums = enums;
 
 #if TRACE_PROP_NEW
-    {
+    if (!pen->n) {
+        drmu_info(du, "%32s %2d: no properties");
+    }
+    else {
         unsigned int i;
         for (i = 0; i != pen->n; ++i) {
             drmu_info(du, "%32s %2d:%02d: %32s %#"PRIx64, pen->name, pen->id, i, pen->enums[i].name, pen->enums[i].value);
@@ -2450,6 +2453,12 @@ drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane
 }
 
 int
+drmu_atomic_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting)
+{
+    return drmu_atomic_add_prop_enum(da, dp->plane->plane_id, dp->pid.chroma_siting, siting);
+}
+
+int
 drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_fb_t * const dfb, const drmu_rect_t pos)
 {
@@ -2499,6 +2508,7 @@ drmu_plane_delete(drmu_plane_t ** const ppdp)
     *ppdp = NULL;
 
     drmu_prop_range_delete(&dp->pid.alpha);
+    drmu_prop_enum_delete(&dp->pid.chroma_siting);
     drmu_prop_enum_delete(&dp->pid.color_encoding);
     drmu_prop_enum_delete(&dp->pid.color_range);
     drmu_prop_enum_delete(&dp->pid.pixel_blend_mode);
@@ -2642,6 +2652,7 @@ drmu_env_planes_populate(drmu_env_t * const du)
         dp->pid.color_range      = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_RANGE"));
         dp->pid.pixel_blend_mode = drmu_prop_enum_new(du, props_name_to_id(props, "pixel blend mode"));
         dp->pid.rotation         = drmu_prop_enum_new(du, props_name_to_id(props, "rotation"));
+        dp->pid.chroma_siting    = drmu_prop_enum_new(du, props_name_to_id(props, "CHROMA_SITING"));
 
         dp->rot_vals[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-0");
         if (dp->rot_vals[DRMU_PLANE_ROTATION_0]) {
