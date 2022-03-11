@@ -44,16 +44,111 @@
 #define STRIPES (7 * 4 * 2)
 #define SWIDTH 256
 
+static inline uint64_t
+p16val(unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3)
+{
+    return
+        ((uint64_t)(v0 & 0xffff) << 48) |
+        ((uint64_t)(v1 & 0xffff) << 32) |
+        ((uint64_t)(v2 & 0xffff) << 16) |
+        ((uint64_t)(v3 & 0xffff) << 0);
+}
+
+// v0 -> A(2), v1 -> R(10), v2 -> G(10), v3 -> B(10)
 static void
-fillstripe(uint8_t * const p,
+plane16_to_argb2101010(uint8_t * const dst_data, const unsigned int dst_stride,
+                       const uint8_t * const src_data, const unsigned int src_stride,
+                       const unsigned int w, const unsigned int h)
+{
+    unsigned int i, j;
+    for (i = 0; i != h; ++i) {
+        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
+        uint32_t * d = (uint32_t *)(dst_data + i * dst_stride);
+        for (j = 0; j != w; ++j, ++d, ++s) {
+            *d =
+                (((*s >> (48 + 14)) &     3) << 30) |
+                (((*s >> (32 +  6)) & 0x3ff) << 20) |
+                (((*s >> (16 +  6)) & 0x3ff) << 10) |
+                (((*s >> (0  +  6)) & 0x3ff) << 0);
+        }
+    }
+}
+
+// v1 -> Y(10)
+static void
+plane16_to_sand30_y(uint8_t * const dst_data, const unsigned int dst_stride2,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    unsigned int i, j, k;
+    const unsigned int dst_stride1 = 128;
+    const unsigned int cw = dst_stride1 / 4 * 3;
+    for (i = 0; i != h; ++i) {
+        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
+        uint32_t * d = (uint32_t *)(dst_data + i * dst_stride1);
+        for (j = 0; j < w; j += cw) {
+            for (k = j; k != j + cw; k += 3, s += 3, d += 1) {
+                uint32_t a = (k + 0 >= w) ? 0x200 : (uint32_t)((s[0] >> (32 + 6)) & 0x3ff);
+                uint32_t b = (k + 1 >= w) ? 0x200 : (uint32_t)((s[1] >> (32 + 6)) & 0x3ff);
+                uint32_t c = (k + 2 >= w) ? 0x200 : (uint32_t)((s[2] >> (32 + 6)) & 0x3ff);
+                *d = a | (b << 10) | (c << 20);
+            }
+            d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
+        }
+    }
+}
+
+// Only copies (sx % 2) == 0 && (sy % 2) == 0
+// v2 -> U(10), v3 -> V(10)
+// w, h are src dimensions
+static void
+plane16_to_sand30_c(uint8_t * const dst_data, const unsigned int dst_stride2,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    unsigned int i, j, k;
+    const unsigned int dst_stride1 = 128;
+    const unsigned int cw = dst_stride1 / 4 * 3;
+    const uint64_t grey = 0x200 | (0x200 << 10);
+
+    for (i = 0; i < h; i += 2) {
+        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
+        uint64_t * d = (uint64_t *)(dst_data + i / 2 * dst_stride1);
+        for (j = 0; j < w; j += cw) {
+            for (k = j; k < j + cw; k += 6, s += 6, d += 1) {
+                uint64_t a = (k + 0 >= w) ? grey :
+                    (uint64_t)(((s[0] >> (16 + 6)) & 0x3ff) | (((s[0] >> (6)) & 0x3ff) << 10));
+                uint64_t b = (k + 2 >= w) ? grey :
+                    (uint64_t)(((s[2] >> (16 + 6)) & 0x3ff) | (((s[2] >> (6)) & 0x3ff) << 10));
+                uint64_t c = (k + 4 >= w) ? grey :
+                    (uint64_t)(((s[4] >> (16 + 6)) & 0x3ff) | (((s[4] >> (6)) & 0x3ff) << 10));
+                *d = a | ((b & 0x3ff) << 20) | ((b & 0xffc00) << 22) | (c << 42);
+            }
+            d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
+        }
+    }
+}
+
+static void
+plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride2_y,
+                  uint8_t * const dst_data_c, const unsigned int dst_stride2_c,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    plane16_to_sand30_y(dst_data_y, dst_stride2_y, src_data, src_stride, w, h);
+    plane16_to_sand30_c(dst_data_c, dst_stride2_c, src_data, src_stride, w, h);
+}
+
+static void
+fillstripe16(uint8_t * const p,
            const unsigned int w, const unsigned int h, const unsigned int stride,
            const unsigned int r,
-           const uint32_t val0, const uint32_t add_val)
+           const uint64_t val0, const uint64_t add_val)
 {
     unsigned int i, j, k;
     for (i = 0; i != h; ++i) {
-        uint32_t x = val0;
-        uint32_t * p2 = (uint32_t *)( p + i * stride);
+        uint64_t x = val0;
+        uint64_t * p2 = (uint64_t *)( p + i * stride);
         for (j = 0; j != w; ++j) {
             for (k = 0; k != r; ++k)
                 *p2++ = x;
@@ -63,14 +158,14 @@ fillstripe(uint8_t * const p,
 }
 
 static void
-fillpin(uint8_t * const p,
+fillpin16(uint8_t * const p,
            const unsigned int w, const unsigned int h, const unsigned int stride,
            const unsigned int r,
-           const uint32_t val0)
+           const uint64_t val0)
 {
     unsigned int i, j;
     for (i = 0; i != h; ++i) {
-        uint32_t * p2 = (uint32_t *)( p + i * stride);
+        uint64_t * p2 = (uint64_t *)( p + i * stride);
         for (j = 0; j != w; ++j) {
             *p2++ = (j % r == 0) ? val0 : 0;
         }
@@ -92,14 +187,14 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
         uint8_t * const p1 = p + (i - 1) * 8 * stripestride;
         for (j = 0; j != 4; ++j) {
             uint8_t * const p2 = p1  + j * 2 * stripestride;
-            uint32_t inc8  = ((i & 1) << 2) | ((i & 2) << 11) | ((i & 4) << 20);
-            uint32_t inc10 = ((i & 1) << 0) | ((i & 2) << 9)  | ((i & 4) << 18);
-            uint32_t val0 = (3U << 30) | (inc10 * w * j);
-            fillstripe(p2,
+            uint64_t inc10 = p16val(0, (i & 4) << 4, (i & 2) << 5, (i & 1) << 6);
+            uint64_t inc8  = inc10 << 2;
+            uint64_t val0 =  p16val(~0U, 0, 0, 0) | (inc10 * w * j);
+            fillstripe16(p2,
                        w / 4, h, stride, 4 * k,
                        val0,
                        inc8);
-            fillstripe(p2 + stripestride,
+            fillstripe16(p2 + stripestride,
                        w, h, stride, k,
                        val0, inc10);
         }
@@ -118,14 +213,14 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
 
     for (j = 0; j != vstripes; ++j) {
         uint8_t * const p2 = p  + j * 2 * stripestride;
-        uint32_t inc8  = (1 << 2) | (2 << 11) | (4 << 20);
-        uint32_t inc10 = (1 << 0) | (2 << 9)  | (4 << 18);
-        uint32_t val0 = (3U << 30) | (inc10 * w * j);
-        fillstripe(p2,
+        uint64_t inc10 = p16val(0, 1 << 6, 1 << 6, 1 << 6);
+        uint64_t inc8  = inc10 << 2;
+        uint64_t val0 =  p16val(~0U, 0, 0, 0) | (inc10 * w * j);
+        fillstripe16(p2,
                    w / 4, h, stride, 4 * k,
                    val0,
                    inc8);
-        fillstripe(p2 + stripestride,
+        fillstripe16(p2 + stripestride,
                    w, h, stride, k,
                    val0, inc10);
     }
@@ -143,13 +238,13 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
         uint8_t * const p1 = p + i * 7 * stripestride;
         for (j = 1; j != 8; ++j) {
             uint8_t * const p2 = p1 + (j - 1) * stripestride;
-            uint32_t inc10 = ((j & 1) << 0) | ((j & 2) << 9)  | ((j & 4) << 18);
-            uint32_t val0 = (3U << 30) | (inc10 << 9);
-            fillpin(p2 + stripestride, dw, h, stride, i + 2, val0);
+            uint64_t val0 = p16val(~0U, (j & 4) << 4, (j & 2) << 5, (j & 1) << 6);
+            fillpin16(p2 + stripestride, dw, h, stride, i + 2, val0);
         }
     }
 }
 
+#if 0
 static void
 fillyuv_sand30(uint8_t * const py, uint8_t * const pc, unsigned int dw, unsigned int dh, unsigned int stride2,
                const unsigned long vals[3])
@@ -174,16 +269,19 @@ fillyuv_sand30(uint8_t * const py, uint8_t * const pc, unsigned int dw, unsigned
         }
     }
 }
+#endif
 
 static void
-allgrey(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride)
+fillsolid16(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,
+               const unsigned long vals[3])
 {
     unsigned int i;
+    const uint64_t grey = p16val(~0U, vals[0], vals[1], vals[2]);
     for (i = 0; i != dh; ++i) {
         unsigned int j;
-        uint32_t * p = (uint32_t *)(data + i * stride);
+        uint64_t * p = (uint64_t *)(data + i * stride);
         for (j = 0; j != dw; ++j)
-            *p++ = ((3U << 30) | (1 << 29) | (1 << 19) | (1 << 9));
+            *p++ = grey;
     }
 }
 
@@ -205,10 +303,11 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-g|-p|-y <y>,<u>,<v>] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
-           "-y  solid y,u,v 10-bit values\n"
+           "-f  solid a, b, c 10-bit values\n"
+           "-y  Use YUV plane (same vals as for RGB - no conv)\n"
            "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
            "-r  YUV range full, limited (default)\n"
            "-R  Broadcast RGB: auto, full (default), limited\n"
@@ -242,17 +341,21 @@ int main(int argc, char *argv[])
     const char * colorspace = "BT2020_RGB";
     const char * encoding = "ITU-R BT.2020 YCbCr";
     const char * range = NULL;
+    const char * default_range = DRMU_PLANE_RANGE_FULL;
     const char * broadcast_rgb = NULL;
     bool grey_only = false;
     bool fill_pin = false;
-    bool fill_yuv = false;
+    bool fill_solid = false;
+    bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
     int verbose = 0;
     int c;
-    unsigned long fillvals[3] = {0};
+    unsigned long fillvals[3] = {0x8000, 0x8000, 0x8000};
+    uint8_t *p16 = NULL;
+    unsigned int p16_stride = 0;
 
-    while ((c = getopt(argc, argv, "8c:e:gpr:R:vy:")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:gpr:R:vy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -280,9 +383,9 @@ int main(int argc, char *argv[])
             case 'r': {
                 const char * s = optarg;
                 if (strcmp(s, "full") == 0)
-                    range = "YCbCr full range";
+                    range = DRMU_PLANE_RANGE_FULL;
                 else if (strcmp(s, "limited") == 0)
-                    range = "YCbCr limited range";
+                    range = DRMU_PLANE_RANGE_LIMITED;
                 else {
                     printf("Unrecognised range - valid values are limited, full\n");
                     exit(1);
@@ -303,22 +406,26 @@ int main(int argc, char *argv[])
                 }
                 break;
             }
-            case 'y': {
+            case 'f': {
                 const char * s = optarg;
-                fillvals[0] = strtoul(s, (char**)&s, 0);
+                fillvals[0] = strtoul(s, (char**)&s, 0) << 6;
                 if (*s != ',')
                     usage();
-                fillvals[1] = strtoul(s + 1, (char**)&s, 0);
+                fillvals[1] = strtoul(s + 1, (char**)&s, 0) << 6;
                 if (*s != ',')
                     usage();
-                fillvals[2] = strtoul(s + 1, (char**)&s, 0);
+                fillvals[2] = strtoul(s + 1, (char**)&s, 0) << 6;
                 if (*s != '\0')
                     usage();
-                fill_yuv = true;
-                p1fmt = DRM_FORMAT_P030;
-                p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+                fill_solid = true;
                 break;
             }
+            case 'y':
+                p1fmt = DRM_FORMAT_P030;
+                p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+                default_range = DRMU_PLANE_RANGE_LIMITED;
+                is_yuv = true;
+                break;
             case '8':
                 hi_bpc = false;
                 break;
@@ -340,13 +447,11 @@ int main(int argc, char *argv[])
     if (optind != argc)
         usage();
 
-    if (broadcast_rgb == NULL)
-        broadcast_rgb = (range != NULL) ?
-            drmu_color_range_to_broadcast_rgb(range) :
-            DRMU_CRTC_BROADCAST_RGB_FULL;
-
     if (range == NULL)
-        range = "YCbCr limited range";
+        range = default_range;
+
+    if (broadcast_rgb == NULL)
+        broadcast_rgb = drmu_color_range_to_broadcast_rgb(range);
 
     {
         const drmu_log_env_t log = {
@@ -417,6 +522,12 @@ int main(int argc, char *argv[])
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
     printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
+    if ((p16 = malloc(dw * dh * 8)) == NULL) {
+        printf("Failed to alloc P16 plane\n");
+        goto fail;
+    }
+    p16_stride = dw * 8;
+
     if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL) {
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
@@ -427,26 +538,28 @@ int main(int argc, char *argv[])
         goto fail;
     }
 
-    if (fill_yuv) {
-        drmu_fb_int_color_set(fb1, encoding, range, colorspace);
-        printf("YUV encoding: %s, range %s\n", encoding, range);
-    }
+    drmu_fb_int_color_set(fb1, encoding, range, colorspace);
+    printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
 
     stride = drmu_fb_pitch(fb1, 0);
     data = drmu_fb_data(fb1, 0);
 
     // Start with grey fill
-    if (!fill_yuv)
-        allgrey(data, dw, dh, stride);
+    fillsolid16(p16, dw, dh, p16_stride, fillvals);
 
     if (fill_pin)
-        fillpin10(data, dw, dh, stride);
+        fillpin10(p16, dw, dh, p16_stride);
     else if (grey_only)
-        fillgradgrey10(data, dw, dh, stride);
-    else if (fill_yuv)
-        fillyuv_sand30(data, drmu_fb_data(fb1, 1), dw, dh, drmu_fb_pitch2(fb1, 0), fillvals);
+        fillgradgrey10(p16, dw, dh, p16_stride);
+    else if (!fill_solid)
+        fillgraduated10(p16, dw, dh, p16_stride);
+
+    if (is_yuv)
+        plane16_to_sand30(data, drmu_fb_pitch2(fb1, 0),
+                          drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
+                          p16, p16_stride, dw, dh);
     else
-        fillgraduated10(data, dw, dh, stride);
+        plane16_to_argb2101010(data, stride, p16, p16_stride, dw, dh);
 
     drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
 

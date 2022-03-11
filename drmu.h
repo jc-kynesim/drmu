@@ -312,6 +312,8 @@ int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_p
 #define DRMU_PLANE_CHROMA_SITING_UNSPECIFIED    "Unspecified"
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting);
 
+#define DRMU_PLANE_RANGE_FULL                   "YCbCr full range"
+#define DRMU_PLANE_RANGE_LIMITED                "YCbCr limited range"
 int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 
 // Env
