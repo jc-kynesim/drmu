@@ -161,20 +161,20 @@ static void
 fillpin16(uint8_t * const p,
            const unsigned int w, const unsigned int h, const unsigned int stride,
            const unsigned int r,
-           const uint64_t val0)
+           const uint64_t val0, const uint64_t val1)
 {
     unsigned int i, j;
     for (i = 0; i != h; ++i) {
         uint64_t * p2 = (uint64_t *)( p + i * stride);
         for (j = 0; j != w; ++j) {
-            *p2++ = (j % r == 0) ? val0 : 0;
+            *p2++ = (j % r == 0) ? val0 : val1;
         }
     }
 }
 
 
 static void
-fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
+fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
 {
     unsigned int i, j;
     const unsigned int vstripes = 4;
@@ -189,7 +189,10 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
             uint8_t * const p2 = p1  + j * 2 * stripestride;
             uint64_t inc10 = p16val(0, (i & 4) << 4, (i & 2) << 5, (i & 1) << 6);
             uint64_t inc8  = inc10 << 2;
-            uint64_t val0 =  p16val(~0U, 0, 0, 0) | (inc10 * w * j);
+            const uint64_t base10 = is_yuv ?
+                p16val(~0U, (i & 4) ? 0 : 0x8000, (i & 2) ? 0 : 0x8000, (i & 1) ? 0 : 0x8000) :
+                p16val(~0U, 0, 0, 0);
+            uint64_t val0 =  base10 | (inc10 * w * j);
             fillstripe16(p2,
                        w / 4, h, stride, 4 * k,
                        val0,
@@ -202,7 +205,7 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
 }
 
 static void
-fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
+fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
 {
     unsigned int j;
     const unsigned int vstripes = 16;
@@ -210,12 +213,13 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
     const unsigned int k = dw / w;
     const unsigned int h = dh / (vstripes * 2);
     const unsigned int stripestride = h * stride;
+    const uint64_t base10 = is_yuv ? p16val(~0U, 0, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
+    const uint64_t inc10 = is_yuv ? p16val(0, 1 << 6, 0, 0) : p16val(0, 1 << 6, 1 << 6, 1 << 6);
+    const uint64_t inc8  = inc10 << 2;
 
     for (j = 0; j != vstripes; ++j) {
         uint8_t * const p2 = p  + j * 2 * stripestride;
-        uint64_t inc10 = p16val(0, 1 << 6, 1 << 6, 1 << 6);
-        uint64_t inc8  = inc10 << 2;
-        uint64_t val0 =  p16val(~0U, 0, 0, 0) | (inc10 * w * j);
+        uint64_t val0 =  base10 | (inc10 * w * j);
         fillstripe16(p2,
                    w / 4, h, stride, 4 * k,
                    val0,
@@ -227,19 +231,24 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
 }
 
 static void
-fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
+fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
 {
     unsigned int i, j;
     const unsigned int vstripes = 8;
     const unsigned int h = dh / (vstripes * 7);
     const unsigned int stripestride = h * stride;
+    const uint64_t grey = is_yuv ? p16val(~0U, 16, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
+    unsigned int v0a = is_yuv ? (16 << 8) : 0;
+    unsigned int v1a = 0x8000;
+    unsigned int v0b = is_yuv ? 0x8000 : 0;
+    unsigned int v1b = is_yuv ? (235 << 8) : 0x8000;
 
     for (i = 0; i != vstripes; ++i) {
         uint8_t * const p1 = p + i * 7 * stripestride;
         for (j = 1; j != 8; ++j) {
             uint8_t * const p2 = p1 + (j - 1) * stripestride;
-            uint64_t val0 = p16val(~0U, (j & 4) << 4, (j & 2) << 5, (j & 1) << 6);
-            fillpin16(p2 + stripestride, dw, h, stride, i + 2, val0);
+            uint64_t val0 = p16val(~0U, (j & 4) ? v1a : v0a, (j & 2) ? v1b : v0b, (j & 1) ? v1b : v0b);
+            fillpin16(p2, dw, h, stride, is_yuv ? (i + 1) * 2 : i + 2, val0, grey);
         }
     }
 }
@@ -548,11 +557,11 @@ int main(int argc, char *argv[])
     fillsolid16(p16, dw, dh, p16_stride, fillvals);
 
     if (fill_pin)
-        fillpin10(p16, dw, dh, p16_stride);
+        fillpin10(p16, dw, dh, p16_stride, is_yuv);
     else if (grey_only)
-        fillgradgrey10(p16, dw, dh, p16_stride);
+        fillgradgrey10(p16, dw, dh, p16_stride, is_yuv);
     else if (!fill_solid)
-        fillgraduated10(p16, dw, dh, p16_stride);
+        fillgraduated10(p16, dw, dh, p16_stride, is_yuv);
 
     if (is_yuv)
         plane16_to_sand30(data, drmu_fb_pitch2(fb1, 0),
