@@ -887,6 +887,12 @@ drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char *
 }
 
 void
+drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const char * const siting)
+{
+    dfb->chroma_siting   = siting;
+}
+
+void
 drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * v)
 {
     dfb->on_delete_fn = fn;
@@ -2453,7 +2459,7 @@ drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane
 }
 
 int
-drmu_atomic_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting)
+drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting)
 {
     return drmu_atomic_add_prop_enum(da, dp->plane->plane_id, dp->pid.chroma_siting, siting);
 }
@@ -2479,9 +2485,9 @@ drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
         return rv;
 
     drmu_atomic_add_prop_enum(da, plid, dp->pid.pixel_blend_mode, dfb->pixel_blend_mode);
-    drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding, dfb->color_encoding);
-    drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,    dfb->color_range);
-
+    drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding,   dfb->color_encoding);
+    drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,      dfb->color_range);
+    drmu_atomic_add_prop_enum(da, plid, dp->pid.chroma_siting,    dfb->chroma_siting);
     return rv != 0 ? -errno : 0;
 }
 

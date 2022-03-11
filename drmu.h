@@ -194,6 +194,7 @@ void drmu_fb_int_free(drmu_fb_t * const dfb);
 void drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t crop);
 // All assumed to be const strings that do not need freed
 void drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char * const range, const char * const space);
+void drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const char * const siting);
 void drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * v);
 void drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo);
 void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset);
@@ -302,14 +303,14 @@ int drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plan
 #define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
-#define DRMU_CHROMA_SITING_BOTTOM               "Bottom"
-#define DRMU_CHROMA_SITING_BOTTOM_LEFT          "Bottom Left"
-#define DRMU_CHROMA_SITING_CENTER               "Center"
-#define DRMU_CHROMA_SITING_LEFT                 "Left"
-#define DRMU_CHROMA_SITING_TOP                  "Top"
-#define DRMU_CHROMA_SITING_TOP_LEFT             "Top Left"
-#define DRMU_CHROMA_SITING_UNSPECIFIED          "Unspecified"
-int drmu_atomic_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting);
+#define DRMU_PLANE_CHROMA_SITING_BOTTOM         "Bottom"
+#define DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT    "Bottom Left"
+#define DRMU_PLANE_CHROMA_SITING_CENTER         "Center"
+#define DRMU_PLANE_CHROMA_SITING_LEFT           "Left"
+#define DRMU_PLANE_CHROMA_SITING_TOP            "Top"
+#define DRMU_PLANE_CHROMA_SITING_TOP_LEFT       "Top Left"
+#define DRMU_PLANE_CHROMA_SITING_UNSPECIFIED    "Unspecified"
+int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting);
 
 int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 

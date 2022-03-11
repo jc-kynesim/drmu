@@ -195,6 +195,29 @@ fb_av_colorspace(const AVFrame * const frame)
     return "Default";
 }
 
+static const char *
+fb_av_chroma_siting(const enum AVChromaLocation loc)
+{
+    switch (loc) {
+        case AVCHROMA_LOC_LEFT:
+            return DRMU_PLANE_CHROMA_SITING_LEFT;
+        case AVCHROMA_LOC_CENTER:
+            return DRMU_PLANE_CHROMA_SITING_CENTER;
+        case AVCHROMA_LOC_TOPLEFT:
+            return DRMU_PLANE_CHROMA_SITING_TOP_LEFT;
+        case AVCHROMA_LOC_TOP:
+            return DRMU_PLANE_CHROMA_SITING_TOP;
+        case AVCHROMA_LOC_BOTTOMLEFT:
+            return DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT;
+        case AVCHROMA_LOC_BOTTOM:
+            return DRMU_PLANE_CHROMA_SITING_BOTTOM;
+        case AVCHROMA_LOC_UNSPECIFIED:
+        default:
+            break;
+    }
+    return DRMU_PLANE_CHROMA_SITING_UNSPECIFIED;
+}
+
 // Create a new fb from a VLC DRM_PRIME picture.
 // Buf is held reffed by the fb until the fb is deleted
 drmu_fb_t *
@@ -233,6 +256,8 @@ drmu_fb_av_new_frame_attach(drmu_env_t * const du, AVFrame * const frame)
                           fb_av_color_encoding(frame),
                           fb_av_color_range(frame),
                           fb_av_colorspace(frame));
+
+    drmu_fb_int_chroma_siting_set(dfb, fb_av_chroma_siting(frame->chroma_location));
 
     // Set delete callback & hold this pic
     // Aux attached to dfb immediately so no fail cleanup required

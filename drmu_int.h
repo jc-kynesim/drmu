@@ -73,8 +73,7 @@ typedef struct drmu_fb_s {
     const char * color_encoding; // Assumed to be constant strings that don't need freeing
     const char * color_range;
     const char * pixel_blend_mode;
-
-    // Do not set colorspace or metadata if not the "master" plane
+    const char * chroma_siting;
     const char * colorspace;
     drmu_isset_t hdr_metadata_isset;
     struct hdr_output_metadata hdr_metadata;
