@@ -75,7 +75,7 @@ executable(
 
 executable(
 	'10bittest',
-	'10bittest.c',
+	'10bittest.c', 'plane16.c',
 	link_with : [ drmu_base, drmu_xlease ],
 	dependencies : [
 		threads_dep,

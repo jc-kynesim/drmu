@@ -23,6 +23,7 @@
 //     limited to testing.
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -32,6 +33,8 @@
 #include "drmu_log.h"
 #include "drmu_util.h"
 #include <drm_fourcc.h>
+
+#include "plane16.h"
 
 #ifndef DRM_FORMAT_P030
 #define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
@@ -43,101 +46,6 @@
 
 #define STRIPES (7 * 4 * 2)
 #define SWIDTH 256
-
-static inline uint64_t
-p16val(unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3)
-{
-    return
-        ((uint64_t)(v0 & 0xffff) << 48) |
-        ((uint64_t)(v1 & 0xffff) << 32) |
-        ((uint64_t)(v2 & 0xffff) << 16) |
-        ((uint64_t)(v3 & 0xffff) << 0);
-}
-
-// v0 -> A(2), v1 -> R(10), v2 -> G(10), v3 -> B(10)
-static void
-plane16_to_argb2101010(uint8_t * const dst_data, const unsigned int dst_stride,
-                       const uint8_t * const src_data, const unsigned int src_stride,
-                       const unsigned int w, const unsigned int h)
-{
-    unsigned int i, j;
-    for (i = 0; i != h; ++i) {
-        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
-        uint32_t * d = (uint32_t *)(dst_data + i * dst_stride);
-        for (j = 0; j != w; ++j, ++d, ++s) {
-            *d =
-                (((*s >> (48 + 14)) &     3) << 30) |
-                (((*s >> (32 +  6)) & 0x3ff) << 20) |
-                (((*s >> (16 +  6)) & 0x3ff) << 10) |
-                (((*s >> (0  +  6)) & 0x3ff) << 0);
-        }
-    }
-}
-
-// v1 -> Y(10)
-static void
-plane16_to_sand30_y(uint8_t * const dst_data, const unsigned int dst_stride2,
-                  const uint8_t * const src_data, const unsigned int src_stride,
-                  const unsigned int w, const unsigned int h)
-{
-    unsigned int i, j, k;
-    const unsigned int dst_stride1 = 128;
-    const unsigned int cw = dst_stride1 / 4 * 3;
-    for (i = 0; i != h; ++i) {
-        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
-        uint32_t * d = (uint32_t *)(dst_data + i * dst_stride1);
-        for (j = 0; j < w; j += cw) {
-            for (k = j; k != j + cw; k += 3, s += 3, d += 1) {
-                uint32_t a = (k + 0 >= w) ? 0x200 : (uint32_t)((s[0] >> (32 + 6)) & 0x3ff);
-                uint32_t b = (k + 1 >= w) ? 0x200 : (uint32_t)((s[1] >> (32 + 6)) & 0x3ff);
-                uint32_t c = (k + 2 >= w) ? 0x200 : (uint32_t)((s[2] >> (32 + 6)) & 0x3ff);
-                *d = a | (b << 10) | (c << 20);
-            }
-            d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
-        }
-    }
-}
-
-// Only copies (sx % 2) == 0 && (sy % 2) == 0
-// v2 -> U(10), v3 -> V(10)
-// w, h are src dimensions
-static void
-plane16_to_sand30_c(uint8_t * const dst_data, const unsigned int dst_stride2,
-                  const uint8_t * const src_data, const unsigned int src_stride,
-                  const unsigned int w, const unsigned int h)
-{
-    unsigned int i, j, k;
-    const unsigned int dst_stride1 = 128;
-    const unsigned int cw = dst_stride1 / 4 * 3;
-    const uint64_t grey = 0x200 | (0x200 << 10);
-
-    for (i = 0; i < h; i += 2) {
-        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
-        uint64_t * d = (uint64_t *)(dst_data + i / 2 * dst_stride1);
-        for (j = 0; j < w; j += cw) {
-            for (k = j; k < j + cw; k += 6, s += 6, d += 1) {
-                uint64_t a = (k + 0 >= w) ? grey :
-                    (uint64_t)(((s[0] >> (16 + 6)) & 0x3ff) | (((s[0] >> (6)) & 0x3ff) << 10));
-                uint64_t b = (k + 2 >= w) ? grey :
-                    (uint64_t)(((s[2] >> (16 + 6)) & 0x3ff) | (((s[2] >> (6)) & 0x3ff) << 10));
-                uint64_t c = (k + 4 >= w) ? grey :
-                    (uint64_t)(((s[4] >> (16 + 6)) & 0x3ff) | (((s[4] >> (6)) & 0x3ff) << 10));
-                *d = a | ((b & 0x3ff) << 20) | ((b & 0xffc00) << 22) | (c << 42);
-            }
-            d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
-        }
-    }
-}
-
-static void
-plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride2_y,
-                  uint8_t * const dst_data_c, const unsigned int dst_stride2_c,
-                  const uint8_t * const src_data, const unsigned int src_stride,
-                  const unsigned int w, const unsigned int h)
-{
-    plane16_to_sand30_y(dst_data_y, dst_stride2_y, src_data, src_stride, w, h);
-    plane16_to_sand30_c(dst_data_c, dst_stride2_c, src_data, src_stride, w, h);
-}
 
 static void
 fillstripe16(uint8_t * const p,
@@ -253,45 +161,92 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
     }
 }
 
-#if 0
-static void
-fillyuv_sand30(uint8_t * const py, uint8_t * const pc, unsigned int dw, unsigned int dh, unsigned int stride2,
-               const unsigned long vals[3])
-{
-    unsigned int c;
-    const unsigned int colw = (128 / 4) * 3;
-    const unsigned int stride1 = 128;
-    const uint32_t y   = vals[0] | (vals[0] << 10) | (vals[0] << 20);
-    const uint32_t uv0 = vals[1] | (vals[2] << 10) | (vals[1] << 20);
-    const uint32_t uv1 = vals[2] | (vals[1] << 10) | (vals[2] << 20);
+#define BT2020_RGB_Y(r, g, b) ((double)(r)*0.2627+(double)(g)*0.6780+(double)(b)*0.0593)
+#define BT2020_RGB_Cb(r, g, b) (((double)(b)-BT2020_RGB_Y((r),(g),(b)))/1.8814)
+#define BT2020_RGB_Cr(r, g, b) (((double)(r)-BT2020_RGB_Y((r),(g),(b)))/1.4746)
+#define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Y((r),(g),(b)), BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5)
 
-    for (c = 0; c < (dw + colw - 1) / colw; ++c) {
-        unsigned int i;
-        uint32_t * py2 = (uint32_t *)(py + c * stride2 * stride1);
-        uint32_t * pc2 = (uint32_t *)(pc + c * stride2 * stride1);
-        for (i = 0; i != dh * stride1 / 4; ++i) {
-            *py2++ = y;
-        }
-        for (i = 0; i != dh/2 * stride1 / 8; ++i) {
-            *pc2++ = uv0;
-            *pc2++ = uv1;
-        }
-    }
-}
-#endif
-
-static void
-fillsolid16(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,
-               const unsigned long vals[3])
+static int
+color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc, unsigned int dw, unsigned int dh)
 {
+    drmu_env_t * du = drmu_atomic_env(da);
+    drmu_plane_t * planes[7] = {NULL};
+    drmu_fb_t * fb = NULL;
     unsigned int i;
-    const uint64_t grey = p16val(~0U, vals[0], vals[1], vals[2]);
-    for (i = 0; i != dh; ++i) {
-        unsigned int j;
-        uint64_t * p = (uint64_t *)(data + i * stride);
-        for (j = 0; j != dw; ++j)
-            *p++ = grey;
+    int rv = 0;
+    const uint32_t fmt = DRM_FORMAT_P030;
+    const uint64_t mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+    const unsigned int w = 18; // 16 puts the TL on an odd number so don't do that
+    const unsigned int h = 18;
+    const uint64_t bk = p16val(~0, 0x6000, 0x8000, 0x8000);
+    const uint64_t fg = BT2020_RGB_P16(0, 0, 230*256);
+    const unsigned int s16_stride = w * sizeof(uint64_t);
+    uint8_t * s16 = malloc(h * s16_stride);
+    const unsigned int patch_wh = dh / 4;
+    const unsigned int patch_gap = (dh - patch_wh * 3) / 4;
+
+    static const struct {
+        const char * color_siting;
+        unsigned int patch_x, patch_y;
+    } sitings[7] = {
+        {DRMU_PLANE_CHROMA_SITING_BOTTOM,      1, 2},
+        {DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT, 0, 2},
+        {DRMU_PLANE_CHROMA_SITING_CENTER,      1, 1},
+        {DRMU_PLANE_CHROMA_SITING_LEFT,        0, 1},
+        {DRMU_PLANE_CHROMA_SITING_TOP,         1, 0},
+        {DRMU_PLANE_CHROMA_SITING_TOP_LEFT,    0, 0},
+        {DRMU_PLANE_CHROMA_SITING_UNSPECIFIED, 2, 2},
+    };
+
+    (void)dw;
+
+    if (s16 == NULL) {
+        fprintf(stderr, "Failed malloc for plane16 fb\n");
+        rv = -ENOMEM;
+        goto fail;
     }
+
+    plane16_fill(s16, w, h, s16_stride, bk);
+    plane16_fill(s16 + s16_stride * (h / 2 - 1), w, 2, s16_stride, fg);
+    plane16_fill(s16 + sizeof(uint64_t) * (w / 2 - 1), 2, h, s16_stride, fg);
+
+    for (i = 0; i != 7; ++i) {
+        if ((planes[i] = drmu_plane_new_find(dc, fmt)) == NULL) {
+            fprintf(stderr, "Color siting test needs 8 planes, only got %d\nMaybe don't run from X?\n", i + 1);
+            rv = -ENOENT;
+            goto fail;
+        }
+    }
+
+    if ((fb = drmu_fb_new_dumb_mod(du, w, h, fmt, mod)) == NULL) {
+        fprintf(stderr, "Failed to create siting fb\n");
+        rv = -ENOMEM;
+        goto fail;
+    }
+    drmu_fb_int_color_set(fb, "ITU-R BT.2020 YCbCr", DRMU_PLANE_RANGE_LIMITED, "BT2020_RGB");
+
+    plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
+                      drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
+                      s16, s16_stride, w, h);
+
+    for (i = 0; i != 7; ++i) {
+        drmu_atomic_plane_fb_set(da, planes[i], fb, (drmu_rect_t){
+                        .x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap),
+                        .y = patch_gap + sitings[i].patch_y * (patch_wh + patch_gap),
+                        .w = patch_wh,
+                        .h = patch_wh});
+        drmu_atomic_plane_add_chroma_siting(da, planes[i], sitings[i].color_siting);
+    }
+
+
+fail:
+    // Would be "better" to delete planes at the end, but if we never alloc
+    // another then this is, in fact, safe (nasty though)
+    for (i = 0; i != 7; ++i)
+        drmu_plane_delete(planes + i);
+    drmu_fb_unref(&fb);
+    free(s16);
+    return rv;
 }
 
 static void
@@ -316,6 +271,7 @@ usage()
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
            "-f  solid a, b, c 10-bit values\n"
+           "-s  colour siting\n"
            "-y  Use YUV plane (same vals as for RGB - no conv)\n"
            "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
            "-r  YUV range full, limited (default)\n"
@@ -345,8 +301,6 @@ int main(int argc, char *argv[])
     uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
     unsigned int dw = 0, dh = 0;
     unsigned int hz = 0;
-    unsigned int stride;
-    uint8_t * data;
     const char * colorspace = "BT2020_RGB";
     const char * encoding = "ITU-R BT.2020 YCbCr";
     const char * range = NULL;
@@ -355,16 +309,17 @@ int main(int argc, char *argv[])
     bool grey_only = false;
     bool fill_pin = false;
     bool fill_solid = false;
+    bool test_siting = false;
     bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
     int verbose = 0;
     int c;
-    unsigned long fillvals[3] = {0x8000, 0x8000, 0x8000};
+    uint64_t fillval = p16val(~0UL, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
 
-    while ((c = getopt(argc, argv, "8c:e:f:gpr:R:vy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:gpr:R:svy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -415,18 +370,13 @@ int main(int argc, char *argv[])
                 }
                 break;
             }
+            case 's':
+                test_siting = true;
+                break;
             case 'f': {
                 const char * s = optarg;
-                fillvals[0] = strtoul(s, (char**)&s, 0) << 6;
-                if (*s != ',')
+                if (plane16_parse_val(s, (char**)&s, &fillval) != 0 || *s != '\0')
                     usage();
-                fillvals[1] = strtoul(s + 1, (char**)&s, 0) << 6;
-                if (*s != ',')
-                    usage();
-                fillvals[2] = strtoul(s + 1, (char**)&s, 0) << 6;
-                if (*s != '\0')
-                    usage();
-                fill_solid = true;
                 break;
             }
             case 'y':
@@ -550,25 +500,26 @@ int main(int argc, char *argv[])
     drmu_fb_int_color_set(fb1, encoding, range, colorspace);
     printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
 
-    stride = drmu_fb_pitch(fb1, 0);
-    data = drmu_fb_data(fb1, 0);
-
     // Start with grey fill
-    fillsolid16(p16, dw, dh, p16_stride, fillvals);
+    plane16_fill(p16, dw, dh, p16_stride, fillval);
 
     if (fill_pin)
         fillpin10(p16, dw, dh, p16_stride, is_yuv);
     else if (grey_only)
         fillgradgrey10(p16, dw, dh, p16_stride, is_yuv);
-    else if (!fill_solid)
+    else if (test_siting) {
+        if (color_siting(da, dc, dw, dh))
+            goto fail;
+    } else if (!fill_solid)
         fillgraduated10(p16, dw, dh, p16_stride, is_yuv);
 
     if (is_yuv)
-        plane16_to_sand30(data, drmu_fb_pitch2(fb1, 0),
+        plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
                           drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
                           p16, p16_stride, dw, dh);
     else
-        plane16_to_argb2101010(data, stride, p16, p16_stride, dw, dh);
+        plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
+                               p16, p16_stride, dw, dh);
 
     drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
 
