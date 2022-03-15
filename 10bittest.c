@@ -209,8 +209,8 @@ color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc,
     }
 
     plane16_fill(s16, w, h, s16_stride, bk);
-    plane16_fill(s16 + s16_stride * (h / 2 - 1), w, 2, s16_stride, fg);
-    plane16_fill(s16 + sizeof(uint64_t) * (w / 2 - 1), 2, h, s16_stride, fg);
+    plane16_fill(p16pos(s16, s16_stride, 0, (h / 2 - 1)), w, 2, s16_stride, fg);
+    plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fg);
 
     for (i = 0; i != 7; ++i) {
         if ((planes[i] = drmu_plane_new_find(dc, fmt)) == NULL) {
@@ -237,10 +237,10 @@ color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc,
     for (i = 0; i != 7; ++i) {
         const unsigned int x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap);
         const unsigned int y = patch_gap + sitings[i].patch_y * (patch_wh + patch_gap);
-        plane16_fill(p16 + (y - patch_gap / 2) * p16_stride + (x + patch_wh / 2 - 1) * sizeof(uint64_t),
+        plane16_fill(p16pos(p16, p16_stride, x + patch_wh / 2 - 1, y - patch_gap / 2),
                      2, patch_wh + patch_gap,
                      p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
-        plane16_fill(p16 + (y + patch_wh / 2 - 1) * p16_stride + (x - patch_gap / 2) * sizeof(uint64_t),
+        plane16_fill(p16pos(p16, p16_stride, x - patch_gap / 2, y + patch_wh / 2 - 1),
                      patch_wh + patch_gap, 2,
                      p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
 

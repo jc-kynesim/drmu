@@ -38,4 +38,9 @@ p16val(unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3)
         ((uint64_t)(v3 & 0xffff) << 0);
 }
 
+static inline uint8_t *
+p16pos(uint8_t * p, unsigned int stride, unsigned int x, unsigned int y)
+{
+    return p + stride * y + sizeof(uint64_t) * x;
+}
 
