@@ -874,6 +874,24 @@ rect_to_frac_rect(const drmu_rect_t a)
     return b;
 }
 
+// Set cropping (fractional) - x, y, relative to active x, y (and must be +ve)
+int
+drmu_fb_crop_frac_set(drmu_fb_t *const dfb, drmu_rect_t crop_frac)
+{
+    // Sanity check
+    if (crop_frac.x + crop_frac.w > (dfb->active.w << 16) ||
+        crop_frac.y + crop_frac.h > (dfb->active.h << 16))
+        return -EINVAL;
+
+    dfb->crop = (drmu_rect_t){
+        .x = crop_frac.x + (dfb->active.x << 16),
+        .y = crop_frac.y + (dfb->active.y << 16),
+        .w = crop_frac.w,
+        .h = crop_frac.h
+    };
+    return 0;
+}
+
 // active is in pixels
 void
 drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t active)
