@@ -167,7 +167,9 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
 #define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Y((r),(g),(b)), BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5)
 
 static int
-color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc, unsigned int dw, unsigned int dh)
+color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc,
+             uint8_t * const p16, unsigned int dw, unsigned int dh, unsigned int p16_stride,
+             const bool dofrac)
 {
     drmu_env_t * du = drmu_atomic_env(da);
     drmu_plane_t * planes[7] = {NULL};
@@ -225,14 +227,26 @@ color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc, unsigned int dw, 
     }
     drmu_fb_int_color_set(fb, "ITU-R BT.2020 YCbCr", DRMU_PLANE_RANGE_LIMITED, "BT2020_RGB");
 
+    if (dofrac)
+        drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
+
     plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
                       drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
                       s16, s16_stride, w, h);
 
     for (i = 0; i != 7; ++i) {
+        const unsigned int x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap);
+        const unsigned int y = patch_gap + sitings[i].patch_y * (patch_wh + patch_gap);
+        plane16_fill(p16 + (y - patch_gap / 2) * p16_stride + (x + patch_wh / 2 - 1) * sizeof(uint64_t),
+                     2, patch_wh + patch_gap,
+                     p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
+        plane16_fill(p16 + (y + patch_wh / 2 - 1) * p16_stride + (x - patch_gap / 2) * sizeof(uint64_t),
+                     patch_wh + patch_gap, 2,
+                     p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
+
         drmu_atomic_plane_fb_set(da, planes[i], fb, (drmu_rect_t){
-                        .x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap),
-                        .y = patch_gap + sitings[i].patch_y * (patch_wh + patch_gap),
+                        .x = x,
+                        .y = y,
                         .w = patch_wh,
                         .h = patch_wh});
         drmu_atomic_plane_add_chroma_siting(da, planes[i], sitings[i].color_siting);
@@ -272,6 +286,7 @@ usage()
            "-p  pinstripes\n"
            "-f  solid a, b, c 10-bit values\n"
            "-s  colour siting\n"
+           "-F  make siting patch .5 pixel smaller\n"
            "-y  Use YUV plane (same vals as for RGB - no conv)\n"
            "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
            "-r  YUV range full, limited (default)\n"
@@ -313,13 +328,14 @@ int main(int argc, char *argv[])
     bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
+    bool dofrac = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0UL, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
 
-    while ((c = getopt(argc, argv, "8c:e:f:gpr:R:svy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:Fgpr:R:svy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -372,6 +388,9 @@ int main(int argc, char *argv[])
             }
             case 's':
                 test_siting = true;
+                break;
+            case 'F':
+                dofrac = true;
                 break;
             case 'f': {
                 const char * s = optarg;
@@ -508,7 +527,7 @@ int main(int argc, char *argv[])
     else if (grey_only)
         fillgradgrey10(p16, dw, dh, p16_stride, is_yuv);
     else if (test_siting) {
-        if (color_siting(da, dc, dw, dh))
+        if (color_siting(da, dc, p16, dw, dh, p16_stride, dofrac))
             goto fail;
     } else if (!fill_solid)
         fillgraduated10(p16, dw, dh, p16_stride, is_yuv);
