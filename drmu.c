@@ -477,7 +477,7 @@ drmu_prop_range_validate(const drmu_prop_range_t * const pra, const uint64_t x)
 {
     if (pra == NULL)
         return false;
-    if ((pra->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_TYPE(DRM_MODE_PROP_SIGNED_RANGE)) {
+    if ((pra->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE) {
         return (int64_t)pra->range[0] <= (int64_t)x && (int64_t)pra->range[1] >= (int64_t)x;
     }
     return pra->range[0] <= x && pra->range[1] >= x;
@@ -526,8 +526,8 @@ drmu_prop_range_new(drmu_env_t * const du, const uint32_t id)
         }
 
         if ((prop.flags & DRM_MODE_PROP_RANGE) == 0 &&
-            (prop.flags & DRM_MODE_PROP_EXTENDED_TYPE) != DRM_MODE_PROP_TYPE(DRM_MODE_PROP_SIGNED_RANGE)) {
-            drmu_err(du, "%s: not an enum: flags=%#x", __func__, prop.flags);
+            (prop.flags & DRM_MODE_PROP_EXTENDED_TYPE) != DRM_MODE_PROP_SIGNED_RANGE) {
+            drmu_err(du, "%s: not an signed range: flags=%#x", __func__, prop.flags);
             goto fail;
         }
         if ((prop.count_values != 2)) {
