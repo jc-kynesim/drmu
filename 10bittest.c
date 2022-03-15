@@ -186,16 +186,16 @@ color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc, unsigned int dw, 
     const unsigned int patch_gap = (dh - patch_wh * 3) / 4;
 
     static const struct {
-        const char * color_siting;
+        drmu_chroma_siting_t color_siting;
         unsigned int patch_x, patch_y;
     } sitings[7] = {
-        {DRMU_PLANE_CHROMA_SITING_BOTTOM,      1, 2},
-        {DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT, 0, 2},
-        {DRMU_PLANE_CHROMA_SITING_CENTER,      1, 1},
-        {DRMU_PLANE_CHROMA_SITING_LEFT,        0, 1},
-        {DRMU_PLANE_CHROMA_SITING_TOP,         1, 0},
-        {DRMU_PLANE_CHROMA_SITING_TOP_LEFT,    0, 0},
-        {DRMU_PLANE_CHROMA_SITING_UNSPECIFIED, 2, 2},
+        {DRMU_CHROMA_SITING_BOTTOM_I,      1, 2},
+        {DRMU_CHROMA_SITING_BOTTOM_LEFT_I, 0, 2},
+        {DRMU_CHROMA_SITING_CENTER_I,      1, 1},
+        {DRMU_CHROMA_SITING_LEFT_I,        0, 1},
+        {DRMU_CHROMA_SITING_TOP_I,         1, 0},
+        {DRMU_CHROMA_SITING_TOP_LEFT_I,    0, 0},
+        {DRMU_CHROMA_SITING_UNSPECIFIED_I, 2, 2},
     };
 
     (void)dw;

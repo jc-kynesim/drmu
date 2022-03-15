@@ -887,7 +887,7 @@ drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char *
 }
 
 void
-drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const char * const siting)
+drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting)
 {
     dfb->chroma_siting   = siting;
 }
@@ -997,6 +997,7 @@ drmu_fb_int_alloc(drmu_env_t * const du)
         return NULL;
 
     dfb->du = du;
+    dfb->chroma_siting = DRMU_CHROMA_SITING_UNSPECIFIED;
     return dfb;
 }
 
@@ -2459,9 +2460,14 @@ drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane
 }
 
 int
-drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting)
+drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting)
 {
-    return drmu_atomic_add_prop_enum(da, dp->plane->plane_id, dp->pid.chroma_siting, siting);
+    if (!drmu_chroma_siting_eq(siting, DRMU_CHROMA_SITING_UNSPECIFIED)) {
+        const uint32_t plid = dp->plane->plane_id;
+        drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_h, siting.x);
+        drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_v, siting.y);
+    }
+    return 0;
 }
 
 int
@@ -2479,7 +2485,7 @@ drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     else {
         rv = plane_set_atomic(da, dp, dfb,
                               pos.x, pos.y, pos.w, pos.h,
-                              dfb->cropped.x << 16, dfb->cropped.y << 16, dfb->cropped.w << 16, dfb->cropped.h << 16);
+                              (dfb->cropped.x << 16), (dfb->cropped.y << 16), (dfb->cropped.w << 16), (dfb->cropped.h << 16));
     }
     if (rv != 0 || dfb == NULL)
         return rv;
@@ -2487,7 +2493,7 @@ drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_atomic_add_prop_enum(da, plid, dp->pid.pixel_blend_mode, dfb->pixel_blend_mode);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding,   dfb->color_encoding);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,      dfb->color_range);
-    drmu_atomic_add_prop_enum(da, plid, dp->pid.chroma_siting,    dfb->chroma_siting);
+    drmu_atomic_plane_add_chroma_siting(da, dp, dfb->chroma_siting);
     return rv != 0 ? -errno : 0;
 }
 
@@ -2514,7 +2520,8 @@ drmu_plane_delete(drmu_plane_t ** const ppdp)
     *ppdp = NULL;
 
     drmu_prop_range_delete(&dp->pid.alpha);
-    drmu_prop_enum_delete(&dp->pid.chroma_siting);
+    drmu_prop_range_delete(&dp->pid.chroma_siting_h);
+    drmu_prop_range_delete(&dp->pid.chroma_siting_v);
     drmu_prop_enum_delete(&dp->pid.color_encoding);
     drmu_prop_enum_delete(&dp->pid.color_range);
     drmu_prop_enum_delete(&dp->pid.pixel_blend_mode);
@@ -2658,7 +2665,8 @@ drmu_env_planes_populate(drmu_env_t * const du)
         dp->pid.color_range      = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_RANGE"));
         dp->pid.pixel_blend_mode = drmu_prop_enum_new(du, props_name_to_id(props, "pixel blend mode"));
         dp->pid.rotation         = drmu_prop_enum_new(du, props_name_to_id(props, "rotation"));
-        dp->pid.chroma_siting    = drmu_prop_enum_new(du, props_name_to_id(props, "CHROMA_SITING"));
+        dp->pid.chroma_siting_h  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_H"));
+        dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
 
         dp->rot_vals[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-0");
         if (dp->rot_vals[DRMU_PLANE_ROTATION_0]) {

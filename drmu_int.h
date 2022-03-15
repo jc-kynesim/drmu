@@ -73,8 +73,8 @@ typedef struct drmu_fb_s {
     const char * color_encoding; // Assumed to be constant strings that don't need freeing
     const char * color_range;
     const char * pixel_blend_mode;
-    const char * chroma_siting;
     const char * colorspace;
+    drmu_chroma_siting_t chroma_siting;
     drmu_isset_t hdr_metadata_isset;
     struct hdr_output_metadata hdr_metadata;
 
@@ -127,7 +127,8 @@ typedef struct drmu_plane_s {
         drmu_prop_enum_t * color_range;
         drmu_prop_enum_t * pixel_blend_mode;
         drmu_prop_bitmask_t * rotation;
-        drmu_prop_enum_t * chroma_siting;
+        drmu_prop_range_t * chroma_siting_h;
+        drmu_prop_range_t * chroma_siting_v;
     } pid;
     uint64_t rot_vals[8];
 

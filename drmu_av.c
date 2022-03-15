@@ -195,27 +195,27 @@ fb_av_colorspace(const AVFrame * const frame)
     return "Default";
 }
 
-static const char *
+static drmu_chroma_siting_t
 fb_av_chroma_siting(const enum AVChromaLocation loc)
 {
     switch (loc) {
         case AVCHROMA_LOC_LEFT:
-            return DRMU_PLANE_CHROMA_SITING_LEFT;
+            return DRMU_CHROMA_SITING_LEFT;
         case AVCHROMA_LOC_CENTER:
-            return DRMU_PLANE_CHROMA_SITING_CENTER;
+            return DRMU_CHROMA_SITING_CENTER;
         case AVCHROMA_LOC_TOPLEFT:
-            return DRMU_PLANE_CHROMA_SITING_TOP_LEFT;
+            return DRMU_CHROMA_SITING_TOP_LEFT;
         case AVCHROMA_LOC_TOP:
-            return DRMU_PLANE_CHROMA_SITING_TOP;
+            return DRMU_CHROMA_SITING_TOP;
         case AVCHROMA_LOC_BOTTOMLEFT:
-            return DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT;
+            return DRMU_CHROMA_SITING_BOTTOM_LEFT;
         case AVCHROMA_LOC_BOTTOM:
-            return DRMU_PLANE_CHROMA_SITING_BOTTOM;
+            return DRMU_CHROMA_SITING_BOTTOM;
         case AVCHROMA_LOC_UNSPECIFIED:
         default:
             break;
     }
-    return DRMU_PLANE_CHROMA_SITING_UNSPECIFIED;
+    return DRMU_CHROMA_SITING_UNSPECIFIED;
 }
 
 // Create a new fb from a VLC DRM_PRIME picture.

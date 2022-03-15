@@ -46,6 +46,10 @@ typedef struct drmu_rect_s {
     uint32_t w, h;
 } drmu_rect_t;
 
+typedef struct drmu_chroma_siting_s {
+    int32_t x, y;
+} drmu_chroma_siting_t;
+
 typedef struct drmu_ufrac_s {
     unsigned int num;
     unsigned int den;
@@ -101,6 +105,12 @@ drmu_rect_wh(const unsigned int w, const unsigned int h)
         .w = w,
         .h = h
     };
+}
+
+static inline bool
+drmu_chroma_siting_eq(const drmu_chroma_siting_t a, const drmu_chroma_siting_t b)
+{
+    return a.x == b.x && a.y == b.y;
 }
 
 // Blob
@@ -194,7 +204,7 @@ void drmu_fb_int_free(drmu_fb_t * const dfb);
 void drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t crop);
 // All assumed to be const strings that do not need freed
 void drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char * const range, const char * const space);
-void drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const char * const siting);
+void drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting);
 void drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * v);
 void drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo);
 void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset);
@@ -303,14 +313,25 @@ int drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plan
 #define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
-#define DRMU_PLANE_CHROMA_SITING_BOTTOM         "Bottom"
-#define DRMU_PLANE_CHROMA_SITING_BOTTOM_LEFT    "Bottom Left"
-#define DRMU_PLANE_CHROMA_SITING_CENTER         "Center"
-#define DRMU_PLANE_CHROMA_SITING_LEFT           "Left"
-#define DRMU_PLANE_CHROMA_SITING_TOP            "Top"
-#define DRMU_PLANE_CHROMA_SITING_TOP_LEFT       "Top Left"
-#define DRMU_PLANE_CHROMA_SITING_UNSPECIFIED    "Unspecified"
-int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const char * const siting);
+// Init constants - C winges if the struct is specified in a const init (which seems like a silly error)
+#define drmu_chroma_siting_float_i(_x, _y) {.x = (int32_t)((double)(_x) * 65536 + .5), .y = (int32_t)((double)(_y) * 65536 + .5)}
+#define DRMU_CHROMA_SITING_BOTTOM_I             drmu_chroma_siting_float_i(0.5, 1.0)
+#define DRMU_CHROMA_SITING_BOTTOM_LEFT_I        drmu_chroma_siting_float_i(0.0, 1.0)
+#define DRMU_CHROMA_SITING_CENTER_I             drmu_chroma_siting_float_i(0.5, 0.5)
+#define DRMU_CHROMA_SITING_LEFT_I               drmu_chroma_siting_float_i(0.0, 0.5)
+#define DRMU_CHROMA_SITING_TOP_I                drmu_chroma_siting_float_i(0.5, 0.0)
+#define DRMU_CHROMA_SITING_TOP_LEFT_I           drmu_chroma_siting_float_i(0.0, 0.0)
+#define DRMU_CHROMA_SITING_UNSPECIFIED_I        {INT32_MIN, INT32_MIN}
+// Inline constants
+#define drmu_chroma_siting_float(_x, _y) (drmu_chroma_siting_t){.x = (int32_t)((double)(_x) * 65536 + .5), .y = (int32_t)((double)(_y) * 65536 + .5)}
+#define DRMU_CHROMA_SITING_BOTTOM               drmu_chroma_siting_float(0.5, 1.0)
+#define DRMU_CHROMA_SITING_BOTTOM_LEFT          drmu_chroma_siting_float(0.0, 1.0)
+#define DRMU_CHROMA_SITING_CENTER               drmu_chroma_siting_float(0.5, 0.5)
+#define DRMU_CHROMA_SITING_LEFT                 drmu_chroma_siting_float(0.0, 0.5)
+#define DRMU_CHROMA_SITING_TOP                  drmu_chroma_siting_float(0.5, 0.0)
+#define DRMU_CHROMA_SITING_TOP_LEFT             drmu_chroma_siting_float(0.0, 0.0)
+#define DRMU_CHROMA_SITING_UNSPECIFIED          (drmu_chroma_siting_t){INT32_MIN, INT32_MIN}
+int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);
 
 #define DRMU_PLANE_RANGE_FULL                   "YCbCr full range"
 #define DRMU_PLANE_RANGE_LIMITED                "YCbCr limited range"
