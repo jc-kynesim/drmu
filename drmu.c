@@ -862,20 +862,28 @@ drmu_fb_height(const drmu_fb_t *const dfb)
     return dfb->fb.height;
 }
 
-const drmu_rect_t *
-drmu_fb_crop(const drmu_fb_t *const dfb)
+static inline drmu_rect_t
+rect_to_frac_rect(const drmu_rect_t a)
 {
-    return &dfb->cropped;
+    drmu_rect_t b = {
+        .x = a.x << 16,
+        .y = a.y << 16,
+        .w = a.w << 16,
+        .h = a.h << 16
+    };
+    return b;
 }
 
+// active is in pixels
 void
-drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t crop)
+drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t active)
 {
     dfb->fmt_info = format_info_find(fmt);
     dfb->fb.pixel_format = fmt;
     dfb->fb.width        = w;
     dfb->fb.height       = h;
-    dfb->cropped         = crop;
+    dfb->active          = active;
+    dfb->crop            = rect_to_frac_rect(active);
 }
 
 void
@@ -1123,7 +1131,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
         goto fail;
 
     drmu_debug(du, "Create dumb %p %s %dx%d / %dx%d size: %zd", dfb,
-               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->cropped.w, dfb->cropped.h, dfb->map_size);
+               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->active.w, dfb->active.h, dfb->map_size);
     return dfb;
 
 fail:
@@ -1143,7 +1151,8 @@ fb_try_reuse(drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format)
     if (w > dfb->fb.width || h > dfb->fb.height || format != dfb->fb.pixel_format)
         return 0;
 
-    dfb->cropped = drmu_rect_wh(w, h);
+    dfb->active = drmu_rect_wh(w, h);
+    dfb->crop   = rect_to_frac_rect(dfb->active);
     return 1;
 }
 
@@ -2485,7 +2494,7 @@ drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     else {
         rv = plane_set_atomic(da, dp, dfb,
                               pos.x, pos.y, pos.w, pos.h,
-                              (dfb->cropped.x << 16), (dfb->cropped.y << 16), (dfb->cropped.w << 16), (dfb->cropped.h << 16));
+                              dfb->crop.x, dfb->crop.y, dfb->crop.w, dfb->crop.h);
     }
     if (rv != 0 || dfb == NULL)
         return rv;

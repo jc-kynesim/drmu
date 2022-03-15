@@ -194,7 +194,7 @@ uint32_t drmu_fb_pitch2(const drmu_fb_t *const dfb, const unsigned int layer);
 void * drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer);
 uint32_t drmu_fb_width(const drmu_fb_t *const dfb);
 uint32_t drmu_fb_height(const drmu_fb_t *const dfb);
-const drmu_rect_t * drmu_fb_crop(const drmu_fb_t *const dfb);
+//const drmu_rect_t * drmu_fb_crop(const drmu_fb_t *const dfb);
 
 int drmu_atomic_add_prop_fb(struct drmu_atomic_s * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_fb_t * const dfb);
 

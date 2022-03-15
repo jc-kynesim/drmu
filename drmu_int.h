@@ -62,7 +62,8 @@ typedef struct drmu_fb_s {
 
     struct drm_mode_fb_cmd2 fb;
 
-    drmu_rect_t cropped;
+    drmu_rect_t active;     // Area that was asked for inside the buffer; pixels
+    drmu_rect_t crop;       // Cropping inside that; fractional pels (16.16, 16.16)
 
     void * map_ptr;
     size_t map_size;
