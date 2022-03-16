@@ -70,6 +70,7 @@ typedef struct drmu_format_info_s {
         uint8_t wdiv;
         uint8_t hdiv;
     } planes[4];
+    drmu_chroma_siting_t chroma_siting;  // Default for this format (YUV420 = (0.0, 0.5), otherwise (0, 0)
 } drmu_format_info_t;
 
 static const drmu_format_info_t format_info[] = {
@@ -96,12 +97,16 @@ static const drmu_format_info_t format_info[] = {
     { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
     { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
 
-    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
-    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}},
-    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .bit_depth = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}},
+      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
+    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}},
+      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
+    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .bit_depth = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}},
+      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
 
     // 3 pel in 32 bits. So code as 32bpp with wdiv 3.
-    { .fourcc = DRM_FORMAT_P030,   .bpp = 32, .bit_depth = 10, .plane_count = 2, .planes = {{.wdiv = 3, .hdiv = 1}, {.wdiv = 3, .hdiv = 2}}},
+    { .fourcc = DRM_FORMAT_P030,   .bpp = 32, .bit_depth = 10, .plane_count = 2, .planes = {{.wdiv = 3, .hdiv = 1}, {.wdiv = 3, .hdiv = 2}},
+      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
 
     { .fourcc = 0 }
 };
@@ -902,6 +907,7 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
     dfb->fb.height       = h;
     dfb->active          = active;
     dfb->crop            = rect_to_frac_rect(active);
+    dfb->chroma_siting   = dfb->fmt_info ? dfb->fmt_info->chroma_siting : DRMU_CHROMA_SITING_TOP_LEFT;
 }
 
 void
