@@ -897,6 +897,19 @@ drmu_fb_crop_frac_set(drmu_fb_t *const dfb, drmu_rect_t crop_frac)
     return 0;
 }
 
+drmu_rect_t
+drmu_fb_crop_frac(const drmu_fb_t *const dfb)
+{
+    return dfb->crop;
+}
+
+drmu_rect_t
+drmu_fb_active(const drmu_fb_t *const dfb)
+{
+    return dfb->active;
+}
+
+
 // active is in pixels
 void
 drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t active)
@@ -2517,8 +2530,10 @@ drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
     }
     else {
         rv = plane_set_atomic(da, dp, dfb,
-                              pos.x, pos.y, pos.w, pos.h,
-                              dfb->crop.x, dfb->crop.y, dfb->crop.w, dfb->crop.h);
+                              pos.x, pos.y,
+                              pos.w, pos.h,
+                              dfb->crop.x + (dfb->active.x << 16), dfb->crop.y + (dfb->active.y << 16),
+                              dfb->crop.w, dfb->crop.h);
     }
     if (rv != 0 || dfb == NULL)
         return rv;

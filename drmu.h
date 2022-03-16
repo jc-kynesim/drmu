@@ -196,13 +196,21 @@ uint32_t drmu_fb_width(const drmu_fb_t *const dfb);
 uint32_t drmu_fb_height(const drmu_fb_t *const dfb);
 // Set cropping (fractional) - x, y, relative to active x, y (and must be +ve)
 int drmu_fb_crop_frac_set(drmu_fb_t *const dfb, drmu_rect_t crop_frac);
+// get cropping (fractional 16.16) x, y relative to active area
+drmu_rect_t drmu_fb_crop_frac(const drmu_fb_t *const dfb);
+// get active area (all valid pixels - buffer can/will contain padding outside this)
+// rect in pixels (not fractional)
+drmu_rect_t drmu_fb_active(const drmu_fb_t *const dfb);
 
 int drmu_atomic_add_prop_fb(struct drmu_atomic_s * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_fb_t * const dfb);
 
 // FB creation helpers - only use for creatino of new FBs
 drmu_fb_t * drmu_fb_int_alloc(drmu_env_t * const du);
 void drmu_fb_int_free(drmu_fb_t * const dfb);
-void drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t crop);
+// Set size
+// w, h are buffer sizes, active is the valid pixel area inside that
+// crop will be set to the whole active area
+void drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t active);
 // All assumed to be const strings that do not need freed
 void drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char * const range, const char * const space);
 void drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting);
