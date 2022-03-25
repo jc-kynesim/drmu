@@ -560,7 +560,8 @@ drmu_atomic_add_prop_range(drmu_atomic_t * const da, const uint32_t obj_id, cons
 {
     int rv;
 
-    rv = !drmu_prop_range_validate(pra, x) ? -EINVAL :
+    rv = !pra ? -ENOENT :
+        !drmu_prop_range_validate(pra, x) ? -EINVAL :
         drmu_atomic_add_prop_generic(da, obj_id, drmu_prop_range_id(pra), x, 0, 0, NULL);
 
     if (rv != 0)
@@ -2508,12 +2509,17 @@ drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane
 int
 drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting)
 {
+    int rv = 0;
+
+    if (!dp->pid.chroma_siting_h || !dp->pid.chroma_siting_v)
+        return -ENOENT;
+
     if (!drmu_chroma_siting_eq(siting, DRMU_CHROMA_SITING_UNSPECIFIED)) {
         const uint32_t plid = dp->plane->plane_id;
-        drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_h, siting.x);
-        drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_v, siting.y);
+        rv = drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_h, siting.x);
+        rv = rvup(rv, drmu_atomic_add_prop_range(da, plid, dp->pid.chroma_siting_v, siting.y));
     }
-    return 0;
+    return rv;
 }
 
 int
