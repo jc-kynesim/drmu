@@ -371,8 +371,12 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "--deinterlace") == 0) {
                 wants_deinterlace = true;
             }
-            else
+            else if (strcmp(arg, "--") == 0) {
+                --n;  // If we are going to break out then need to dec count like in the while
                 break;
+            }
+            else
+                usage();
         }
 
         // Last args are input files
