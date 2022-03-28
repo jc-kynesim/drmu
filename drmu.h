@@ -350,6 +350,11 @@ int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * con
 struct drmu_log_env_s;
 
 // Q the atomic on its associated env
+//
+// in-progress = The commit has been done but no ack yet
+// pending     = Commit Qed to be done when the in-progress commit has
+//               completed
+//
 // If there is a pending commit this atomic wiill be merged with it
 int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
 // Wait for there to be no pending commit (there may be a commit in
@@ -370,7 +375,9 @@ bool drmu_env_restore_is_enabled(const drmu_env_t * const du);
 // Tests for commitability and removes any props that won't commit
 int drmu_atomic_env_restore_add_snapshot(struct drmu_atomic_s ** const ppda);
 
-
+// Open a drmu environment with the drm fd
+// Takes a logging structure so early errors can be reported.
+// If log = NULL logging is disabled (set to drmu_log_env_none).
 drmu_env_t * drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log);
 drmu_env_t * drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log);
 

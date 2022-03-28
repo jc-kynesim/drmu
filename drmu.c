@@ -2879,7 +2879,7 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
         return NULL;
     }
 
-    du->log = *log;
+    du->log = (log == NULL) ? drmu_log_env_none : *log;
     du->fd = fd;
     du->modeset_allow = true;
 
