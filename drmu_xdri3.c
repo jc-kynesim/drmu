@@ -43,8 +43,9 @@ get_drm_fd(const drmu_log_env_t * const log)
 }
 
 drmu_env_t *
-drmu_env_new_xdri3(const drmu_log_env_t * const log)
+drmu_env_new_xdri3(const drmu_log_env_t * const log2)
 {
+    const struct drmu_log_env_s * const log = (log2 == NULL) ? &drmu_log_env_none : log2;
     const int fd = get_drm_fd(log);
 
     if (fd == -1) {

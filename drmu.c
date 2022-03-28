@@ -2917,8 +2917,9 @@ fail1:
 }
 
 drmu_env_t *
-drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log)
+drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log2)
 {
+    const struct drmu_log_env_s * const log = (log2 == NULL) ? &drmu_log_env_none : log2;
     int fd = drmOpen(name, NULL);
     if (fd == -1) {
         drmu_err_log(log, "Failed to open %s", name);
