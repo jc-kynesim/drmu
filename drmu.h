@@ -332,7 +332,7 @@ int drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_p
 #define DRMU_CHROMA_SITING_TOP_LEFT_I           drmu_chroma_siting_float_i(0.0, 0.0)
 #define DRMU_CHROMA_SITING_UNSPECIFIED_I        {INT32_MIN, INT32_MIN}
 // Inline constants
-#define drmu_chroma_siting_float(_x, _y) (drmu_chroma_siting_t){.x = (int32_t)((double)(_x) * 65536 + .5), .y = (int32_t)((double)(_y) * 65536 + .5)}
+#define drmu_chroma_siting_float(_x, _y) (drmu_chroma_siting_t)drmu_chroma_siting_float_i(_x, _y)
 #define DRMU_CHROMA_SITING_BOTTOM               drmu_chroma_siting_float(0.5, 1.0)
 #define DRMU_CHROMA_SITING_BOTTOM_LEFT          drmu_chroma_siting_float(0.0, 1.0)
 #define DRMU_CHROMA_SITING_CENTER               drmu_chroma_siting_float(0.5, 0.5)
