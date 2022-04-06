@@ -103,6 +103,8 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
 #endif
         drmu_atomic_crtc_fb_info_set(da, de->dc, dfb);
         drmu_atomic_plane_fb_set(da, de->dp, dfb, r);
+        drmu_atomic_crtc_mode_id_set(da, de->dc, de->mode_id);
+
         drmu_fb_unref(&dfb);
         drmu_atomic_queue(&da);
     }
@@ -135,10 +137,11 @@ int drmprime_out_modeset(drmprime_out_env_t * de, int w, int h, const AVRational
     if (de->mode_id >= 0) {
         drmu_atomic_t * da = drmu_atomic_new(de->du);
         if (da != NULL) {
+            drmu_mode_pick_simple_params_t sp = drmu_crtc_mode_simple_params(de->dc, de->mode_id);
             drmu_atomic_crtc_mode_id_set(da, de->dc, de->mode_id);
             drmu_atomic_unref(&da);
-            fprintf(stderr, "Req %dx%d Hz %d.%03d got %dx%d\n", pick.width, pick.height, pick.hz_x_1000 / 1000, pick.hz_x_1000%1000,
-                    drmu_crtc_width(de->dc), drmu_crtc_height(de->dc));
+            fprintf(stderr, "Req %dx%d Hz %d.%03d got %dx%d Hz %d.%03d\n", pick.width, pick.height, pick.hz_x_1000 / 1000, pick.hz_x_1000%1000,
+                    sp.width, sp.height, sp.hz_x_1000 / 1000, sp.hz_x_1000 % 1000);
         }
     }
     else {
