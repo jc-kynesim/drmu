@@ -1851,34 +1851,36 @@ drmu_mode_pick_simple_cb(void * v, const drmModeModeInfo * mode)
     const int pref = (mode->type & DRM_MODE_TYPE_PREFERRED) != 0;
     const unsigned int r_m = (uint32_t)(((uint64_t)mode->clock * 1000000) / (mode->htotal * mode->vtotal));
     const unsigned int r_f = p->hz_x_1000;
+    int score = -1;
 
     // We don't understand interlace
     if ((mode->flags & DRM_MODE_FLAG_INTERLACE) != 0)
         return -1;
 
-    if (p->width == mode->hdisplay && p->height == mode->vdisplay)
+    if (p->width == mode->hdisplay || p->height == mode->vdisplay)
     {
         // If we haven't been given any hz then pick pref or fastest
         // Max out at 300Hz (=300,0000)
         if (r_f == 0)
-            return pref ? 83000000 : 80000000 + (r_m >= 2999999 ? 2999999 : r_m);
-
+            score = pref ? 83000000 : 80000000 + (r_m >= 2999999 ? 2999999 : r_m);
         // Prefer a good match to 29.97 / 30 but allow the other
-        if ((r_m + 10 >= r_f && r_m <= r_f + 10))
-            return 100000000;
-        if ((r_m + 100 >= r_f && r_m <= r_f + 100))
-            return 95000000;
+        else if ((r_m + 10 >= r_f && r_m <= r_f + 10))
+            score = 100000000;
+        else if ((r_m + 100 >= r_f && r_m <= r_f + 100))
+            score = 95000000;
         // Double isn't bad
-        if ((r_m + 10 >= r_f * 2 && r_m <= r_f * 2 + 10))
-            return 90000000;
-        if ((r_m + 100 >= r_f * 2 && r_m <= r_f * 2 + 100))
-            return 85000000;
+        else if ((r_m + 10 >= r_f * 2 && r_m <= r_f * 2 + 10))
+            score = 90000000;
+        else if ((r_m + 100 >= r_f * 2 && r_m <= r_f * 2 + 100))
+            score = 85000000;
     }
+    if (score > 0 && (p->width != mode->hdisplay || p->height != mode->vdisplay))
+        score -= 30000000;
 
-    if (pref)
-        return 50000000;
+    if (score <= 0 && pref)
+        score = 10000000;
 
-    return -1;
+    return score;
 }
 
 int
