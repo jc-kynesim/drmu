@@ -48,10 +48,12 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    drmu_env_modeset_allow(du, true);
-
     if ((dout = drmu_output_new(du)) == NULL)
         goto fail;
+
+    drmu_output_max_bpc_allow(dout, true);
+    drmu_output_modeset_allow(dout, true);
+
     if (drmu_output_add_output(dout, NULL) != 0)
         goto fail;
     dn = drmu_output_conn(dout, 0);

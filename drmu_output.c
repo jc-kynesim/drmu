@@ -20,6 +20,7 @@ struct drmu_output_s {
     unsigned int conn_size;
     drmu_conn_t ** dns;
     bool max_bpc_allow;
+    bool modeset_allow;
     int mode_id;
     drmu_mode_simple_params_t mode_params;
 
@@ -61,12 +62,15 @@ drmu_atomic_add_output_props(drmu_atomic_t * const da, drmu_output_t * const dou
     int rv = 0;
     unsigned int i;
 
+    if (!dout->modeset_allow)
+        return 0;
+
     rv = drmu_atomic_crtc_add_modeinfo(da, dout->dc, drmu_conn_modeinfo(dout->dns[0], dout->mode_id));
 
     for (i = 0; i != dout->conn_n; ++i) {
         drmu_conn_t * const dn = dout->dns[i];
 
-        if (dout->fmt_info)
+        if (dout->fmt_info && dout->max_bpc_allow)
             rv = rvup(rv, drmu_atomic_conn_hi_bpc_set(da, dn, (drmu_format_info_bit_depth(dout->fmt_info) > 8)));
         if (dout->colorspace)
             rv = rvup(rv, drmu_atomic_conn_colorspace_set(da, dn, dout->colorspace));
@@ -201,6 +205,13 @@ drmu_output_max_bpc_allow(drmu_output_t * const dout, const bool allow)
     return 0;
 }
 
+int
+drmu_output_modeset_allow(drmu_output_t * const dout, const bool allow)
+{
+    dout->modeset_allow = allow;
+    return 0;
+}
+
 static int
 check_conns_size(drmu_output_t * const dout)
 {
@@ -229,7 +240,7 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
     uint32_t crtc_id;
     int rv;
 
-    for (i = 0; (dn_t = drmu_conn_find_n(du, i)) != NULL; ++i) {
+    for (i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         if (!drmu_conn_is_output(dn_t))
             continue;
         if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0)
@@ -237,7 +248,7 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
         // This prefers conns that are already attached to crtcs
         dn = dn_t;
         if ((crtc_id = drmu_conn_crtc_id_get(dn_t)) == 0 ||
-            (dc_t = drmu_crtc_find_id(du, crtc_id)) == NULL)
+            (dc_t = drmu_env_crtc_find_id(du, crtc_id)) == NULL)
             continue;
         break;
     }
@@ -389,7 +400,12 @@ drmu_output_add_writeback(drmu_output_t * const dout)
     int rv;
     uint32_t possible_crtcs;
 
-    for (unsigned int i = 0; (dn_t = drmu_conn_find_n(du, i)) != NULL; ++i) {
+    if (!dout->modeset_allow) {
+        drmu_debug(du, "modeset_allow required for writeback");
+        return -EINVAL;
+    }
+
+    for (unsigned int i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         drmu_info(du, "%d: try %s", i, drmu_conn_name(dn_t));
         if (!drmu_conn_is_writeback(dn_t))
             continue;
@@ -412,7 +428,7 @@ drmu_output_add_writeback(drmu_output_t * const dout)
 
         drmu_info(du, "try Crtc %d", i);
 
-        if ((dc_t = drmu_crtc_find_n(du, i)) == NULL)
+        if ((dc_t = drmu_env_crtc_find_n(du, i)) == NULL)
             break;
 
         if (try_conn_crtc(du, dn, dc_t) == 0) {

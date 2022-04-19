@@ -452,12 +452,15 @@ int main(int argc, char *argv[])
     }
 
     drmu_env_restore_enable(du);
-    drmu_env_modeset_allow(du, true);
 
     da = drmu_atomic_new(du);
 
     if ((dout = drmu_output_new(du)) == NULL)
         goto fail;
+
+    drmu_output_max_bpc_allow(dout, true);
+    drmu_output_modeset_allow(dout, true);
+
     if (try_writeback) {
         if (drmu_output_add_writeback(dout) != 0) {
             drmu_err(du, "Failed to add writeback");

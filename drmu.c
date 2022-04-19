@@ -1,21 +1,57 @@
-#include "drmu_int.h"
+#include "drmu.h"
+#include "drmu_log.h"
+
+#include <pthread.h>
+
 #include "pollqueue.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+
+#include <libdrm/drm.h>
+#include <libdrm/drm_mode.h>
+#include <libdrm/drm_fourcc.h>
+#include <xf86drm.h>
+
+#define TRACE_PROP_NEW 0
+
+#ifndef DRM_FORMAT_P030
+#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
+#endif
+
+struct drmu_bo_env_s;
+struct drmu_atomic_q_s;
+static struct drmu_bo_env_s * env_boe(drmu_env_t * const du);
+static struct pollqueue * env_pollqueue(const drmu_env_t * const du);
+static struct drmu_atomic_q_s * env_atomic_q(drmu_env_t * const du);
 
 // Update return value with a new one for cases where we don't stop on error
 static inline int rvup(int rv1, int rv2)
 {
     return rv2 ? rv2 : rv1;
+}
+
+// Alloc retry helper
+static inline int
+retry_alloc_u32(uint32_t ** const pp, uint32_t * const palloc_count, uint32_t const new_count)
+{
+    if (new_count <= *palloc_count)
+        return 0;
+    free(*pp);
+    *palloc_count = 0;
+    if ((*pp = malloc(sizeof(**pp) * new_count)) == NULL)
+        return -ENOMEM;
+    *palloc_count = new_count;
+    return 1;
 }
 
 drmu_ufrac_t
@@ -620,7 +656,7 @@ drmu_prop_range_new(drmu_env_t * const du, const uint32_t id)
             .values_ptr = (uintptr_t)pra->range
         };
 
-        if ((rv = drmIoctl(du->fd, DRM_IOCTL_MODE_GETPROPERTY, &prop)) != 0) {
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPERTY, &prop)) != 0) {
             drmu_err(du, "%s: get property failed: %s", __func__, strerror(-rv));
             goto fail;
         }
@@ -759,6 +795,32 @@ drmu_atomic_add_prop_object(drmu_atomic_t * const da, drmu_prop_object_t * obj, 
 //
 // BO fns
 
+enum drmu_bo_type_e {
+    BO_TYPE_NONE = 0,
+    BO_TYPE_FD,
+    BO_TYPE_DUMB
+};
+
+// BO handles come in 2 very distinct types: DUMB and FD
+// They need very different alloc & free but BO usage is the same for both
+// so it is better to have a single type.
+typedef struct drmu_bo_s {
+    // Arguably could be non-atomic for FD as then it is always protected by mutex
+    atomic_int ref_count;
+    struct drmu_env_s * du;
+    enum drmu_bo_type_e bo_type;
+    uint32_t handle;
+
+    // FD only els - FD BOs need to be tracked globally
+    struct drmu_bo_s * next;
+    struct drmu_bo_s * prev;
+} drmu_bo_t;
+
+typedef struct drmu_bo_env_s {
+    pthread_mutex_t lock;
+    drmu_bo_t * fd_head;
+} drmu_bo_env_t;
+
 static int
 bo_close(drmu_env_t * const du, uint32_t * const ph)
 {
@@ -790,7 +852,7 @@ bo_free_fd(drmu_bo_t * const bo)
 {
     if (bo->handle != 0) {
         drmu_env_t * const du = bo->du;
-        drmu_bo_env_t * const boe = &du->boe;
+        drmu_bo_env_t *const boe = env_boe(du);
         const uint32_t h = bo->handle;
 
         if (bo_close(du, &bo->handle) != 0)
@@ -818,7 +880,7 @@ drmu_bo_unref(drmu_bo_t ** const ppbo)
     switch (bo->bo_type) {
         case BO_TYPE_FD:
         {
-            drmu_bo_env_t * const boe = &bo->du->boe;
+            drmu_bo_env_t * const boe = env_boe(bo->du);
 
             pthread_mutex_lock(&boe->lock);
             if (atomic_fetch_sub(&bo->ref_count, 1) == 0)
@@ -864,19 +926,20 @@ bo_alloc(drmu_env_t *const du, enum drmu_bo_type_e bo_type)
 drmu_bo_t *
 drmu_bo_new_fd(drmu_env_t *const du, const int fd)
 {
-    drmu_bo_env_t * const boe = &du->boe;
+    drmu_bo_env_t * const boe = env_boe(du);
     drmu_bo_t * bo = NULL;
-    uint32_t h = 0;
+    struct drm_prime_handle ph = { .fd = fd };
+    int rv;
 
     pthread_mutex_lock(&boe->lock);
 
-    if (drmPrimeFDToHandle(du->fd, fd, &h) != 0) {
-        drmu_err(du, "%s: Failed to convert fd %d to BO: %s", __func__, fd, strerror(errno));
+    if ((rv = drmu_ioctl(du, DRM_IOCTL_PRIME_FD_TO_HANDLE, &ph)) != 0) {
+        drmu_err(du, "Failed to convert fd %d to BO: %s", __func__, fd, strerror(-rv));
         goto unlock;
     }
 
     bo = boe->fd_head;
-    while (bo != NULL && bo->handle != h)
+    while (bo != NULL && bo->handle != ph.handle)
         bo = bo->next;
 
     if (bo != NULL) {
@@ -884,10 +947,10 @@ drmu_bo_new_fd(drmu_env_t *const du, const int fd)
     }
     else {
         if ((bo = bo_alloc(du, BO_TYPE_FD)) == NULL) {
-            bo_close(du, &h);
+            bo_close(du, &ph.handle);
         }
         else {
-            bo->handle = h;
+            bo->handle = ph.handle;
 
             if ((bo->next = boe->fd_head) != NULL)
                 bo->next->prev = bo;
@@ -952,6 +1015,45 @@ drmu_format_info_bit_depth(const drmu_format_info_t * const fmt_info)
 //
 // FB fns
 
+typedef struct drmu_fb_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
+    struct drmu_fb_s * prev;
+    struct drmu_fb_s * next;
+
+    struct drmu_env_s * du;
+
+    const struct drmu_format_info_s * fmt_info;
+
+    struct drm_mode_fb_cmd2 fb;
+
+    drmu_rect_t active;     // Area that was asked for inside the buffer; pixels
+    drmu_rect_t crop;       // Cropping inside that; fractional pels (16.16, 16.16)
+
+    void * map_ptr;
+    size_t map_size;
+    size_t map_pitch;
+
+    drmu_bo_t * bo_list[4];
+
+    const char * color_encoding; // Assumed to be constant strings that don't need freeing
+    const char * color_range;
+    const char * pixel_blend_mode;
+    const char * colorspace;
+    drmu_chroma_siting_t chroma_siting;
+    drmu_isset_t hdr_metadata_isset;
+    struct hdr_output_metadata hdr_metadata;
+
+    void * pre_delete_v;
+    drmu_fb_pre_delete_fn pre_delete_fn;
+
+    void * on_delete_v;
+    drmu_fb_on_delete_fn on_delete_fn;
+
+    // We pass a pointer to this to DRM which defines it as s32 so do not use
+    // int that might be s64.
+    int32_t fence_fd;
+} drmu_fb_t;
+
 int
 drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms)
 {
@@ -1001,7 +1103,7 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
     }
 
     if (dfb->fb.fb_id != 0)
-        drmModeRmFB(du->fd, dfb->fb.fb_id);
+        drmu_ioctl(du, DRM_IOCTL_MODE_RMFB, &dfb->fb.fb_id);
 
     if (dfb->map_ptr != NULL && dfb->map_ptr != MAP_FAILED)
         munmap(dfb->map_ptr, dfb->map_size);
@@ -1426,7 +1528,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
                                  PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
                                  drmu_fd(du), (off_t)map_dumb.offset)) == MAP_FAILED) {
             drmu_err(du, "%s: mmap failed (size=%zd, fd=%d, off=%zd): %s", __func__,
-                     dfb->map_size, du->fd, (size_t)map_dumb.offset, strerror(errno));
+                     dfb->map_size, drmu_fd(du), (size_t)map_dumb.offset, strerror(errno));
             goto fail;
         }
     }
@@ -2030,24 +2132,16 @@ modeinfo_simple_params(const struct drm_mode_modeinfo * const mode)
 }
 
 drmu_crtc_t *
-drmu_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id)
+drmu_env_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id)
 {
     unsigned int i;
-    for (i = 0; i != du->crtc_count; ++i) {
-        drmu_crtc_t * const dc = du->crtcs + i;
+    drmu_crtc_t * dc;
+
+    for (i = 0; (dc = drmu_env_crtc_find_n(du, i)) != NULL; ++i) {
         if (dc->crtc.crtc_id == crtc_id)
             return dc;
     }
     return NULL;
-}
-
-// Retrieve the the n-th conn
-// Use for iteration
-// Returns NULL when none left
-drmu_crtc_t *
-drmu_crtc_find_n(drmu_env_t * const du, const unsigned int n)
-{
-    return n >= du->crtc_count ? NULL : du->crtcs + n;
 }
 
 const struct drm_mode_modeinfo *
@@ -2070,7 +2164,7 @@ drmu_atomic_crtc_add_modeinfo(struct drmu_atomic_s * const da, drmu_crtc_t * con
     drmu_env_t * const du = drmu_atomic_env(da);
     int rv;
 
-    if (!modeinfo || dc->pid.mode_id == 0 || !du->modeset_allow)
+    if (!modeinfo || dc->pid.mode_id == 0)
         return 0;
 
     if ((rv = drmu_blob_update(du, &dc->mode_id_blob, modeinfo, sizeof(*modeinfo))) != 0)
@@ -2083,39 +2177,6 @@ int
 drmu_atomic_crtc_add_active(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, unsigned int val)
 {
     return drmu_atomic_add_prop_range(da, dc->crtc.crtc_id, dc->pid.active, val);
-}
-
-drmu_crtc_t *
-drmu_crtc_new_writeback(drmu_env_t * const du)
-{
-    int i;
-    drmu_crtc_t * const dc = calloc(1, sizeof(*dc));
-
-    if (dc == NULL) {
-        drmu_err(du, "Failed to alloc crtc memory");
-        return NULL;
-    }
-
-    if (du->res->count_crtcs <= 0) {
-        drmu_err(du, "%s: no crts", __func__);
-        goto fail;
-    }
-
-    for (i = 0; i != du->res->count_crtcs; ++i) {
-        memset(&dc->crtc, 0, sizeof(dc->crtc));
-        dc->crtc.crtc_id = du->res->crtcs[i];
-        if (drmu_ioctl(du, DRM_IOCTL_MODE_GETCRTC, &dc->crtc) != 0) {
-            drmu_err(du, "%s: Failed to find crtc %d", __func__, dc->crtc.crtc_id);
-            goto fail;
-        }
-
-    }
-
-    return dc;
-
-fail:
-    free_crtc(dc);
-    return NULL;
 }
 
 //----------------------------------------------------------------------------
@@ -2186,7 +2247,7 @@ drmu_atomic_conn_hdr_metadata_set(drmu_atomic_t * const da, drmu_conn_t * const 
     if (!du || !dn)  // du will be null if da is null
         return -ENOENT;
 
-    if (dn->pid.hdr_output_metadata == 0 || !du->modeset_allow)
+    if (dn->pid.hdr_output_metadata == 0)
         return 0;
 
     if ((rv = drmu_blob_update(du, &dn->hdr_metadata_blob, m, sizeof(*m))) != 0)
@@ -2202,8 +2263,6 @@ drmu_atomic_conn_hdr_metadata_set(drmu_atomic_t * const da, drmu_conn_t * const 
 int
 drmu_atomic_conn_hi_bpc_set(drmu_atomic_t * const da, drmu_conn_t * const dn, bool hi_bpc)
 {
-    if (!dn->du->modeset_allow || !dn->pid.max_bpc)
-        return 0;
     return drmu_atomic_add_prop_range(da, dn->conn.connector_id, dn->pid.max_bpc, !hi_bpc ? 8 :
                                       drmu_prop_range_max(dn->pid.max_bpc));
 }
@@ -2211,7 +2270,7 @@ drmu_atomic_conn_hi_bpc_set(drmu_atomic_t * const da, drmu_conn_t * const dn, bo
 int
 drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * colorspace)
 {
-    if (!dn->du->modeset_allow || !dn->pid.colorspace)
+    if (!dn->pid.colorspace)
         return 0;
 
     return drmu_atomic_add_prop_enum(da, dn->conn.connector_id, dn->pid.colorspace, colorspace);
@@ -2220,7 +2279,7 @@ drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn
 int
 drmu_atomic_conn_broadcast_rgb_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * bcrgb)
 {
-    if (!dn->du->modeset_allow || !dn->pid.broadcast_rgb)
+    if (!dn->pid.broadcast_rgb)
         return 0;
 
     return drmu_atomic_add_prop_enum(da, dn->conn.connector_id, dn->pid.broadcast_rgb, bcrgb);
@@ -2303,16 +2362,6 @@ unsigned int
 drmu_conn_idx_get(const drmu_conn_t * const dn)
 {
     return dn->conn_idx;
-}
-
-
-// Retrieve the the n-th conn
-// Use for iteration
-// Returns NULL when none left
-drmu_conn_t *
-drmu_conn_find_n(drmu_env_t * const du, const unsigned int n)
-{
-    return n >= du->conn_count ? NULL : du->conns + n;
 }
 
 static void
@@ -2433,6 +2482,16 @@ fail:
 //
 // Atomic Q fns (internal)
 
+typedef struct drmu_atomic_q_s {
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    drmu_atomic_t * next_flip;
+    drmu_atomic_t * cur_flip;
+    drmu_atomic_t * last_flip;
+    unsigned int retry_count;
+    struct polltask * retry_task;
+} drmu_atomic_q_t;
+
 static void atomic_q_retry(drmu_atomic_q_t * const aq, drmu_env_t * const du);
 
 // Needs locked
@@ -2440,11 +2499,8 @@ static int
 atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
 {
     drmu_env_t * const du = drmu_atomic_env(aq->next_flip);
-    uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
+    uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET;
     int rv;
-
-    if (du->modeset_allow)
-        flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
 
     if ((rv = drmu_atomic_commit(aq->next_flip, flags)) == 0) {
         if (aq->retry_count != 0)
@@ -2492,7 +2548,7 @@ static void
 atomic_q_retry(drmu_atomic_q_t * const aq, drmu_env_t * const du)
 {
     if (aq->retry_task == NULL)
-        aq->retry_task = polltask_new_timer(du->pq, atomic_q_retry_cb, aq);
+        aq->retry_task = polltask_new_timer(env_pollqueue(du), atomic_q_retry_cb, aq);
     pollqueue_add_task(aq->retry_task, 20);
 }
 
@@ -2503,7 +2559,7 @@ drmu_atomic_page_flip_cb(int fd, unsigned int sequence, unsigned int tv_sec, uns
 {
     drmu_atomic_t * const da = user_data;
     drmu_env_t * const du = drmu_atomic_env(da);
-    drmu_atomic_q_t * const aq = &du->aq;
+    drmu_atomic_q_t * const aq = env_atomic_q(du);
 
     (void)fd;
     (void)sequence;
@@ -2591,14 +2647,14 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
         return 0;
     *ppda = NULL;
 
-    return atomic_q_queue(&drmu_atomic_env(da)->aq, da);
+    return atomic_q_queue(env_atomic_q(drmu_atomic_env(da)), da);
 }
 
 int
 drmu_env_queue_wait(drmu_env_t * const du)
 {
 
-    drmu_atomic_q_t *const aq = &du->aq;
+    drmu_atomic_q_t *const aq = env_atomic_q(du);
     struct timespec ts;
     int rv = 0;
 
@@ -2644,6 +2700,27 @@ atomic_q_init(drmu_atomic_q_t * const aq)
 //----------------------------------------------------------------------------
 //
 // Pool fns
+
+typedef struct drmu_fb_list_s {
+    drmu_fb_t * head;
+    drmu_fb_t * tail;
+} drmu_fb_list_t;
+
+typedef struct drmu_pool_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
+
+    struct drmu_env_s * du;
+
+    pthread_mutex_t lock;
+    int dead;
+
+    unsigned int seq;  // debug
+
+    unsigned int fb_count;
+    unsigned int fb_max;
+
+    drmu_fb_list_t free_fbs;
+} drmu_pool_t;
 
 static void
 fb_list_add_tail(drmu_fb_list_t * const fbl, drmu_fb_t * const dfb)
@@ -3034,11 +3111,10 @@ drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
     uint32_t i;
     drmu_env_t * const du = drmu_crtc_env(dc);
     drmu_plane_t * dp = NULL;
+    drmu_plane_t * dp_t;
     const uint32_t crtc_mask = (uint32_t)1 << drmu_crtc_idx(dc);
 
-    for (i = 0; i != du->plane_count && dp == NULL; ++i) {
-        drmu_plane_t * const dp_t = du->planes + i;
-
+    for (i = 0; (dp_t = drmu_env_plane_find_n(du, i)) != NULL; ++i) {
         // Is wanted type?
         if ((dp_t->plane_type & req_type) == 0)
             continue;
@@ -3055,7 +3131,7 @@ drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
         break;
     }
     if (dp == NULL) {
-        drmu_err(du, "%s: No plane (count=%d) found for types %#x", __func__, du->plane_count, req_type);
+        drmu_err(du, "%s: No plane (count=%d) found for types %#x", __func__, i, req_type);
         return NULL;
     }
     return dp;
@@ -3163,6 +3239,52 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
 //
 // Env fns
 
+typedef struct drmu_env_s {
+    int fd;
+    uint32_t plane_count;
+    uint32_t conn_count;
+    uint32_t crtc_count;
+    drmu_plane_t * planes;
+    drmu_conn_t * conns;
+    drmu_crtc_t * crtcs;
+
+    drmu_log_env_t log;
+
+    // global env for atomic flip
+    drmu_atomic_q_t aq;
+    // global env for bo tracking
+    drmu_bo_env_t boe;
+    // global atomic for restore op
+    drmu_atomic_t * da_restore;
+
+    struct pollqueue * pq;
+    struct polltask * pt;
+} drmu_env_t;
+
+// Retrieve the the n-th conn
+// Use for iteration
+// Returns NULL when none left
+drmu_crtc_t *
+drmu_env_crtc_find_n(drmu_env_t * const du, const unsigned int n)
+{
+    return n >= du->crtc_count ? NULL : du->crtcs + n;
+}
+
+// Retrieve the the n-th conn
+// Use for iteration
+// Returns NULL when none left
+drmu_conn_t *
+drmu_env_conn_find_n(drmu_env_t * const du, const unsigned int n)
+{
+    return n >= du->conn_count ? NULL : du->conns + n;
+}
+
+drmu_plane_t *
+drmu_env_plane_find_n(drmu_env_t * const du, const unsigned int n)
+{
+    return n >= du->plane_count ? NULL : du->planes + n;
+}
+
 int
 drmu_ioctl(const drmu_env_t * const du, unsigned long req, void * arg)
 {
@@ -3211,38 +3333,25 @@ env_free_crtcs(drmu_env_t * const du)
 
 
 static int
-drmu_env_planes_populate(drmu_env_t * const du)
+env_planes_populate(drmu_env_t * const du, unsigned int n, const uint32_t * const ids)
 {
-    drmModePlaneResPtr res;
     uint32_t i;
-    int rv = -EINVAL;
+    int rv;
 
-    if ((res = drmModeGetPlaneResources(du->fd)) == NULL) {
-        rv = -errno;
-        drmu_err(du, "%s: drmModeGetPlaneResources failed: %s", __func__, strerror(-rv));
-        goto fail0;
+    if ((du->planes = calloc(n, sizeof(*du->planes))) == NULL) {
+        drmu_err(du, "Plane array alloc failed");
+        return -ENOMEM;
     }
 
-    if ((du->planes = calloc(res->count_planes, sizeof(*du->planes))) == NULL) {
-        rv = -ENOMEM;
-        drmu_err(du, "%s: drmModeGetPlaneResources failed: %s", __func__, strerror(-rv));
-        goto fail1;
-    }
-
-    for (i = 0; i != res->count_planes; ++i) {
-        if ((rv = plane_init(du, du->planes + i, res->planes[i])) != 0)
+    for (i = 0; i != n; ++i) {
+        if ((rv = plane_init(du, du->planes + i, ids[i])) != 0)
             goto fail2;
         du->plane_count = i + 1;
     }
-
-    drmModeFreePlaneResources(res);
     return 0;
 
 fail2:
     env_free_planes(du);
-fail1:
-    drmModeFreePlaneResources(res);
-fail0:
     return rv;
 }
 
@@ -3312,6 +3421,25 @@ drmu_env_log(const drmu_env_t * const du)
     return &du->log;
 }
 
+static struct drmu_bo_env_s *
+env_boe(drmu_env_t * const du)
+{
+    return &du->boe;
+}
+
+static struct pollqueue *
+env_pollqueue(const drmu_env_t * const du)
+{
+    return du->pq;
+}
+
+static struct drmu_atomic_q_s *
+env_atomic_q(drmu_env_t * const du)
+{
+    return &du->aq;
+}
+
+
 void
 drmu_env_delete(drmu_env_t ** const ppdu)
 {
@@ -3346,8 +3474,6 @@ drmu_env_delete(drmu_env_t ** const ppdu)
         drmu_atomic_unref(&du->da_restore);
     }
 
-    if (du->res != NULL)
-        drmModeFreeResources(du->res);
     env_free_planes(du);
     env_free_conns(du);
     env_free_crtcs(du);
@@ -3355,13 +3481,6 @@ drmu_env_delete(drmu_env_t ** const ppdu)
 
     close(du->fd);
     free(du);
-}
-
-// Default is yes
-void
-drmu_env_modeset_allow(drmu_env_t * const du, const bool modeset_allowed)
-{
-    du->modeset_allow = modeset_allowed;
 }
 
 int
@@ -3438,6 +3557,10 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
 {
     drmu_env_t * du = calloc(1, sizeof(*du));
     int rv;
+    uint32_t * conn_ids = NULL;
+    uint32_t * crtc_ids = NULL;
+    uint32_t * plane_ids = NULL;
+
     if (!du) {
         drmu_err_log(log, "Failed to create du: No memory");
         close(fd);
@@ -3446,7 +3569,6 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
 
     du->log = (log == NULL) ? drmu_log_env_none : *log;
     du->fd = fd;
-    du->modeset_allow = true;
 
     drmu_bo_env_init(&du->boe);
     atomic_q_init(&du->aq);
@@ -3475,24 +3597,76 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     if ((rv = drmu_env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1)) != 0)
         drmu_debug(du, "Failed to set writeback cap");
 
-    if (drmu_env_planes_populate(du) != 0)
-        goto fail1;
+    {
+        struct drm_mode_get_plane_res res;
+        uint32_t req_planes = 0;
 
-    if ((du->res = drmModeGetResources(du->fd)) == NULL) {
-        drmu_err(du, "%s: Failed to get resources", __func__);
-        goto fail1;
+        do {
+            memset(&res, 0, sizeof(res));
+            res.plane_id_ptr     = (uintptr_t)plane_ids;
+            res.count_planes     = req_planes;
+
+            if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETPLANERESOURCES, &res)) != 0) {
+                drmu_err(du, "Failed to get resources: %s", strerror(-rv));
+                goto fail1;
+            }
+        } while ((rv = retry_alloc_u32(&plane_ids, &req_planes, res.count_planes)) == 1);
+        if (rv < 0)
+            goto fail1;
+
+        if (env_planes_populate(du, res.count_planes, plane_ids) != 0)
+            goto fail1;
+
+        free(plane_ids);
+        plane_ids = NULL;
     }
-    if (env_conn_populate(du, du->res->count_connectors, du->res->connectors) != 0)
-        goto fail1;
-    if (env_crtc_populate(du, du->res->count_crtcs, du->res->crtcs) != 0)
-        goto fail1;
+
+    {
+        struct drm_mode_card_res res;
+        uint32_t req_conns = 0;
+        uint32_t req_crtcs = 0;
+
+        for (;;) {
+            memset(&res, 0, sizeof(res));
+            res.crtc_id_ptr      = (uintptr_t)crtc_ids;
+            res.connector_id_ptr = (uintptr_t)conn_ids;
+            res.count_crtcs      = req_crtcs;
+            res.count_connectors = req_conns;
+
+            if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETRESOURCES, &res)) != 0) {
+                drmu_err(du, "Failed to get resources: %s", strerror(-rv));
+                goto fail1;
+            }
+
+            if (res.count_crtcs <= req_crtcs && res.count_connectors <= req_conns)
+                break;
+
+            if (retry_alloc_u32(&conn_ids, &req_conns, res.count_connectors) < 0 ||
+                retry_alloc_u32(&crtc_ids, &req_crtcs, res.count_crtcs) < 0)
+                goto fail1;
+        }
+
+        if (env_conn_populate(du, res.count_connectors, conn_ids) != 0)
+            goto fail1;
+        if (env_crtc_populate(du, res.count_crtcs,      crtc_ids) != 0)
+            goto fail1;
+
+        free(conn_ids);
+        free(crtc_ids);
+        conn_ids = NULL;
+        crtc_ids = NULL;
+    }
 
     pollqueue_add_task(du->pt, 1000);
 
+    free(plane_ids);
     return du;
 
 fail1:
     drmu_env_delete(&du);
+    free(conn_ids);
+    free(crtc_ids);
+    free(plane_ids);
     return NULL;
 }
 

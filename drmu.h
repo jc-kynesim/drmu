@@ -284,8 +284,8 @@ drmu_env_t * drmu_crtc_env(const drmu_crtc_t * const dc);
 uint32_t drmu_crtc_id(const drmu_crtc_t * const dc);
 int drmu_crtc_idx(const drmu_crtc_t * const dc);
 
-drmu_crtc_t * drmu_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id);
-drmu_crtc_t * drmu_crtc_find_n(drmu_env_t * const du, const unsigned int n);
+drmu_crtc_t * drmu_env_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id);
+drmu_crtc_t * drmu_env_crtc_find_n(drmu_env_t * const du, const unsigned int n);
 
 typedef struct drmu_mode_pick_simple_params_s {
     unsigned int width;
@@ -344,7 +344,7 @@ const char * drmu_conn_name(const drmu_conn_t * const dn);
 unsigned int drmu_conn_idx_get(const drmu_conn_t * const dn);
 
 // Retrieve the the n-th conn. Use for iteration. Returns NULL when none left
-drmu_conn_t * drmu_conn_find_n(drmu_env_t * const du, const unsigned int n);
+drmu_conn_t * drmu_env_conn_find_n(drmu_env_t * const du, const unsigned int n);
 
 
 // Plane
@@ -413,6 +413,8 @@ int drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc);
 // Does not ref
 drmu_plane_t * drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type);
 
+drmu_plane_t * drmu_env_plane_find_n(drmu_env_t * const du, const unsigned int n);
+
 
 // Env
 struct drmu_log_env_s;
@@ -435,7 +437,6 @@ int drmu_ioctl(const drmu_env_t * const du, unsigned long req, void * arg);
 int drmu_fd(const drmu_env_t * const du);
 const struct drmu_log_env_s * drmu_env_log(const drmu_env_t * const du);
 void drmu_env_delete(drmu_env_t ** const ppdu);
-void drmu_env_modeset_allow(drmu_env_t * const du, const bool modeset_allowed);
 // Restore state on env close
 int drmu_env_restore_enable(drmu_env_t * const du);
 bool drmu_env_restore_is_enabled(const drmu_env_t * const du);

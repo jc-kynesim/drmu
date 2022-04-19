@@ -36,6 +36,9 @@ drmu_mode_score_fn drmu_mode_pick_simple_cb;
 // Allow fb max_bpc info to set the output mode (default false)
 int drmu_output_max_bpc_allow(drmu_output_t * const dout, const bool allow);
 
+// Allow fb to set modes generally
+int drmu_output_modeset_allow(drmu_output_t * const dout, const bool allow);
+
 // Add a CONN/CRTC pair to an output
 // If conn_name == NULL then 1st connected connector is used
 // If != NULL then 1st conn with prefix-matching name is used

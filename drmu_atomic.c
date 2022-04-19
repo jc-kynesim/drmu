@@ -1,9 +1,14 @@
-#include "drmu_int.h"
+#include "drmu.h"
+#include "drmu_log.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <string.h>
+
+#include <libdrm/drm.h>
+#include <libdrm/drm_mode.h>
 
 // Atomic property chain structures - no external visibility
 typedef struct aprop_prop_s {

@@ -131,7 +131,7 @@ int drmprime_out_modeset(drmprime_out_env_t * de, int w, int h, const AVRational
         return 0;
     }
 
-    drmu_env_modeset_allow(de->du, true);
+    drmu_output_modeset_allow(de->dout, true);
 
     de->mode_id = drmu_output_mode_pick_simple(de->dout, drmu_mode_pick_simple_cb, &pick);
 
