@@ -31,6 +31,7 @@
 
 #include "drmu.h"
 #include "drmu_log.h"
+#include "drmu_output.h"
 #include "drmu_util.h"
 #include <drm_fourcc.h>
 
@@ -167,7 +168,7 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
 #define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Y((r),(g),(b)), BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5)
 
 static int
-color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc,
+color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
              uint8_t * const p16, unsigned int dw, unsigned int dh, unsigned int p16_stride,
              const bool dofrac)
 {
@@ -213,7 +214,7 @@ color_siting(drmu_atomic_t * const da, drmu_crtc_t * const dc,
     plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fg);
 
     for (i = 0; i != 7; ++i) {
-        if ((planes[i] = drmu_plane_new_find(dc, fmt)) == NULL) {
+        if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
             fprintf(stderr, "Color siting test needs 8 planes, only got %d\nMaybe don't run from X?\n", i + 1);
             rv = -ENOENT;
             goto fail;
@@ -257,7 +258,7 @@ fail:
     // Would be "better" to delete planes at the end, but if we never alloc
     // another then this is, in fact, safe (nasty though)
     for (i = 0; i != 7; ++i)
-        drmu_plane_delete(planes + i);
+        drmu_plane_unref(planes + i);
     drmu_fb_unref(&fb);
     free(s16);
     return rv;
@@ -308,9 +309,12 @@ usage()
 int main(int argc, char *argv[])
 {
     drmu_env_t * du = NULL;
+    drmu_output_t * dout = NULL;
     drmu_crtc_t * dc = NULL;
+    drmu_conn_t * dn = NULL;
     drmu_plane_t * p1 = NULL;
     drmu_fb_t * fb1 = NULL;
+    drmu_fb_t * fb_out = NULL;
     drmu_atomic_t * da = NULL;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
@@ -329,13 +333,15 @@ int main(int argc, char *argv[])
     bool mode_req = false;
     bool hi_bpc = true;
     bool dofrac = false;
+    bool try_writeback = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0UL, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
+    int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:Fgpr:R:svy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:Fgpr:R:svwy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -375,11 +381,11 @@ int main(int argc, char *argv[])
             case 'R': {
                 const char * s = optarg;
                 if (strcmp(s, "full") == 0)
-                    range = DRMU_CRTC_BROADCAST_RGB_FULL;
+                    range = DRMU_BROADCAST_RGB_FULL;
                 else if (strcmp(s, "limited") == 0)
-                    range = DRMU_CRTC_BROADCAST_RGB_LIMITED_16_235;
+                    range = DRMU_BROADCAST_RGB_LIMITED_16_235;
                 else if (strcmp(s, "auto") == 0)
-                    range = DRMU_CRTC_BROADCAST_RGB_AUTOMATIC;
+                    range = DRMU_BROADCAST_RGB_AUTOMATIC;
                 else {
                     printf("Unrecognised broadcast range - valid values are auto, limited, full\n");
                     exit(1);
@@ -406,6 +412,9 @@ int main(int argc, char *argv[])
                 break;
             case '8':
                 hi_bpc = false;
+                break;
+            case 'w':
+                try_writeback = true;
                 break;
             case 'v':
                 ++verbose;
@@ -447,21 +456,49 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    if ((dc = drmu_crtc_new_find(du)) == NULL)
+    if ((dout = drmu_output_new(du)) == NULL)
         goto fail;
+    if (try_writeback) {
+        if (drmu_output_add_writeback(dout) != 0) {
+            drmu_err(du, "Failed to add writeback");
+            goto fail;
+        }
+    }
+    else {
+        if (drmu_output_add_output(dout, NULL) != 0)
+            goto fail;
+    }
+    dc = drmu_output_crtc(dout);
+    dn = drmu_output_conn(dout, 0);
 
-    drmu_crtc_max_bpc_allow(dc, hi_bpc);
+    drmu_output_max_bpc_allow(dout, hi_bpc);
 
-    if (!mode_req) {
-        drmu_mode_pick_simple_params_t pickparam = drmu_crtc_mode_simple_params(dc, -1);
-        dw = pickparam.width;
-        dh = pickparam.height;
+    if (try_writeback) {
+        if (!dw || !dh) {
+            dw = 1920;
+            dh = 1080;
+        }
+        printf("Try writeback %dx%d", dw, dh);
+
+        if ((fb_out = drmu_fb_new_dumb(du, dw, dh, DRM_FORMAT_ARGB8888)) == NULL) {
+            printf("Failed to create fb-out");
+            goto fail;
+        }
+        if (drmu_atomic_output_add_writeback_fb(da, dout, fb_out) != 0) {
+            printf("Failed to add writeback fb");
+            goto fail;
+        }
+    }
+    else if (!mode_req) {
+        const drmu_mode_simple_params_t * const sp = drmu_output_mode_simple_params(dout);
+        dw = sp->width;
+        dh = sp->height;
         printf("Mode %dx%d@%d.%03d\n",
-               pickparam.width, pickparam.height, pickparam.hz_x_1000 / 1000, pickparam.hz_x_1000 % 1000);
+               sp->width, sp->height, sp->hz_x_1000 / 1000, sp->hz_x_1000 % 1000);
     }
     else
     {
-        drmu_mode_pick_simple_params_t pickparam = drmu_crtc_mode_simple_params(dc, -1);
+        drmu_mode_simple_params_t pickparam = *drmu_output_mode_simple_params(dout);
         int mode;
 
         if (dw || dh) {
@@ -470,10 +507,10 @@ int main(int argc, char *argv[])
         }
         pickparam.hz_x_1000 = hz;  // 0 is legit -pick something
 
-        mode = drmu_crtc_mode_pick(dc, drmu_mode_pick_simple_cb, &pickparam);
+        mode = drmu_output_mode_pick_simple(dout, drmu_mode_pick_simple_cb, &pickparam);
 
         if (mode != -1) {
-            const drmu_mode_pick_simple_params_t m = drmu_crtc_mode_simple_params(dc, mode);
+            const drmu_mode_simple_params_t m = drmu_conn_mode_simple_params(dn, mode);
             printf("Mode requested %dx%d@%d.%03d; found %dx%d@%d.%03d\n",
                    pickparam.width, pickparam.height, pickparam.hz_x_1000 / 1000, pickparam.hz_x_1000 % 1000,
                    m.width, m.height, m.hz_x_1000 / 1000, m.hz_x_1000 % 1000);
@@ -485,7 +522,7 @@ int main(int argc, char *argv[])
                 goto fail;
             }
 
-            drmu_atomic_crtc_mode_id_set(da, dc, mode);
+            drmu_atomic_crtc_add_modeinfo(da, dc, drmu_conn_modeinfo(dn, mode));
 
             dw = m.width;
             dh = m.height;
@@ -506,7 +543,7 @@ int main(int argc, char *argv[])
     }
     p16_stride = dw * 8;
 
-    if ((p1 = drmu_plane_new_find(dc, p1fmt)) == NULL) {
+    if ((p1 = drmu_output_plane_ref_primary(dout)) == NULL) {
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
@@ -527,7 +564,7 @@ int main(int argc, char *argv[])
     else if (grey_only)
         fillgradgrey10(p16, dw, dh, p16_stride, is_yuv);
     else if (test_siting) {
-        if (color_siting(da, dc, p16, dw, dh, p16_stride, dofrac))
+        if (color_siting(da, dout, p16, dw, dh, p16_stride, dofrac))
             goto fail;
     } else if (!fill_solid)
         fillgraduated10(p16, dw, dh, p16_stride, is_yuv);
@@ -555,30 +592,56 @@ int main(int argc, char *argv[])
             .max_fall = 400
         }
     };
-    if (drmu_atomic_crtc_hdr_metadata_set(da, dc, &meta) != 0) {
+    if (drmu_atomic_conn_hdr_metadata_set(da, dn, &meta) != 0) {
         fprintf(stderr, "Failed metadata set");
         goto fail;
     }
-    if (drmu_atomic_crtc_colorspace_set(da, dc, colorspace) != 0) {
+    if (drmu_atomic_conn_colorspace_set(da, dn, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
         goto fail;
     }
-    if (drmu_atomic_crtc_broadcast_rgb_set(da, dc, broadcast_rgb) != 0) {
+    if (drmu_atomic_conn_broadcast_rgb_set(da, dn, broadcast_rgb) != 0) {
         fprintf(stderr, "Failed to set broadcast_rgb to '%s'\n", broadcast_rgb);
         goto fail;
     }
-    if (drmu_atomic_crtc_hi_bpc_set(da, dc, hi_bpc) != 0)
+    if (drmu_atomic_conn_hi_bpc_set(da, dn, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
-    drmu_atomic_queue(&da);
+    if (try_writeback) {
+        if (drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET) != 0) {
+            fprintf(stderr, "Failed to commit writeback\n");
+            goto fail;
+        }
+        rv = drmu_fb_out_fence_wait(fb_out, 1000);
+        if (rv == 1) {
+            printf("Waited OK for writeback\n");
+        }
+        else if (rv == 0) {
+            printf("Timeout for writeback\n");
+        }
+        else {
+            fprintf(stderr, "Failed to wait for writeback: %s\n", strerror(-rv));
+            goto fail;
+        }
 
-    getchar();
+        {
+            FILE * f = fopen("wb.rgb", "wb");
+            fwrite(drmu_fb_data(fb_out, 0), drmu_fb_pitch(fb_out, 0), drmu_fb_height(fb_out), f);
+            fclose(f);
+        }
+        // *** Test fb contents
+    }
+    else {
+        drmu_atomic_queue(&da);
+        getchar();
+    }
 
 fail:
     drmu_atomic_unref(&da);
+    drmu_fb_unref(&fb_out);
     drmu_fb_unref(&fb1);
-    drmu_plane_delete(&p1);
-    drmu_crtc_delete(&dc);
+    drmu_plane_unref(&p1);
+    drmu_output_unref(&dout);
     drmu_env_delete(&du);
     return 0;
 }

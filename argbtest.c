@@ -29,6 +29,7 @@
 
 #include "drmu.h"
 #include "drmu_log.h"
+#include "drmu_output.h"
 #include <drm_fourcc.h>
 
 #define TRACE_ALL 0
@@ -83,12 +84,13 @@ int main(int argc, char *argv[])
     unsigned int i;
 
     drmu_env_t * du = NULL;
-    drmu_crtc_t * dc = NULL;
+    drmu_output_t * dout = NULL;
     drmu_plane_t * p0 = NULL;
     drmu_plane_t * psub[4] = {NULL};
     drmu_fb_t * fb0 = NULL;
     drmu_fb_t * fbsub[4] = {NULL};
     drmu_atomic_t * da = NULL;
+    const drmu_mode_simple_params_t * sp = NULL;
 
     static const uint32_t fmts[4] = {
         DRM_FORMAT_ARGB8888,
@@ -111,15 +113,18 @@ int main(int argc, char *argv[])
     (void)argc;
     (void)argv;
 
-    if ((dc = drmu_crtc_new_find(du)) == NULL)
+    if ((dout = drmu_output_new(du)) == NULL)
         goto fail;
+    if (drmu_output_add_output(dout, NULL) != 0)
+        goto fail;
+    sp = drmu_output_mode_simple_params(dout);
 
     // **** Plane selection needs noticable improvement
     // This wants to be the primary
-    if ((p0 = drmu_plane_new_find(dc, DRM_FORMAT_ARGB8888)) == NULL)
+    if ((p0 = drmu_output_plane_ref_primary(dout)) == NULL)
         goto fail;
     for (i = 0; i!= 4; ++i) {
-        if ((psub[i] = drmu_plane_new_find(dc, fmts[i])) == NULL)
+        if ((psub[i] = drmu_output_plane_ref_other(dout)) == NULL)
             fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(fmts[i]));
     }
 
@@ -143,7 +148,7 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(drmu_crtc_width(dc), drmu_crtc_height(dc)));
+    drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(sp->width, sp->height));
     for (i = 0; i!= 4; ++i) {
         if (fbsub[i] && psub[i]) {
             fprintf(stderr, "Set patch %d to %s\n", i, drmu_log_fourcc(fmts[i]));
@@ -156,8 +161,8 @@ int main(int argc, char *argv[])
 
 fail:
     drmu_fb_unref(&fb0);
-    drmu_plane_delete(&p0);
-    drmu_crtc_delete(&dc);
+    drmu_plane_unref(&p0);
+    drmu_output_unref(&dout);
     drmu_env_delete(&du);
     return 0;
 }

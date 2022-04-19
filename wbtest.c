@@ -4,7 +4,6 @@
 #include <memory.h>
 
 #include "drmu.h"
-#include "drmu_output.h"
 #include "drmu_log.h"
 #include <drm_fourcc.h>
 
@@ -27,8 +26,7 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 int main(int argc, char *argv[])
 {
     drmu_env_t * du = NULL;
-    drmu_output_t * dout = NULL;
-    drmu_conn_t * dn = NULL;
+    drmu_crtc_t * dc = NULL;
     drmu_atomic_t * da = NULL;
     int rv;
 
@@ -43,27 +41,23 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
-        if ((du = drmu_env_new_xlease(&log)) == NULL &&
-            (du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
+        if ((du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }
 
     drmu_env_modeset_allow(du, true);
 
-    if ((dout = drmu_output_new(du)) == NULL)
+    if ((dc = drmu_crtc_new_find(du)) == NULL)
         goto fail;
-    if (drmu_output_add_output(dout, NULL) != 0)
-        goto fail;
-    dn = drmu_output_conn(dout, 0);
 
     if ((da = drmu_atomic_new(du)) == NULL)
         goto fail;
 
-    if (drmu_atomic_conn_hdr_metadata_set(da, dn, NULL))
+    if (drmu_atomic_conn_hdr_metadata_set(da, dc, NULL))
         goto fail;
-    if (drmu_atomic_conn_colorspace_set(da, dn, colorspace))
+    if (drmu_atomic_conn_colorspace_set(da, dc, colorspace))
         fprintf(stderr, "Failed to set colorspace '%s'\n", colorspace);
-    if (drmu_atomic_conn_hi_bpc_set(da, dn, false))
+    if (drmu_atomic_conn_hi_bpc_set(da, dc, false))
         fprintf(stderr, "Failed to reset hi bpc\n");
 
     if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
@@ -73,8 +67,9 @@ int main(int argc, char *argv[])
 
 fail:
     drmu_atomic_unref(&da);
-    drmu_output_unref(&dout);
+    drmu_crtc_delete(&dc);
     drmu_env_delete(&du);
     return 0;
 }
+
 

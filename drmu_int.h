@@ -43,12 +43,6 @@ typedef struct drmu_bo_env_s {
 } drmu_bo_env_t;
 
 
-typedef enum drmu_isset_e {
-    DRMU_ISSET_UNSET = 0,  // Thing unset
-    DRMU_ISSET_NULL,       // Thing is empty
-    DRMU_ISSET_SET,        // Thing has valid data
-} drmu_isset_t;
-
 struct drmu_format_info_s;
 
 typedef struct drmu_fb_s {
@@ -84,6 +78,10 @@ typedef struct drmu_fb_s {
 
     void * on_delete_v;
     drmu_fb_on_delete_fn on_delete_fn;
+
+    // We pass a pointer to this to DRM which defines it as s32 so do not use
+    // int that might be s64.
+    int32_t fence_fd;
 } drmu_fb_t;
 
 typedef struct drmu_fb_list_s {
@@ -107,34 +105,6 @@ typedef struct drmu_pool_s {
     drmu_fb_list_t free_fbs;
 } drmu_pool_t;
 
-typedef struct drmu_plane_s {
-    struct drmu_env_s * du;
-    struct drmu_crtc_s * dc;    // NULL if not in use
-    const drmModePlane * plane;
-
-    struct {
-        uint32_t crtc_id;
-        uint32_t fb_id;
-        uint32_t crtc_h;
-        uint32_t crtc_w;
-        uint32_t crtc_x;
-        uint32_t crtc_y;
-        uint32_t src_h;
-        uint32_t src_w;
-        uint32_t src_x;
-        uint32_t src_y;
-        drmu_prop_range_t * alpha;
-        drmu_prop_enum_t * color_encoding;
-        drmu_prop_enum_t * color_range;
-        drmu_prop_enum_t * pixel_blend_mode;
-        drmu_prop_bitmask_t * rotation;
-        drmu_prop_range_t * chroma_siting_h;
-        drmu_prop_range_t * chroma_siting_v;
-    } pid;
-    uint64_t rot_vals[8];
-
-} drmu_plane_t;
-
 
 typedef struct drmu_atomic_q_s {
     pthread_mutex_t lock;
@@ -149,7 +119,12 @@ typedef struct drmu_atomic_q_s {
 typedef struct drmu_env_s {
     int fd;
     uint32_t plane_count;
+    uint32_t conn_count;
+    uint32_t crtc_count;
     drmu_plane_t * planes;
+    drmu_conn_t * conns;
+    drmu_crtc_t * crtcs;
+
     drmModeResPtr res;
 
     drmu_log_env_t log;

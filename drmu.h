@@ -27,11 +27,17 @@ typedef struct drmu_bo_env_s drmu_bo_env_t;
 struct drmu_fb_s;
 typedef struct drmu_fb_s drmu_fb_t;
 
+struct drmu_format_info_s;
+typedef struct drmu_format_info_s drmu_format_info_t;
+
 struct drmu_pool_s;
 typedef struct drmu_pool_s drmu_pool_t;
 
 struct drmu_crtc_s;
 typedef struct drmu_crtc_s drmu_crtc_t;
+
+struct drmu_conn_s;
+typedef struct drmu_conn_s drmu_conn_t;
 
 struct drmu_plane_s;
 typedef struct drmu_plane_s drmu_plane_t;
@@ -67,6 +73,12 @@ enum hdmi_eotf
     HDMI_EOTF_SMPTE_ST2084,
     HDMI_EOTF_BT_2100_HLG,
 };
+
+typedef enum drmu_isset_e {
+    DRMU_ISSET_UNSET = 0,  // Thing unset
+    DRMU_ISSET_NULL,       // Thing is empty
+    DRMU_ISSET_SET,        // Thing has valid data
+} drmu_isset_t;
 
 drmu_ufrac_t drmu_ufrac_reduce(drmu_ufrac_t x);
 
@@ -117,8 +129,16 @@ drmu_chroma_siting_eq(const drmu_chroma_siting_t a, const drmu_chroma_siting_t b
 
 void drmu_blob_unref(drmu_blob_t ** const ppBlob);
 uint32_t drmu_blob_id(const drmu_blob_t * const blob);
+// blob data & length
+const void * drmu_blob_data(const drmu_blob_t * const blob);
+size_t drmu_blob_len(const drmu_blob_t * const blob);
+
 drmu_blob_t * drmu_blob_ref(drmu_blob_t * const blob);
+// Make a new blob - keeps a copy of the data
 drmu_blob_t * drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len);
+// Update a blob with new data
+// Creates if it didn't exist before, unrefs if data NULL
+int drmu_blob_update(drmu_env_t * const du, drmu_blob_t ** const ppblob, const void * const data, const size_t len);
 // Create a new blob from an existing blob_id
 drmu_blob_t * drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id);
 int drmu_atomic_add_prop_blob(struct drmu_atomic_s * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_blob_t * const blob);
@@ -161,6 +181,10 @@ drmu_bo_t * drmu_bo_new_fd(drmu_env_t *const du, const int fd);
 drmu_bo_t * drmu_bo_new_dumb(drmu_env_t *const du, struct drm_mode_create_dumb * const d);
 void drmu_bo_env_uninit(drmu_bo_env_t * const boe);
 void drmu_bo_env_init(drmu_bo_env_t * boe);
+
+// format_info
+
+unsigned int drmu_format_info_bit_depth(const drmu_format_info_t * const fmt_info);
 
 // fb
 struct hdr_output_metadata;
@@ -218,7 +242,7 @@ void drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, vo
 void drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo);
 void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset);
 void drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier);
-bool drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb);
+drmu_isset_t drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb);
 const struct hdr_output_metadata * drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb);
 const char * drmu_color_range_to_broadcast_rgb(const char * const range);
 const char * drmu_fb_colorspace_get(const drmu_fb_t * const dfb);
@@ -226,6 +250,13 @@ const char * drmu_fb_color_range_get(const drmu_fb_t * const dfb);
 const struct drmu_format_info_s * drmu_fb_format_info_get(const drmu_fb_t * const dfb);
 void drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta);
 int drmu_fb_int_make(drmu_fb_t *const dfb);
+
+// Wait for data to become ready when fb used as destination of writeback
+// Returns:
+//  -ve   error
+//  0     timeout
+//  1     ready
+int drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms);
 
 // fb pool
 
@@ -252,57 +283,74 @@ void drmu_crtc_delete(drmu_crtc_t ** ppdc);
 drmu_env_t * drmu_crtc_env(const drmu_crtc_t * const dc);
 uint32_t drmu_crtc_id(const drmu_crtc_t * const dc);
 int drmu_crtc_idx(const drmu_crtc_t * const dc);
-uint32_t drmu_crtc_x(const drmu_crtc_t * const dc);
-uint32_t drmu_crtc_y(const drmu_crtc_t * const dc);
-uint32_t drmu_crtc_width(const drmu_crtc_t * const dc);
-uint32_t drmu_crtc_height(const drmu_crtc_t * const dc);
-drmu_ufrac_t drmu_crtc_sar(const drmu_crtc_t * const dc);
-void drmu_crtc_max_bpc_allow(drmu_crtc_t * const dc, const bool max_bpc_allowed);
 
-typedef int drmu_mode_score_fn(void * v, const struct _drmModeModeInfo * mode);
-int drmu_crtc_mode_pick(drmu_crtc_t * const dc, drmu_mode_score_fn * const score_fn, void * const score_v);
+drmu_crtc_t * drmu_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id);
+drmu_crtc_t * drmu_crtc_find_n(drmu_env_t * const du, const unsigned int n);
 
-// Simple mode picker cb - looks for width / height and then refresh
-// If nothing "plausible" defaults to EDID preferred mode
 typedef struct drmu_mode_pick_simple_params_s {
     unsigned int width;
     unsigned int height;
     unsigned int hz_x_1000;  // Refresh rate * 1000 i.e. 50Hz = 50000
-    uint32_t flags;          // Nothing currently - but things like interlace could turn up here
-} drmu_mode_pick_simple_params_t;
-drmu_mode_score_fn drmu_mode_pick_simple_cb;
+    drmu_ufrac_t par;  // Picture Aspect Ratio (0:0 if unknown)
+    drmu_ufrac_t sar;  // Sample Aspect Ratio
+    uint32_t type;
+    uint32_t flags;
+} drmu_mode_simple_params_t;
 
-// Get simple properties of a mode_id
-// If mode_id == -1 retrieves params for current mode
-drmu_mode_pick_simple_params_t drmu_crtc_mode_simple_params(const drmu_crtc_t * const dc, const int mode_id);
+const struct drm_mode_modeinfo * drmu_crtc_modeinfo(const drmu_crtc_t * const dc);
+// Get simple properties of initial crtc mode
+drmu_mode_simple_params_t drmu_crtc_mode_simple_params(const drmu_crtc_t * const dc);
 
-drmu_crtc_t * drmu_crtc_new_find(drmu_env_t * const du);
+int drmu_atomic_crtc_add_modeinfo(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const struct drm_mode_modeinfo * const modeinfo);
+int drmu_atomic_crtc_add_active(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, unsigned int val);
 
-// False set max_bpc to 8, true max value
-int drmu_atomic_crtc_hi_bpc_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, bool hi_bpc);
-
-#define DRMU_CRTC_COLORSPACE_DEFAULT            "Default"
-int drmu_atomic_crtc_colorspace_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const char * colorspace);
-#define DRMU_CRTC_BROADCAST_RGB_AUTOMATIC       "Automatic"
-#define DRMU_CRTC_BROADCAST_RGB_FULL            "Full"
-#define DRMU_CRTC_BROADCAST_RGB_LIMITED_16_235  "Limited 16:235"
-int drmu_atomic_crtc_broadcast_rgb_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const char * bcrgb);
-int drmu_atomic_crtc_mode_id_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const int mode_id);
+// Connector
 
 // Set none if m=NULL
-int drmu_atomic_crtc_hdr_metadata_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const struct hdr_output_metadata * const m);
+int drmu_atomic_conn_hdr_metadata_set(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const struct hdr_output_metadata * const m);
 
-// Set all the fb info props that might apply to a crtc on the crtc
-// (e.g. hdr_metadata, colorspace) but do not set the mode (resolution
-// and refresh)
-int drmu_atomic_crtc_fb_info_set(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const drmu_fb_t * const fb);
+// False set max_bpc to 8, true max value
+int drmu_atomic_conn_hi_bpc_set(struct drmu_atomic_s * const da, drmu_conn_t * const dn, bool hi_bpc);
+
+#define DRMU_COLORSPACE_DEFAULT            "Default"
+int drmu_atomic_conn_colorspace_set(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const char * colorspace);
+#define DRMU_BROADCAST_RGB_AUTOMATIC       "Automatic"
+#define DRMU_BROADCAST_RGB_FULL            "Full"
+#define DRMU_BROADCAST_RGB_LIMITED_16_235  "Limited 16:235"
+int drmu_atomic_conn_broadcast_rgb_set(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const char * bcrgb);
+
+// Add crtc id
+int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_crtc_t * const dc);
+
+// Add writeback fb & fence
+// Neither makes sense without the other so do together
+int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
+
+
+const struct drm_mode_modeinfo * drmu_conn_modeinfo(const drmu_conn_t * const dn, const int mode_id);
+drmu_mode_simple_params_t drmu_conn_mode_simple_params(const drmu_conn_t * const dn, const int mode_id);
+
+// Beware: this refects initial value or the last thing set, but currently
+// has no way of guessing if the atomic from the set was ever committed
+// successfully
+uint32_t drmu_conn_crtc_id_get(const drmu_conn_t * const dn);
+
+// Bitmask of CRTCs that might be able to use this Conn
+uint32_t drmu_conn_possible_crtcs(const drmu_conn_t * const dn);
+
+bool drmu_conn_is_output(const drmu_conn_t * const dn);
+bool drmu_conn_is_writeback(const drmu_conn_t * const dn);
+const char * drmu_conn_name(const drmu_conn_t * const dn);
+unsigned int drmu_conn_idx_get(const drmu_conn_t * const dn);
+
+// Retrieve the the n-th conn. Use for iteration. Returns NULL when none left
+drmu_conn_t * drmu_conn_find_n(drmu_env_t * const du, const unsigned int n);
+
 
 // Plane
 
 uint32_t drmu_plane_id(const drmu_plane_t * const dp);
 const uint32_t * drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount);
-void drmu_plane_delete(drmu_plane_t ** const ppdp);
-drmu_plane_t * drmu_plane_new_find(drmu_crtc_t * const dc, const uint32_t fmt);
 
 // Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
 #define DRMU_PLANE_ALPHA_UNSET                  (-1)
@@ -345,6 +393,26 @@ int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const d
 #define DRMU_PLANE_RANGE_FULL                   "YCbCr full range"
 #define DRMU_PLANE_RANGE_LIMITED                "YCbCr limited range"
 int drmu_atomic_plane_fb_set(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
+
+// Unref a plane
+void drmu_plane_unref(drmu_plane_t ** const ppdp);
+
+// Ref a plane - expects it is already associated
+drmu_plane_t * drmu_plane_ref(drmu_plane_t * const dp);
+
+// Associate a plane with a crtc and ref it
+// Returns -EBUSY if plane already associated
+int drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc);
+
+#define DRMU_PLANE_TYPE_CURSOR  4
+#define DRMU_PLANE_TYPE_PRIMARY 2
+#define DRMU_PLANE_TYPE_OVERLAY 1
+#define DRMU_PLANE_TYPE_UNKNOWN 0
+
+// Find a "free" plane of the given type. Types can be ORed
+// Does not ref
+drmu_plane_t * drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type);
+
 
 // Env
 struct drmu_log_env_s;
@@ -425,12 +493,23 @@ int drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags);
 // This does NOT remove failing props from da.  If da_fail == NULL then same as _commit
 int drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_atomic_t * const da_fail);
 
-typedef void (* drmu_prop_del_fn)(void * v);
-typedef void (* drmu_prop_ref_fn)(void * v);
+typedef void drmu_prop_unref_fn(void * v);
+typedef void drmu_prop_ref_fn(void * v);
+typedef void drmu_prop_commit_fn(void * v, uint64_t value);
+
+typedef struct drmu_atomic_prop_fns_s {
+    drmu_prop_ref_fn * ref;
+    drmu_prop_unref_fn * unref;
+    drmu_prop_commit_fn * commit;
+} drmu_atomic_prop_fns_t;
+
+drmu_prop_ref_fn drmu_prop_fn_null_unref;
+drmu_prop_unref_fn drmu_prop_fn_null_ref;
+drmu_prop_commit_fn drmu_prop_fn_null_commit;
 
 int drmu_atomic_add_prop_generic(drmu_atomic_t * const da,
         const uint32_t obj_id, const uint32_t prop_id, const uint64_t value,
-        const drmu_prop_ref_fn ref_fn, const drmu_prop_del_fn del_fn, void * const v);
+        const drmu_atomic_prop_fns_t * const fns, void * const v);
 int drmu_atomic_add_prop_value(drmu_atomic_t * const da, const uint32_t obj_id, const uint32_t prop_id, const uint64_t value);
 
 // drmu_xlease
