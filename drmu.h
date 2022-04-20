@@ -27,6 +27,9 @@ typedef struct drmu_bo_env_s drmu_bo_env_t;
 struct drmu_fb_s;
 typedef struct drmu_fb_s drmu_fb_t;
 
+struct drmu_prop_object_s;
+typedef struct drmu_prop_object_s drmu_prop_object_t;
+
 struct drmu_format_info_s;
 typedef struct drmu_format_info_s drmu_format_info_t;
 
@@ -265,6 +268,15 @@ drmu_pool_t * drmu_pool_ref(drmu_pool_t * const pool);
 drmu_pool_t * drmu_pool_new(drmu_env_t * const du, unsigned int total_fbs_max);
 drmu_fb_t * drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format);
 void drmu_pool_delete(drmu_pool_t ** const pppool);
+
+// Object Id
+
+struct drmu_propinfo_s;
+
+uint32_t drmu_prop_object_value(const drmu_prop_object_t * const obj);
+void drmu_prop_object_unref(drmu_prop_object_t ** ppobj);
+drmu_prop_object_t * drmu_prop_object_new_propinfo(drmu_env_t * const du, const uint32_t obj_id, const struct drmu_propinfo_s * const pi);
+int drmu_atomic_add_prop_object(struct drmu_atomic_s * const da, drmu_prop_object_t * obj, uint32_t val);
 
 // Props
 

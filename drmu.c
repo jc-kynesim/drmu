@@ -310,7 +310,7 @@ drmu_blob_update(drmu_env_t * const du, drmu_blob_t ** const ppblob, const void 
 }
 
 // Data alloced here needs freeing later
-int
+static int
 blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
 {
     void * data;

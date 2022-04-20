@@ -272,7 +272,7 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
     return 0;
 }
 
-struct drm_mode_modeinfo
+static struct drm_mode_modeinfo
 modeinfo_fake(unsigned int w, unsigned int h)
 {
     return (struct drm_mode_modeinfo){
