@@ -33,6 +33,7 @@ struct drmu_atomic_q_s;
 static struct drmu_bo_env_s * env_boe(drmu_env_t * const du);
 static struct pollqueue * env_pollqueue(const drmu_env_t * const du);
 static struct drmu_atomic_q_s * env_atomic_q(drmu_env_t * const du);
+static int env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32_t obj_type);
 
 // Update return value with a new one for cases where we don't stop on error
 static inline int rvup(int rv1, int rv2)
@@ -2226,14 +2227,8 @@ drmu_crtc_claim_ref(drmu_crtc_t * const dc)
         return -EBUSY;
 
     // 1st time through save state
-    if (!dc->saved && drmu_env_restore_is_enabled(du)) {
-        drmu_props_t *props = props_new(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_PLANE);
-        drmu_atomic_t * da = drmu_atomic_new(du);
-        drmu_atomic_props_add_save(da, dc->crtc.crtc_id, props);
-        props_free(props);
-        drmu_atomic_env_restore_add_snapshot(&da);
+    if (!dc->saved && env_object_state_save(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC) == 0)
         dc->saved = true;
-    }
 
     return 0;
 }
@@ -2585,14 +2580,8 @@ drmu_conn_claim_ref(drmu_conn_t * const dn)
         return -EBUSY;
 
     // 1st time through save state
-    if (!dn->saved && drmu_env_restore_is_enabled(du)) {
-        drmu_props_t *props = props_new(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR);
-        drmu_atomic_t * da = drmu_atomic_new(du);
-        drmu_atomic_props_add_save(da, dn->conn.connector_id, props);
-        props_free(props);
-        drmu_atomic_env_restore_add_snapshot(&da);
+    if (!dn->saved && env_object_state_save(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR) == 0)
         dn->saved = true;
-    }
 
     return 0;
 }
@@ -3212,14 +3201,8 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
     dp->dc = dc;
 
     // 1st time through save state
-    if (!dp->saved && drmu_env_restore_is_enabled(du)) {
-        drmu_props_t *props = props_new(du, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE);
-        drmu_atomic_t * da = drmu_atomic_new(du);
-        drmu_atomic_props_add_save(da, drmu_plane_id(dp), props);
-        props_free(props);
-        drmu_atomic_env_restore_add_snapshot(&da);
+    if (!dp->saved && env_object_state_save(du, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE) == 0)
         dp->saved = true;
-    }
 
     return 0;
 }
@@ -3600,6 +3583,36 @@ drmu_env_delete(drmu_env_t ** const ppdu)
 
     close(du->fd);
     free(du);
+}
+
+static int
+env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32_t obj_type)
+{
+    drmu_props_t * props;
+    drmu_atomic_t * da;
+    int rv;
+
+    if (!du->da_restore)
+        return -EINVAL;
+
+    if ((props = props_new(du, obj_id, obj_type)) == NULL)
+        return -ENOENT;
+
+    if ((da = drmu_atomic_new(du)) == NULL) {
+        rv = -ENOMEM;
+        goto fail;
+    }
+
+    if ((rv = drmu_atomic_props_add_save(da, obj_id, props)) != 0)
+        goto fail;
+
+    props_free(props);
+    return drmu_atomic_env_restore_add_snapshot(&da);
+
+fail:
+    if (props)
+        props_free(props);
+    return rv;
 }
 
 int
