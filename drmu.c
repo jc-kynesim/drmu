@@ -3673,8 +3673,8 @@ drmu_env_polltask_cb(void * v, short revents)
     pollqueue_add_task(du->pt, 1000);
 }
 
-int
-drmu_env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
+static int
+env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
 {
     struct drm_set_client_cap cap = {
         .capability = cap_id,
@@ -3715,18 +3715,18 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     }
 
     // We want the primary plane for video
-    if ((rv = drmu_env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) != 0)
+    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) != 0)
         drmu_debug(du, "Failed to set universal planes cap");
     // We need atomic for almost everything we do
-    if ((rv = drmu_env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1)) != 0) {
+    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1)) != 0) {
         drmu_err(du, "Failed to set atomic cap");
         goto fail1;
     }
     // We can understand AR info
-    if ((rv = drmu_env_set_client_cap(du, DRM_CLIENT_CAP_ASPECT_RATIO, 1)) != 0)
+    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ASPECT_RATIO, 1)) != 0)
         drmu_debug(du, "Failed to set AR cap");
     // We would like to see writeback connectors
-    if ((rv = drmu_env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1)) != 0)
+    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1)) != 0)
         drmu_debug(du, "Failed to set writeback cap");
 
     {
