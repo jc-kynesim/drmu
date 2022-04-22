@@ -233,23 +233,42 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
 {
     const size_t nlen = !conn_name ? 0 : strlen(conn_name);
     unsigned int i;
+    unsigned int retries = 0;
     drmu_env_t * const du = dout->du;
-    drmu_conn_t * dn = NULL;
+    drmu_conn_t * dn;
     drmu_conn_t * dn_t;
-    drmu_crtc_t * dc_t = NULL;
+    drmu_crtc_t * dc_t;
     uint32_t crtc_id;
     int rv;
 
+    // *****
+    // This logic fatally flawed for anything other than adding a single
+    // conn already attached to a single crtc
+
+retry:
+    if (++retries > 16) {
+        drmu_err(du, "Retry count exceeded");
+        return -EBUSY;
+    }
+    dn = NULL;
+    dc_t = NULL;
+
     for (i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
-        if (!drmu_conn_is_output(dn_t))
+        if (!drmu_conn_is_output(dn_t) || drmu_conn_is_claimed(dn_t))
             continue;
         if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0)
             continue;
         // This prefers conns that are already attached to crtcs
-        dn = dn_t;
         if ((crtc_id = drmu_conn_crtc_id_get(dn_t)) == 0 ||
-            (dc_t = drmu_env_crtc_find_id(du, crtc_id)) == NULL)
+            (dc_t = drmu_env_crtc_find_id(du, crtc_id)) == NULL) {
+            dn = dn_t;
             continue;
+        }
+        if (drmu_crtc_is_claimed(dc_t)) {
+            dc_t = NULL;
+            continue;
+        }
+        dn = dn_t;
         break;
     }
 
@@ -263,6 +282,16 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
 
     if ((rv = check_conns_size(dout)) != 0)
         return rv;
+
+    if (drmu_crtc_claim_ref(dc_t)) {
+        drmu_debug(du, "Crtc already claimed");
+        goto retry;
+    }
+    if (drmu_conn_claim_ref(dn)) {
+        drmu_debug(du, "Conn already claimed");
+        drmu_crtc_unref(&dc_t);
+        goto retry;
+    }
 
     dout->dns[dout->conn_n++] = dn;
     dout->dc = dc_t;
@@ -465,6 +494,10 @@ drmu_output_conn(const drmu_output_t * const dout, const unsigned int n)
 static void
 output_free(drmu_output_t * const dout)
 {
+    unsigned int i;
+    for (i = 0; i != dout->conn_n; ++i)
+        drmu_conn_unref(dout->dns + i);
+    drmu_crtc_unref(&dout->dc);
     free(dout);
 }
 

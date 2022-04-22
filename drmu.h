@@ -316,6 +316,12 @@ drmu_mode_simple_params_t drmu_crtc_mode_simple_params(const drmu_crtc_t * const
 int drmu_atomic_crtc_add_modeinfo(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const struct drm_mode_modeinfo * const modeinfo);
 int drmu_atomic_crtc_add_active(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, unsigned int val);
 
+bool drmu_crtc_is_claimed(const drmu_crtc_t * const dc);
+void drmu_crtc_unref(drmu_crtc_t ** const ppdc);
+drmu_crtc_t * drmu_crtc_ref(drmu_crtc_t * const dc);
+// A Conn should be claimed before any op that might change its state
+int drmu_crtc_claim_ref(drmu_crtc_t * const dc);
+
 // Connector
 
 // Set none if m=NULL
@@ -357,6 +363,12 @@ unsigned int drmu_conn_idx_get(const drmu_conn_t * const dn);
 
 // Retrieve the the n-th conn. Use for iteration. Returns NULL when none left
 drmu_conn_t * drmu_env_conn_find_n(drmu_env_t * const du, const unsigned int n);
+
+bool drmu_conn_is_claimed(const drmu_conn_t * const dn);
+void drmu_conn_unref(drmu_conn_t ** const ppdn);
+drmu_conn_t * drmu_conn_ref(drmu_conn_t * const dn);
+// A Conn should be claimed before any op that might change its state
+int drmu_conn_claim_ref(drmu_conn_t * const dn);
 
 
 // Plane
