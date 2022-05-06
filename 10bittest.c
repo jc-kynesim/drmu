@@ -336,7 +336,7 @@ int main(int argc, char *argv[])
     bool try_writeback = false;
     int verbose = 0;
     int c;
-    uint64_t fillval = p16val(~0UL, 0x8000, 0x8000, 0x8000);
+    uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
     int rv;
