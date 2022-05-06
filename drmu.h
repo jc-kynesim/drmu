@@ -375,6 +375,7 @@ int drmu_conn_claim_ref(drmu_conn_t * const dn);
 
 uint32_t drmu_plane_id(const drmu_plane_t * const dp);
 const uint32_t * drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount);
+bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, const uint64_t modifier);
 
 // Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
 #define DRMU_PLANE_ALPHA_UNSET                  (-1)

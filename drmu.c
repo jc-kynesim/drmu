@@ -3165,6 +3165,31 @@ drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount)
     return (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
 }
 
+bool
+drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, const uint64_t modifier)
+{
+    const struct drm_format_modifier * const mods = (const struct drm_format_modifier *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->modifiers_offset);
+    const uint32_t * const fmts = (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
+    unsigned int i;
+
+    // * Simplistic lookup; Could be made much faster
+
+    for (i = 0; i != dp->fmts_hdr->count_modifiers; ++i) {
+        const struct drm_format_modifier * const mod = mods + i;
+        uint64_t fbits;
+        unsigned int j;
+
+        if (mod->modifier != modifier)
+            continue;
+
+        for (fbits = mod->formats, j = mod->offset; fbits; fbits >>= 1, ++j) {
+            if ((fbits & 1) != 0 && fmts[j] == format)
+                return true;
+        }
+    }
+    return false;
+}
+
 void
 drmu_plane_unref(drmu_plane_t ** const ppdp)
 {
