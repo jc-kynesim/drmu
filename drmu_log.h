@@ -42,6 +42,7 @@ static inline const char * drmu_log_fourcc_to_str(char buf[5], uint32_t fcc)
     buf[1] = drmu_log_safechar((fcc >> 8) & 0xff);
     buf[2] = drmu_log_safechar((fcc >> 16) & 0xff);
     buf[3] = drmu_log_safechar((fcc >> 24) & 0xff);
+    buf[4] = 0;
     return buf;
 }
 
