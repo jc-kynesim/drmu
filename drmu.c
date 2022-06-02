@@ -1918,7 +1918,7 @@ drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const
         // Blobs, if set, are prone to running out of refs and vanishing, so we
         // must copy. If we fail to copy the blob for any reason drop through
         // to the generic add and hope that that will do
-        if ((props->info[i].prop.flags & DRM_MODE_PROP_BLOB) != 0) {
+        if ((props->info[i].prop.flags & DRM_MODE_PROP_BLOB) != 0 && props->info[i].val != 0) {
             drmu_blob_t * b = drmu_blob_copy_id(du, (uint32_t)props->info[i].val);
             if (b != NULL) {
                 rv = drmu_atomic_add_prop_blob(da, objid, props->info[i].prop.prop_id, b);
