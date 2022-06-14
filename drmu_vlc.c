@@ -42,6 +42,35 @@ drmu_format_vlc_to_drm_cma(const vlc_fourcc_t chroma_in)
 }
 #endif
 
+#if HAS_DRMPRIME
+uint32_t
+drmu_format_vlc_to_drm_prime(const vlc_fourcc_t chroma_in, uint64_t * const pmod)
+{
+    uint32_t fmt = 0;
+    uint64_t mod = DRM_FORMAT_MOD_LINEAR;
+
+    switch (chroma_in) {
+        case VLC_CODEC_DRM_PRIME_I420:
+            fmt = DRM_FORMAT_YUV420;
+            break;
+        case VLC_CODEC_DRM_PRIME_NV12:
+            fmt = DRM_FORMAT_NV12;
+            break;
+        case VLC_CODEC_DRM_PRIME_SAND8:
+            fmt = DRM_FORMAT_NV12;
+            mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+            break;
+        case VLC_CODEC_DRM_PRIME_SAND30:
+            fmt = DRM_FORMAT_P030;
+            mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+            break;
+    }
+    if (pmod)
+        *pmod = !fmt ? DRM_FORMAT_MOD_INVALID : mod;
+    return fmt;
+}
+#endif
+
 uint32_t
 drmu_format_vlc_to_drm(const video_frame_format_t * const vf_vlc)
 {
