@@ -483,7 +483,8 @@ int drmu_env_queue_wait(drmu_env_t * const du);
 int drmu_ioctl(const drmu_env_t * const du, unsigned long req, void * arg);
 int drmu_fd(const drmu_env_t * const du);
 const struct drmu_log_env_s * drmu_env_log(const drmu_env_t * const du);
-void drmu_env_delete(drmu_env_t ** const ppdu);
+void drmu_env_unref(drmu_env_t ** const ppdu);
+drmu_env_t * drmu_env_ref(drmu_env_t * const du);
 // Restore state on env close
 int drmu_env_restore_enable(drmu_env_t * const du);
 bool drmu_env_restore_is_enabled(const drmu_env_t * const du);

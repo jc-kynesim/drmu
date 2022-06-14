@@ -76,7 +76,7 @@ int main(int argc, char *argv[])
 fail:
     drmu_atomic_unref(&da);
     drmu_output_unref(&dout);
-    drmu_env_delete(&du);
+    drmu_env_unref(&du);
     return 0;
 }
 

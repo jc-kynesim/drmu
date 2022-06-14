@@ -163,7 +163,7 @@ fail:
     drmu_fb_unref(&fb0);
     drmu_plane_unref(&p0);
     drmu_output_unref(&dout);
-    drmu_env_delete(&du);
+    drmu_env_unref(&du);
     return 0;
 }
 

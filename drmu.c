@@ -3367,6 +3367,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
 // Env fns
 
 typedef struct drmu_env_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
     int fd;
     uint32_t plane_count;
     uint32_t conn_count;
@@ -3567,14 +3568,11 @@ env_atomic_q(drmu_env_t * const du)
 }
 
 
-void
-drmu_env_delete(drmu_env_t ** const ppdu)
+static void
+env_free(drmu_env_t * const du)
 {
-    drmu_env_t * const du = *ppdu;
-
     if (!du)
         return;
-    *ppdu = NULL;
 
     atomic_q_flush(&du->aq);
 
@@ -3608,6 +3606,28 @@ drmu_env_delete(drmu_env_t ** const ppdu)
 
     close(du->fd);
     free(du);
+}
+
+void
+drmu_env_unref(drmu_env_t ** const ppdu)
+{
+    drmu_env_t * const du = *ppdu;
+    if (!du)
+        return;
+    *ppdu = NULL;
+
+    if (atomic_fetch_sub(&du->ref_count, 1) != 0)
+        return;
+
+    env_free(du);
+}
+
+drmu_env_t *
+drmu_env_ref(drmu_env_t * const du)
+{
+    if (du)
+        atomic_fetch_add(&du->ref_count, 1);
+    return du;
 }
 
 static int
@@ -3712,7 +3732,7 @@ env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
 drmu_env_t *
 drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
 {
-    drmu_env_t * du = calloc(1, sizeof(*du));
+    drmu_env_t * const du = calloc(1, sizeof(*du));
     int rv;
     uint32_t * conn_ids = NULL;
     uint32_t * crtc_ids = NULL;
@@ -3820,7 +3840,7 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     return du;
 
 fail1:
-    drmu_env_delete(&du);
+    env_free(du);
     free(conn_ids);
     free(crtc_ids);
     free(plane_ids);

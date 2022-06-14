@@ -156,7 +156,7 @@ void drmprime_out_delete(drmprime_out_env_t *de)
 {
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);
-    drmu_env_delete(&de->du);
+    drmu_env_unref(&de->du);
     free(de);
 }
 
