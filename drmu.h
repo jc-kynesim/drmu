@@ -321,7 +321,7 @@ int drmu_crtc_idx(const drmu_crtc_t * const dc);
 drmu_crtc_t * drmu_env_crtc_find_id(drmu_env_t * const du, const uint32_t crtc_id);
 drmu_crtc_t * drmu_env_crtc_find_n(drmu_env_t * const du, const unsigned int n);
 
-typedef struct drmu_mode_pick_simple_params_s {
+typedef struct drmu_mode_simple_params_s {
     unsigned int width;
     unsigned int height;
     unsigned int hz_x_1000;  // Refresh rate * 1000 i.e. 50Hz = 50000

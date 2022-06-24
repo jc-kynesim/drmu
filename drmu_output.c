@@ -134,37 +134,44 @@ drmu_output_mode_simple_params(const drmu_output_t * const dout)
     return &dout->mode_params;
 }
 
+static int
+score_freq(const drmu_mode_simple_params_t * const mode, const drmu_mode_simple_params_t * const p)
+{
+    const int pref = (mode->type & DRM_MODE_TYPE_PREFERRED) != 0;
+    const unsigned int r_m = (mode->flags & DRM_MODE_FLAG_INTERLACE) != 0 ?
+        mode->hz_x_1000 * 2: mode->hz_x_1000;
+    const unsigned int r_f = (p->flags & DRM_MODE_FLAG_INTERLACE) != 0 ?
+        p->hz_x_1000 * 2 : p->hz_x_1000;
+
+    // If we haven't been given any hz then pick pref or fastest
+    // Max out at 300Hz (=300,0000)
+    if (r_f == 0)
+        return pref ? 83000000 : 80000000 + (r_m >= 2999999 ? 2999999 : r_m);
+    // Prefer a good match to 29.97 / 30 but allow the other
+    else if ((r_m + 10 >= r_f && r_m <= r_f + 10))
+        return 100000000;
+    else if ((r_m + 100 >= r_f && r_m <= r_f + 100))
+        return 95000000;
+    // Double isn't bad
+    else if ((r_m + 10 >= r_f * 2 && r_m <= r_f * 2 + 10))
+        return 90000000;
+    else if ((r_m + 100 >= r_f * 2 && r_m <= r_f * 2 + 100))
+        return 85000000;
+    return -1;
+}
+
+// Avoid interlace no matter what our source
 int
 drmu_mode_pick_simple_cb(void * v, const drmu_mode_simple_params_t * mode)
 {
     const drmu_mode_simple_params_t * const p = v;
-
     const int pref = (mode->type & DRM_MODE_TYPE_PREFERRED) != 0;
-    const unsigned int r_m = mode->hz_x_1000;
-    const unsigned int r_f = p->hz_x_1000;
     int score = -1;
 
-    // We don't understand interlace
-    if ((mode->flags & DRM_MODE_FLAG_INTERLACE) != 0)
-        return -1;
+    if (p->width == mode->width && p->height == mode->height &&
+        (mode->flags & DRM_MODE_FLAG_INTERLACE) == 0)
+        score = score_freq(mode, p);
 
-    if (p->width == mode->width && p->height == mode->height)
-    {
-        // If we haven't been given any hz then pick pref or fastest
-        // Max out at 300Hz (=300,0000)
-        if (r_f == 0)
-            score = pref ? 83000000 : 80000000 + (r_m >= 2999999 ? 2999999 : r_m);
-        // Prefer a good match to 29.97 / 30 but allow the other
-        else if ((r_m + 10 >= r_f && r_m <= r_f + 10))
-            score = 100000000;
-        else if ((r_m + 100 >= r_f && r_m <= r_f + 100))
-            score = 95000000;
-        // Double isn't bad
-        else if ((r_m + 10 >= r_f * 2 && r_m <= r_f * 2 + 10))
-            score = 90000000;
-        else if ((r_m + 100 >= r_f * 2 && r_m <= r_f * 2 + 100))
-            score = 85000000;
-    }
     if (score > 0 && (p->width != mode->width || p->height != mode->height))
         score -= 30000000;
 
@@ -173,6 +180,30 @@ drmu_mode_pick_simple_cb(void * v, const drmu_mode_simple_params_t * mode)
 
     return score;
 }
+
+// Try to match interlace as well as everything else
+int
+drmu_mode_pick_simple_interlace_cb(void * v, const drmu_mode_simple_params_t * mode)
+{
+    const drmu_mode_simple_params_t * const p = v;
+
+    const int pref = (mode->type & DRM_MODE_TYPE_PREFERRED) != 0;
+    int score = -1;
+
+    if (p->width == mode->width && p->height == mode->height)
+        score = score_freq(mode, p);
+
+    if (score > 0 && (p->width != mode->width || p->height != mode->height))
+        score -= 30000000;
+    if (((mode->flags ^ p->flags) & DRM_MODE_FLAG_INTERLACE) != 0)
+        score -= 20000000;
+
+    if (score <= 0 && pref)
+        score = 10000000;
+
+    return score;
+}
+
 
 int
 drmu_output_mode_pick_simple(drmu_output_t * const dout, drmu_mode_score_fn * const score_fn, void * const score_v)

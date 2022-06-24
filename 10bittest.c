@@ -318,8 +318,7 @@ int main(int argc, char *argv[])
     drmu_atomic_t * da = NULL;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
-    unsigned int dw = 0, dh = 0;
-    unsigned int hz = 0;
+    drmu_mode_simple_params_t mp;
     const char * colorspace = "BT2020_RGB";
     const char * encoding = "ITU-R BT.2020 YCbCr";
     const char * range = NULL;
@@ -425,7 +424,7 @@ int main(int argc, char *argv[])
     }
 
     if (optind < argc) {
-        if (*drmu_util_parse_mode(argv[optind], &dw, &dh, &hz) == '\0') {
+        if (*drmu_util_parse_mode_simple_params(argv[optind], &mp) == '\0') {
             mode_req = true;
             ++optind;
         }
@@ -477,13 +476,13 @@ int main(int argc, char *argv[])
     drmu_output_max_bpc_allow(dout, hi_bpc);
 
     if (try_writeback) {
-        if (!dw || !dh) {
-            dw = 1920;
-            dh = 1080;
+        if (!mp.width || !mp.height) {
+            mp.width = 1920;
+            mp.height = 1080;
         }
-        printf("Try writeback %dx%d", dw, dh);
+        printf("Try writeback %dx%d", mp.width, mp.height);
 
-        if ((fb_out = drmu_fb_new_dumb(du, dw, dh, DRM_FORMAT_ARGB8888)) == NULL) {
+        if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
             printf("Failed to create fb-out");
             goto fail;
         }
@@ -493,65 +492,58 @@ int main(int argc, char *argv[])
         }
     }
     else if (!mode_req) {
-        const drmu_mode_simple_params_t * const sp = drmu_output_mode_simple_params(dout);
-        dw = sp->width;
-        dh = sp->height;
-        printf("Mode %dx%d@%d.%03d\n",
-               sp->width, sp->height, sp->hz_x_1000 / 1000, sp->hz_x_1000 % 1000);
+        mp = *drmu_output_mode_simple_params(dout);
+        printf("Mode %s\n",
+               drmu_util_simple_mode(&mp));
     }
     else
     {
         drmu_mode_simple_params_t pickparam = *drmu_output_mode_simple_params(dout);
         int mode;
 
-        if (dw || dh) {
-            pickparam.width = dw;
-            pickparam.height = dh;
+        if (mp.width || mp.height) {
+            pickparam.width = mp.width;
+            pickparam.height = mp.height;
         }
-        pickparam.hz_x_1000 = hz;  // 0 is legit -pick something
+        pickparam.hz_x_1000 = mp.hz_x_1000;  // 0 is legit -pick something
+        pickparam.flags = mp.flags;
 
-        mode = drmu_output_mode_pick_simple(dout, drmu_mode_pick_simple_cb, &pickparam);
+        mode = drmu_output_mode_pick_simple(dout, drmu_mode_pick_simple_interlace_cb, &pickparam);
 
         if (mode != -1) {
-            const drmu_mode_simple_params_t m = drmu_conn_mode_simple_params(dn, mode);
-            printf("Mode requested %dx%d@%d.%03d; found %dx%d@%d.%03d\n",
-                   pickparam.width, pickparam.height, pickparam.hz_x_1000 / 1000, pickparam.hz_x_1000 % 1000,
-                   m.width, m.height, m.hz_x_1000 / 1000, m.hz_x_1000 % 1000);
+            mp = drmu_conn_mode_simple_params(dn, mode);
+            printf("Mode requested %s; found %s\n",
+                   drmu_util_simple_mode(&pickparam), drmu_util_simple_mode(&mp));
 
-            if (m.width != pickparam.width || m.height != pickparam.height ||
+            if (mp.width != pickparam.width || mp.height != pickparam.height ||
                 !(pickparam.hz_x_1000 == 0 ||
-                  (pickparam.hz_x_1000 < m.hz_x_1000 + 100 && pickparam.hz_x_1000 + 100 > m.hz_x_1000))) {
+                  (pickparam.hz_x_1000 < mp.hz_x_1000 + 100 && pickparam.hz_x_1000 + 100 > mp.hz_x_1000))) {
                 fprintf(stderr, "Mode not close enough\n");
                 goto fail;
             }
 
             drmu_atomic_crtc_add_modeinfo(da, dc, drmu_conn_modeinfo(dn, mode));
-
-            dw = m.width;
-            dh = m.height;
         }
         else {
             fprintf(stderr, "No mode that matches request found\n");
             goto fail;
         }
-
-
     }
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
     printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
-    if ((p16 = malloc(dw * dh * 8)) == NULL) {
+    if ((p16 = malloc(mp.width * mp.height * 8)) == NULL) {
         printf("Failed to alloc P16 plane\n");
         goto fail;
     }
-    p16_stride = dw * 8;
+    p16_stride = mp.width * 8;
 
     if ((p1 = drmu_output_plane_ref_primary(dout)) == NULL) {
         fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
 
-    if ((fb1 = drmu_fb_new_dumb_mod(du, dw, dh, p1fmt, p1mod)) == NULL) {
+    if ((fb1 = drmu_fb_new_dumb_mod(du, mp.width, mp.height, p1fmt, p1mod)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
@@ -560,27 +552,27 @@ int main(int argc, char *argv[])
     printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
 
     // Start with grey fill
-    plane16_fill(p16, dw, dh, p16_stride, fillval);
+    plane16_fill(p16, mp.width, mp.height, p16_stride, fillval);
 
     if (fill_pin)
-        fillpin10(p16, dw, dh, p16_stride, is_yuv);
+        fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
     else if (grey_only)
-        fillgradgrey10(p16, dw, dh, p16_stride, is_yuv);
+        fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
     else if (test_siting) {
-        if (color_siting(da, dout, p16, dw, dh, p16_stride, dofrac))
+        if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac))
             goto fail;
     } else if (!fill_solid)
-        fillgraduated10(p16, dw, dh, p16_stride, is_yuv);
+        fillgraduated10(p16, mp.width, mp.height, p16_stride, is_yuv);
 
     if (is_yuv)
         plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
                           drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
-                          p16, p16_stride, dw, dh);
+                          p16, p16_stride, mp.width, mp.height);
     else
         plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, dw, dh);
+                               p16, p16_stride, mp.width, mp.height);
 
-    drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(dw, dh));
+    drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
 
     static const struct hdr_output_metadata meta = {
         .metadata_type = HDMI_STATIC_METADATA_TYPE1,
