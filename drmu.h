@@ -133,6 +133,17 @@ drmu_rect_wh(const unsigned int w, const unsigned int h)
     };
 }
 
+static inline drmu_rect_t
+drmu_rect_shl16(const drmu_rect_t a)
+{
+    return (drmu_rect_t){
+        .x = a.x << 16,
+        .y = a.y << 16,
+        .w = a.w << 16,
+        .h = a.h << 16
+    };
+}
+
 static inline bool
 drmu_chroma_siting_eq(const drmu_chroma_siting_t a, const drmu_chroma_siting_t b)
 {
