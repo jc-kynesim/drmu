@@ -9,28 +9,71 @@
 
 #include <libdrm/drm_mode.h>
 
+static unsigned long
+h_to_w(const unsigned long h)
+{
+    switch (h) {
+        case 480:
+        case 576:
+            return 720;
+        case 720:
+            return 1280;
+        case 1080:
+            return 1920;
+        case 2160:
+            return 3840;
+        default:
+            break;
+    }
+    return 0;
+}
+
 char *
 drmu_util_parse_mode_simple_params(const char * s, drmu_mode_simple_params_t * const p)
 {
     unsigned long w = 0, h = 0, hz = 0;
     bool il = false;
+    bool drmhz = false;
 
     memset(p , 0, sizeof(*p));
 
     if (isdigit(*s)) {
-        w = strtoul(s, (char **)&s, 10);
-        if (*s != 'x')
+        h = strtoul(s, (char **)&s, 10);
+
+        if (*s == 'p' || *s == 'i') {
+            w = h_to_w(h);
+        }
+        else if (*s == 'x') {
+            w = h;
+            h = strtoul(s + 1, (char **)&s, 10);
+        }
+        else {
             return (char *)s;
-        h = strtoul(s + 1, (char **)&s, 10);
+        }
     }
 
-    if (*s == 'i') {
+    // Consume 'i' or 'p'
+    // Can still have (now) optional hz separator after
+    if (*s == 'p') {
+        ++s;
+    }
+    else if (*s == 'i') {
         il = true;
         ++s;
     }
 
+    // I've used '@' in the past to separate size from hz
+    // DRM uses '-' in modetest so accept that
     if (*s == '@') {
-        hz = strtoul(s + 1, (char **)&s, 10) * 1000;
+        ++s;
+    }
+    else if (*s == '-') {
+        drmhz = true;
+        ++s;
+    }
+
+    if (isdigit(*s)) {
+        hz = strtoul(s, (char **)&s, 10) * 1000;
 
         if (*s == '.') {
             unsigned int m = 100;
@@ -40,6 +83,10 @@ drmu_util_parse_mode_simple_params(const char * s, drmu_mode_simple_params_t * c
             }
         }
     }
+
+    // DRM thinks in frame rate, rest of the world specifies as field rate
+    if (il && !drmhz)
+        hz /= 2;
 
     p->width  = (unsigned int)w;
     p->height = (unsigned int)h;
@@ -52,10 +99,15 @@ drmu_util_parse_mode_simple_params(const char * s, drmu_mode_simple_params_t * c
 char *
 drmu_util_simple_param_to_mode_str(char * buf, size_t buflen, const drmu_mode_simple_params_t * const p)
 {
-    snprintf(buf, buflen, "%dx%d%s@%d.%03d",
+    int hz = p->hz_x_1000;
+
+    if ((p->flags & DRM_MODE_FLAG_INTERLACE))
+        hz *= 2;
+
+    snprintf(buf, buflen, "%dx%d%c%d.%03d",
              p->width, p->height,
-             (p->flags & DRM_MODE_FLAG_INTERLACE) ? "i" : "",
-             p->hz_x_1000 / 1000, p->hz_x_1000 % 1000);
+             (p->flags & DRM_MODE_FLAG_INTERLACE) ? 'i' : 'p',
+             hz / 1000, hz % 1000);
     return buf;
 }
 
