@@ -324,7 +324,7 @@ drmu_crtc_t * drmu_env_crtc_find_n(drmu_env_t * const du, const unsigned int n);
 typedef struct drmu_mode_simple_params_s {
     unsigned int width;
     unsigned int height;
-    unsigned int hz_x_1000;  // Refresh rate * 1000 i.e. 50Hz = 50000
+    unsigned int hz_x_1000;  // Frame rate * 1000 i.e. 50Hz = 50000 (N.B. frame not field rate if interlaced)
     drmu_ufrac_t par;  // Picture Aspect Ratio (0:0 if unknown)
     drmu_ufrac_t sar;  // Sample Aspect Ratio
     uint32_t type;
