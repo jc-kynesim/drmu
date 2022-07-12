@@ -1239,8 +1239,8 @@ drmu_fb_crop_frac_set(drmu_fb_t *const dfb, drmu_rect_t crop_frac)
         return -EINVAL;
 
     dfb->crop = (drmu_rect_t){
-        .x = crop_frac.x + (dfb->active.x << 16),
-        .y = crop_frac.y + (dfb->active.y << 16),
+        .x = crop_frac.x,
+        .y = crop_frac.y,
         .w = crop_frac.w,
         .h = crop_frac.h
     };
