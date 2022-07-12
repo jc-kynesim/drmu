@@ -179,7 +179,7 @@ drmu_format_vlc_to_vlc(const uint32_t vf_drm)
 }
 
 typedef struct fb_aux_pic_s {
-    picture_t * pic;
+    picture_context_t * pic_ctx;
 } fb_aux_pic_t;
 
 static void
@@ -188,7 +188,7 @@ pic_fb_delete_cb(drmu_fb_t * dfb, void * v)
     fb_aux_pic_t * const aux = v;
     VLC_UNUSED(dfb);
 
-    picture_Release(aux->pic);
+    aux->pic_ctx->destroy(aux->pic_ctx);
     free(aux);
 }
 
@@ -337,11 +337,7 @@ drmu_fb_vlc_new_pic_attach(drmu_env_t * const du, picture_t * const pic)
                              desc->layers[0].format,
                              pic->format.i_width,
                              pic->format.i_height,
-                             (drmu_rect_t){
-                                 .x = pic->format.i_x_offset,
-                                 .y = pic->format.i_y_offset,
-                                 .w = pic->format.i_visible_width,
-                                 .h = pic->format.i_visible_height});
+                             drmu_rect_vlc_pic_crop(pic));
 
     drmu_fb_int_color_set(dfb,
                           fb_vlc_color_encoding(&pic->format),
@@ -356,7 +352,7 @@ drmu_fb_vlc_new_pic_attach(drmu_env_t * const du, picture_t * const pic)
         drmu_err(du, "%s: Aux alloc failure", __func__);
         goto fail;
     }
-    aux->pic = picture_Hold(pic);
+    aux->pic_ctx = pic->context->copy(pic->context);
     drmu_fb_int_on_delete_set(dfb, pic_fb_delete_cb, aux);
 
     for (i = 0; i < desc->nb_objects; ++i)
@@ -444,7 +440,7 @@ drmu_fb_vlc_new_pic_cma_attach(drmu_env_t * const du, picture_t * const pic)
         drmu_err(du, "%s: Aux alloc failure", __func__);
         goto fail;
     }
-    aux->pic = picture_Hold(pic);
+    aux->pic_ctx = pic->context->copy(pic->context);
     drmu_fb_int_on_delete_set(dfb, pic_fb_delete_cb, aux);
 
     {
