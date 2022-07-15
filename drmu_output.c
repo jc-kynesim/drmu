@@ -19,6 +19,7 @@ struct drmu_output_s {
     unsigned int conn_n;
     unsigned int conn_size;
     drmu_conn_t ** dns;
+    bool has_max_bpc;
     bool max_bpc_allow;
     bool modeset_allow;
     int mode_id;
@@ -232,8 +233,8 @@ drmu_output_mode_pick_simple(drmu_output_t * const dout, drmu_mode_score_fn * co
 int
 drmu_output_max_bpc_allow(drmu_output_t * const dout, const bool allow)
 {
-    dout->max_bpc_allow = allow;
-    return 0;
+    dout->max_bpc_allow = allow && dout->has_max_bpc;
+    return allow && !dout->has_max_bpc ? -ENOENT : 0;
 }
 
 int
@@ -322,6 +323,15 @@ retry:
         drmu_debug(du, "Conn already claimed");
         drmu_crtc_unref(&dc_t);
         goto retry;
+    }
+
+    // Test features
+    {
+        drmu_atomic_t * da = drmu_atomic_new(du);
+        if (!da)
+            return -ENOMEM;
+        dout->has_max_bpc = (drmu_atomic_conn_hi_bpc_set(da, dn, true) == 0);
+        drmu_atomic_unref(&da);
     }
 
     dout->dns[dout->conn_n++] = dn;
