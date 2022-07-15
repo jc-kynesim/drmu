@@ -126,6 +126,10 @@ int main(int argc, char *argv[])
     for (i = 0; i!= 4; ++i) {
         if ((psub[i] = drmu_output_plane_ref_other(dout)) == NULL)
             fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(fmts[i]));
+        if (!drmu_plane_format_check(psub[i], fmts[i], 0)) {
+            fprintf(stderr, "Plane %d does not support %s\n", i, drmu_log_fourcc(fmts[i]));
+            drmu_plane_unref(psub + i);
+        }
     }
 
     {
