@@ -95,7 +95,7 @@ drmu_crtc_av_hdr_metadata_from_av(struct hdr_output_metadata * const out_meta,
     return 0;
 }
 
-static const char *
+static drmu_color_encoding_t
 fb_av_color_encoding(const AVFrame * const frame)
 {
     switch (frame->colorspace)
@@ -103,15 +103,15 @@ fb_av_color_encoding(const AVFrame * const frame)
         case AVCOL_SPC_BT2020_NCL:
         case AVCOL_SPC_BT2020_CL:
         case AVCOL_SPC_ICTCP:
-            return "ITU-R BT.2020 YCbCr";
+            return DRMU_COLOR_ENCODING_BT2020;
 
         case AVCOL_SPC_BT470BG:
         case AVCOL_SPC_SMPTE170M:
         case AVCOL_SPC_SMPTE240M:
-            return "ITU-R BT.601 YCbCr";
+            return DRMU_COLOR_ENCODING_BT601;
 
         case AVCOL_SPC_BT709:
-            return "ITU-R BT.709 YCbCr";
+            return DRMU_COLOR_ENCODING_BT709;
 
         case AVCOL_SPC_RGB:
         case AVCOL_SPC_UNSPECIFIED:
@@ -125,24 +125,24 @@ fb_av_color_encoding(const AVFrame * const frame)
     }
 
     return (frame->width > 1024 || frame->height > 600) ?
-        "ITU-R BT.709 YCbCr" :
-        "ITU-R BT.601 YCbCr";
+        DRMU_COLOR_ENCODING_BT709 :
+        DRMU_COLOR_ENCODING_BT601;
 }
 
-static const char *
+static drmu_color_range_t
 fb_av_color_range(const AVFrame * const frame)
 {
     switch (frame->color_range)
     {
         case AVCOL_RANGE_MPEG:
-            return "YCbCr limited range";
+            return DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE;
 
         case AVCOL_RANGE_UNSPECIFIED:
         case AVCOL_RANGE_JPEG:
         default:
             break;
     }
-    return "YCbCr full range";
+    return DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
 }
 
 
@@ -154,9 +154,9 @@ fb_av_colorspace(const AVFrame * const frame)
         case AVCOL_PRI_BT709:  // = 1, also ITU-R BT1361 / IEC 61966-2-4 / SMPTE RP177 Annex B
             switch (frame->color_trc) {
                 case AVCOL_TRC_IEC61966_2_4:
-                    return "XVYCC_709";
+                    return DRMU_COLORSPACE_XVYCC_709;
                 default:
-                    return "BT709_YCC";
+                    return DRMU_COLORSPACE_BT709_YCC;
             }
 
         case AVCOL_PRI_BT470BG:   // 5, also ITU-R BT601-6 625 / ITU-R BT1358 625 / ITU-R BT1700 625 PAL & SECAM
@@ -164,27 +164,26 @@ fb_av_colorspace(const AVFrame * const frame)
         case AVCOL_PRI_SMPTE240M: // 7  functionally identical to above
             switch (frame->color_trc) {
                 case AVCOL_TRC_IEC61966_2_1:
-                    return "SYCC_601";
+                    return DRMU_COLORSPACE_SYCC_601;
                 case AVCOL_TRC_IEC61966_2_4:
-                    return "XVYCC_601";
+                    return DRMU_COLORSPACE_XVYCC_601;
                 default:
-                    return "SMPTE_170M_YCC";
+                    return DRMU_COLORSPACE_SMPTE_170M_YCC;
             }
 
         case AVCOL_PRI_BT2020:    // ITU-R BT2020
             switch (frame->colorspace) {
                 case AVCOL_SPC_BT2020_CL:
-                    return "BT2020_CYCC";
+                    return DRMU_COLORSPACE_BT2020_CYCC;
                 default:
-                    return "BT2020_YCC";
+                    return DRMU_COLORSPACE_BT2020_YCC;
             }
 
         case AVCOL_PRI_SMPTE432:  // 12, SMPTE ST 432-1 (2010) / P3 D65 / Display P3
-            return "DCI-P3_RGB_D65";
+            return DRMU_COLORSPACE_DCI_P3_RGB_D65;
 
         case AVCOL_PRI_SMPTE431:  // 11, SMPTE ST 431-2 (2011) / DCI P3
-            return "DCI-P3_RGB_Theater";
-
+            return DRMU_COLORSPACE_DCI_P3_RGB_THEATER;
         case AVCOL_PRI_BT470M:    // also FCC Title 47 Code of Federal Regulations 73.682 (a)(20)
         case AVCOL_PRI_FILM:      // 8  colour filters using Illuminant C
         case AVCOL_PRI_SMPTE428:  // 10, SMPTE ST 428-1 (CIE 1931 XYZ)
@@ -192,7 +191,7 @@ fb_av_colorspace(const AVFrame * const frame)
         default:
             break;
     }
-    return "Default";
+    return DRMU_COLORSPACE_DEFAULT;
 }
 
 static drmu_chroma_siting_t

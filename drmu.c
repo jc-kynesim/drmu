@@ -1036,10 +1036,10 @@ typedef struct drmu_fb_s {
 
     drmu_bo_t * bo_list[4];
 
-    const char * color_encoding; // Assumed to be constant strings that don't need freeing
-    const char * color_range;
+    drmu_color_encoding_t color_encoding; // Assumed to be constant strings that don't need freeing
+    drmu_color_range_t    color_range;
+    drmu_colorspace_t     colorspace;
     const char * pixel_blend_mode;
-    const char * colorspace;
     drmu_chroma_siting_t chroma_siting;
     drmu_isset_t hdr_metadata_isset;
     struct hdr_output_metadata hdr_metadata;
@@ -1274,7 +1274,7 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
 }
 
 void
-drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char * const range, const char * const space)
+drmu_fb_int_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space)
 {
     dfb->color_encoding = enc;
     dfb->color_range    = range;
@@ -1354,25 +1354,25 @@ drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb)
     return dfb->hdr_metadata_isset == DRMU_ISSET_SET ? &dfb->hdr_metadata : NULL;
 }
 
-const char *
+drmu_colorspace_t
 drmu_fb_colorspace_get(const drmu_fb_t * const dfb)
 {
     return dfb->colorspace;
 }
 
 const char *
-drmu_color_range_to_broadcast_rgb(const char * const range)
+drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range)
 {
-    if (range == NULL)
-        return NULL;
-    else if (strcmp(range, "YCbCr full range") == 0)
+    if (!drmu_color_range_is_set(range))
+        return DRMU_BROADCAST_RGB_UNSET;
+    else if (strcmp(range, DRMU_COLOR_RANGE_YCBCR_FULL_RANGE) == 0)
         return DRMU_BROADCAST_RGB_FULL;
-    else if (strcmp(range, "YCbCr limited range") == 0)
+    else if (strcmp(range, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE) == 0)
         return DRMU_BROADCAST_RGB_LIMITED_16_235;
     return NULL;
 }
 
-const char *
+drmu_color_range_t
 drmu_fb_color_range_get(const drmu_fb_t * const dfb)
 {
     return dfb->color_range;
@@ -2326,7 +2326,7 @@ drmu_atomic_conn_hi_bpc_set(drmu_atomic_t * const da, drmu_conn_t * const dn, bo
 }
 
 int
-drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * colorspace)
+drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const drmu_colorspace_t colorspace)
 {
     if (!dn->pid.colorspace)
         return 0;
@@ -2335,7 +2335,7 @@ drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn
 }
 
 int
-drmu_atomic_conn_broadcast_rgb_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * bcrgb)
+drmu_atomic_conn_broadcast_rgb_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const drmu_broadcast_rgb_t bcrgb)
 {
     if (!dn->pid.broadcast_rgb)
         return 0;
