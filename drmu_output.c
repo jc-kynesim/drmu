@@ -58,7 +58,7 @@ drmu_output_plane_ref_other(drmu_output_t * const dout)
 }
 
 int
-drmu_atomic_add_output_props(drmu_atomic_t * const da, drmu_output_t * const dout)
+drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout)
 {
     int rv = 0;
     unsigned int i;
@@ -72,13 +72,13 @@ drmu_atomic_add_output_props(drmu_atomic_t * const da, drmu_output_t * const dou
         drmu_conn_t * const dn = dout->dns[i];
 
         if (dout->fmt_info && dout->max_bpc_allow)
-            rv = rvup(rv, drmu_atomic_conn_hi_bpc_set(da, dn, (drmu_format_info_bit_depth(dout->fmt_info) > 8)));
+            rv = rvup(rv, drmu_atomic_conn_add_hi_bpc(da, dn, (drmu_format_info_bit_depth(dout->fmt_info) > 8)));
         if (drmu_colorspace_is_set(dout->colorspace))
-            rv = rvup(rv, drmu_atomic_conn_colorspace_set(da, dn, dout->colorspace));
+            rv = rvup(rv, drmu_atomic_conn_add_colorspace(da, dn, dout->colorspace));
         if (drmu_broadcast_rgb_is_set(dout->broadcast_rgb))
-            rv = rvup(rv, drmu_atomic_conn_broadcast_rgb_set(da, dn, dout->broadcast_rgb));
+            rv = rvup(rv, drmu_atomic_conn_add_broadcast_rgb(da, dn, dout->broadcast_rgb));
         if (dout->hdr_metadata_isset != DRMU_ISSET_UNSET)
-            rv = rvup(rv, drmu_atomic_conn_hdr_metadata_set(da, dn,
+            rv = rvup(rv, drmu_atomic_conn_add_hdr_metadata(da, dn,
                 dout->hdr_metadata_isset == DRMU_ISSET_NULL ? NULL : &dout->hdr_metadata));
     }
 
@@ -342,7 +342,7 @@ retry:
         drmu_atomic_t * da = drmu_atomic_new(du);
         if (!da)
             return -ENOMEM;
-        dout->has_max_bpc = (drmu_atomic_conn_hi_bpc_set(da, dn, true) == 0);
+        dout->has_max_bpc = (drmu_atomic_conn_add_hi_bpc(da, dn, true) == 0);
         drmu_atomic_unref(&da);
     }
 

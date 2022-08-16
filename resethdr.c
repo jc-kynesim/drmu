@@ -61,11 +61,11 @@ int main(int argc, char *argv[])
     if ((da = drmu_atomic_new(du)) == NULL)
         goto fail;
 
-    if (drmu_atomic_conn_hdr_metadata_set(da, dn, NULL))
+    if (drmu_atomic_conn_add_hdr_metadata(da, dn, NULL))
         goto fail;
-    if (drmu_atomic_conn_colorspace_set(da, dn, colorspace))
+    if (drmu_atomic_conn_add_colorspace(da, dn, colorspace))
         fprintf(stderr, "Failed to set colorspace '%s'\n", colorspace);
-    if (drmu_atomic_conn_hi_bpc_set(da, dn, false))
+    if (drmu_atomic_conn_add_hi_bpc(da, dn, false))
         fprintf(stderr, "Failed to reset hi bpc\n");
 
     if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)

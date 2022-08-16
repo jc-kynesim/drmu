@@ -245,7 +245,7 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
                      patch_wh + patch_gap, 2,
                      p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
 
-        drmu_atomic_plane_fb_set(da, planes[i], fb, (drmu_rect_t){
+        drmu_atomic_plane_add_fb(da, planes[i], fb, (drmu_rect_t){
                         .x = x,
                         .y = y,
                         .w = patch_wh,
@@ -572,7 +572,7 @@ int main(int argc, char *argv[])
         plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
 
-    drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
+    drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
 
     static const struct hdr_output_metadata meta = {
         .metadata_type = HDMI_STATIC_METADATA_TYPE1,
@@ -587,19 +587,19 @@ int main(int argc, char *argv[])
             .max_fall = 400
         }
     };
-    if (drmu_atomic_conn_hdr_metadata_set(da, dn, &meta) != 0) {
+    if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
         fprintf(stderr, "Failed metadata set");
         goto fail;
     }
-    if (drmu_atomic_conn_colorspace_set(da, dn, colorspace) != 0) {
+    if (drmu_atomic_conn_add_colorspace(da, dn, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
         goto fail;
     }
-    if (drmu_atomic_conn_broadcast_rgb_set(da, dn, broadcast_rgb) != 0) {
+    if (drmu_atomic_conn_add_broadcast_rgb(da, dn, broadcast_rgb) != 0) {
         fprintf(stderr, "Failed to set broadcast_rgb to '%s'\n", broadcast_rgb);
         goto fail;
     }
-    if (drmu_atomic_conn_hi_bpc_set(da, dn, hi_bpc) != 0)
+    if (drmu_atomic_conn_add_hi_bpc(da, dn, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
     if (try_writeback) {
