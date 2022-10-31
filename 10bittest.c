@@ -24,6 +24,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -553,7 +554,11 @@ int main(int argc, char *argv[])
     p16_stride = mp.width * 8;
 
     if ((p1 = drmu_output_plane_ref_primary(dout)) == NULL) {
-        fprintf(stderr, "Cannot find plane for %s\n", drmu_log_fourcc(p1fmt));
+        fprintf(stderr, "Cannot find primary plane\n");
+        goto fail;
+    }
+    if (!drmu_plane_format_check(p1, p1fmt, p1mod)) {
+        fprintf(stderr, "Primary plane doesn't support %s mod %#" PRIx64 "\n", drmu_log_fourcc(p1fmt), p1mod);
         goto fail;
     }
 
