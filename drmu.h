@@ -424,6 +424,13 @@ int drmu_conn_claim_ref(drmu_conn_t * const dn);
 // Plane
 
 uint32_t drmu_plane_id(const drmu_plane_t * const dp);
+
+#define DRMU_PLANE_TYPE_CURSOR  4
+#define DRMU_PLANE_TYPE_PRIMARY 2
+#define DRMU_PLANE_TYPE_OVERLAY 1
+#define DRMU_PLANE_TYPE_UNKNOWN 0
+unsigned int drmu_plane_type(const drmu_plane_t * const dp);
+
 const uint32_t * drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount);
 bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, const uint64_t modifier);
 
@@ -479,10 +486,6 @@ drmu_plane_t * drmu_plane_ref(drmu_plane_t * const dp);
 // Returns -EBUSY if plane already associated
 int drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc);
 
-#define DRMU_PLANE_TYPE_CURSOR  4
-#define DRMU_PLANE_TYPE_PRIMARY 2
-#define DRMU_PLANE_TYPE_OVERLAY 1
-#define DRMU_PLANE_TYPE_UNKNOWN 0
 
 // Find a "free" plane of the given type. Types can be ORed
 // Does not ref

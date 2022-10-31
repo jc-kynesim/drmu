@@ -3158,6 +3158,12 @@ drmu_plane_id(const drmu_plane_t * const dp)
     return dp->plane.plane_id;
 }
 
+unsigned int
+drmu_plane_type(const drmu_plane_t * const dp)
+{
+    return dp->plane_type;
+}
+
 const uint32_t *
 drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount)
 {
