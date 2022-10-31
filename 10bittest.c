@@ -282,7 +282,7 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-M <module>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
            "-f  solid a, b, c 10-bit values\n"
@@ -295,6 +295,7 @@ usage()
            "    if -r set then defaults to that\n"
            "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
+           "-P  pixel format fourcc\n"
            "-M  drm module name, default: " DRM_MODULE "\n"
            "-v  verbose\n"
            "\n"
@@ -317,8 +318,8 @@ int main(int argc, char *argv[])
     drmu_fb_t * fb1 = NULL;
     drmu_fb_t * fb_out = NULL;
     drmu_atomic_t * da = NULL;
-    uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
-    uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
+    uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
+    uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
     drmu_mode_simple_params_t mp;
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
@@ -342,7 +343,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:r:R:svwy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:svwy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -369,6 +370,13 @@ int main(int argc, char *argv[])
                 break;
             case 'p':
                 fill_pin = true;
+                break;
+            case 'P':
+                if (strlen(optarg) != 4) {
+                    printf("Pixel FourCC expected to have 4 chars\n");
+                    exit(1);
+                }
+                p1fmt = fourcc_code(optarg[0], optarg[1], optarg[2], optarg[3]);
                 break;
             case 'r': {
                 const char * s = optarg;
@@ -574,9 +582,19 @@ int main(int argc, char *argv[])
         plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
                           drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
                           p16, p16_stride, mp.width, mp.height);
-    else
+    else if (p1fmt == DRM_FORMAT_ARGB2101010)
         plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
+    else if (p1fmt == DRM_FORMAT_ABGR2101010)
+        plane16_to_abgr2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
+                               p16, p16_stride, mp.width, mp.height);
+    else if (p1fmt == DRM_FORMAT_ABGR8888)
+        plane16_to_abgr8888(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
+                               p16, p16_stride, mp.width, mp.height);
+    else {
+        fprintf(stderr, "Unexpected p1fmt converting from p16\n");
+        goto fail;
+    }
 
     drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
 
