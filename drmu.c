@@ -3298,7 +3298,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
         return -EINVAL;
 
 #if TRACE_PROP_NEW
-    drmu_info(du, "Plane %d:", i);
+    drmu_info(du, "Plane id %d:", plane_id);
     props_dump(props);
 #endif
 
