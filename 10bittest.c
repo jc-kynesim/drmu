@@ -282,7 +282,7 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-M <module>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
            "-f  solid a, b, c 10-bit values\n"
@@ -295,6 +295,7 @@ usage()
            "    if -r set then defaults to that\n"
            "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
+           "-M  drm module name, default: " DRM_MODULE "\n"
            "-v  verbose\n"
            "\n"
            "Hit return to exit\n"
@@ -318,6 +319,7 @@ int main(int argc, char *argv[])
     drmu_atomic_t * da = NULL;
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
+    const char * drm_device = DRM_MODULE;
     drmu_mode_simple_params_t mp;
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
     drmu_color_encoding_t encoding = DRMU_COLOR_ENCODING_BT2020;
@@ -340,7 +342,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:Fgpr:R:svwy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:FgpM:r:R:svwy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -361,6 +363,9 @@ int main(int argc, char *argv[])
             }
             case 'g':
                 grey_only = true;
+                break;
+            case 'M':
+                drm_device = optarg;
                 break;
             case 'p':
                 fill_pin = true;
@@ -445,8 +450,9 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
-        if ((du = drmu_env_new_xlease(&log)) == NULL &&
-            (du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
+        if (
+            (du = drmu_env_new_xlease(&log)) == NULL &&
+            (du = drmu_env_new_open(drm_device, &log)) == NULL)
             goto fail;
     }
 
