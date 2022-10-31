@@ -1036,10 +1036,10 @@ typedef struct drmu_fb_s {
 
     drmu_bo_t * bo_list[4];
 
-    const char * color_encoding; // Assumed to be constant strings that don't need freeing
-    const char * color_range;
+    drmu_color_encoding_t color_encoding; // Assumed to be constant strings that don't need freeing
+    drmu_color_range_t    color_range;
+    drmu_colorspace_t     colorspace;
     const char * pixel_blend_mode;
-    const char * colorspace;
     drmu_chroma_siting_t chroma_siting;
     drmu_isset_t hdr_metadata_isset;
     struct hdr_output_metadata hdr_metadata;
@@ -1274,7 +1274,7 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
 }
 
 void
-drmu_fb_int_color_set(drmu_fb_t *const dfb, const char * const enc, const char * const range, const char * const space)
+drmu_fb_int_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space)
 {
     dfb->color_encoding = enc;
     dfb->color_range    = range;
@@ -1354,25 +1354,25 @@ drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb)
     return dfb->hdr_metadata_isset == DRMU_ISSET_SET ? &dfb->hdr_metadata : NULL;
 }
 
-const char *
+drmu_colorspace_t
 drmu_fb_colorspace_get(const drmu_fb_t * const dfb)
 {
     return dfb->colorspace;
 }
 
 const char *
-drmu_color_range_to_broadcast_rgb(const char * const range)
+drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range)
 {
-    if (range == NULL)
-        return NULL;
-    else if (strcmp(range, "YCbCr full range") == 0)
+    if (!drmu_color_range_is_set(range))
+        return DRMU_BROADCAST_RGB_UNSET;
+    else if (strcmp(range, DRMU_COLOR_RANGE_YCBCR_FULL_RANGE) == 0)
         return DRMU_BROADCAST_RGB_FULL;
-    else if (strcmp(range, "YCbCr limited range") == 0)
+    else if (strcmp(range, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE) == 0)
         return DRMU_BROADCAST_RGB_LIMITED_16_235;
     return NULL;
 }
 
-const char *
+drmu_color_range_t
 drmu_fb_color_range_get(const drmu_fb_t * const dfb)
 {
     return dfb->color_range;
@@ -2297,7 +2297,7 @@ struct drmu_conn_s {
 
 
 int
-drmu_atomic_conn_hdr_metadata_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const struct hdr_output_metadata * const m)
+drmu_atomic_conn_add_hdr_metadata(drmu_atomic_t * const da, drmu_conn_t * const dn, const struct hdr_output_metadata * const m)
 {
     drmu_env_t * const du = drmu_atomic_env(da);
     int rv;
@@ -2319,14 +2319,14 @@ drmu_atomic_conn_hdr_metadata_set(drmu_atomic_t * const da, drmu_conn_t * const 
 }
 
 int
-drmu_atomic_conn_hi_bpc_set(drmu_atomic_t * const da, drmu_conn_t * const dn, bool hi_bpc)
+drmu_atomic_conn_add_hi_bpc(drmu_atomic_t * const da, drmu_conn_t * const dn, bool hi_bpc)
 {
     return drmu_atomic_add_prop_range(da, dn->conn.connector_id, dn->pid.max_bpc, !hi_bpc ? 8 :
                                       drmu_prop_range_max(dn->pid.max_bpc));
 }
 
 int
-drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * colorspace)
+drmu_atomic_conn_add_colorspace(drmu_atomic_t * const da, drmu_conn_t * const dn, const drmu_colorspace_t colorspace)
 {
     if (!dn->pid.colorspace)
         return 0;
@@ -2335,7 +2335,7 @@ drmu_atomic_conn_colorspace_set(drmu_atomic_t * const da, drmu_conn_t * const dn
 }
 
 int
-drmu_atomic_conn_broadcast_rgb_set(drmu_atomic_t * const da, drmu_conn_t * const dn, const char * bcrgb)
+drmu_atomic_conn_add_broadcast_rgb(drmu_atomic_t * const da, drmu_conn_t * const dn, const drmu_broadcast_rgb_t bcrgb)
 {
     if (!dn->pid.broadcast_rgb)
         return 0;
@@ -3090,7 +3090,7 @@ plane_set_atomic(drmu_atomic_t * const da,
 }
 
 int
-drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int alpha)
+drmu_atomic_plane_add_alpha(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int alpha)
 {
     if (alpha == DRMU_PLANE_ALPHA_UNSET)
         return 0;
@@ -3098,7 +3098,7 @@ drmu_atomic_add_plane_alpha(struct drmu_atomic_s * const da, const drmu_plane_t 
 }
 
 int
-drmu_atomic_add_plane_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot)
+drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot)
 {
     if (!dp->pid.rotation)
         return rot == DRMU_PLANE_ROTATION_0 ? 0 : -EINVAL;
@@ -3124,7 +3124,7 @@ drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_
 }
 
 int
-drmu_atomic_plane_fb_set(drmu_atomic_t * const da, drmu_plane_t * const dp,
+drmu_atomic_plane_add_fb(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_fb_t * const dfb, const drmu_rect_t pos)
 {
     int rv;

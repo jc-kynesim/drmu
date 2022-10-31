@@ -152,11 +152,11 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    drmu_atomic_plane_fb_set(da, p0, fb0, drmu_rect_wh(sp->width, sp->height));
+    drmu_atomic_plane_add_fb(da, p0, fb0, drmu_rect_wh(sp->width, sp->height));
     for (i = 0; i!= 4; ++i) {
         if (fbsub[i] && psub[i]) {
             fprintf(stderr, "Set patch %d to %s\n", i, drmu_log_fourcc(fmts[i]));
-            drmu_atomic_plane_fb_set(da, psub[i], fbsub[i], (drmu_rect_t){i * (128 * 5/4) + 32, 32, 128, 128});
+            drmu_atomic_plane_add_fb(da, psub[i], fbsub[i], (drmu_rect_t){i * (128 * 5/4) + 32, 32, 128, 128});
         }
     }
     drmu_atomic_queue(&da);

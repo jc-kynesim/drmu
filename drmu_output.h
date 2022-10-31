@@ -14,10 +14,14 @@ drmu_plane_t * drmu_output_plane_ref_primary(drmu_output_t * const dout);
 drmu_plane_t * drmu_output_plane_ref_other(drmu_output_t * const dout);
 
 // Add all props accumulated on the output to the atomic
-int drmu_atomic_add_output_props(drmu_atomic_t * const da, drmu_output_t * const dout);
+int drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout);
 
 // Set FB info (bit-depth, HDR metadata etc.)
+// Only sets properties that are set in the fb - retains previous value otherwise
 int drmu_output_fb_info_set(drmu_output_t * const dout, const drmu_fb_t * const fb);
+// Unset all FB info
+// (set only sets stuff that is set in the fb, so will never clear anything)
+void drmu_output_fb_info_unset(drmu_output_t * const dout);
 
 // Set output mode
 int drmu_output_mode_id_set(drmu_output_t * const dout, const int mode_id);

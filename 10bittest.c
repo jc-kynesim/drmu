@@ -226,7 +226,7 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
         rv = -ENOMEM;
         goto fail;
     }
-    drmu_fb_int_color_set(fb, "ITU-R BT.2020 YCbCr", DRMU_PLANE_RANGE_LIMITED, "BT2020_RGB");
+    drmu_fb_int_color_set(fb, DRMU_COLOR_ENCODING_BT2020, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE, DRMU_COLORSPACE_BT2020_RGB);
 
     if (dofrac)
         drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
@@ -245,7 +245,7 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
                      patch_wh + patch_gap, 2,
                      p16_stride, p16val(~0U, 235 << 8, 235 << 8, 235 << 8));
 
-        drmu_atomic_plane_fb_set(da, planes[i], fb, (drmu_rect_t){
+        drmu_atomic_plane_add_fb(da, planes[i], fb, (drmu_rect_t){
                         .x = x,
                         .y = y,
                         .w = patch_wh,
@@ -319,11 +319,11 @@ int main(int argc, char *argv[])
     uint32_t p1fmt = DRM_FORMAT_ARGB2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_INVALID;
     drmu_mode_simple_params_t mp;
-    const char * colorspace = "BT2020_RGB";
-    const char * encoding = "ITU-R BT.2020 YCbCr";
-    const char * range = NULL;
-    const char * default_range = DRMU_PLANE_RANGE_FULL;
-    const char * broadcast_rgb = NULL;
+    drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
+    drmu_color_encoding_t encoding = DRMU_COLOR_ENCODING_BT2020;
+    drmu_color_range_t range = NULL;
+    drmu_color_range_t default_range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
+    drmu_broadcast_rgb_t broadcast_rgb = NULL;
     bool grey_only = false;
     bool fill_pin = false;
     bool fill_solid = false;
@@ -348,11 +348,11 @@ int main(int argc, char *argv[])
             case 'e': {
                 const char * s = optarg;
                 if (strcmp(s, "601") == 0)
-                    encoding = "ITU-R BT.601 YCbCr";
+                    encoding = DRMU_COLOR_ENCODING_BT601;
                 else if (strcmp(s, "709") == 0)
-                    encoding = "ITU-R BT.709 YCbCr";
+                    encoding = DRMU_COLOR_ENCODING_BT709;
                 else if (strcmp(s, "2020") == 0)
-                    encoding = "ITU-R BT.2020 YCbCr";
+                    encoding = DRMU_COLOR_ENCODING_BT2020;
                 else {
                     printf("Unrecognised encoding - valid values are 601, 709, 2020\n");
                     exit(1);
@@ -368,9 +368,9 @@ int main(int argc, char *argv[])
             case 'r': {
                 const char * s = optarg;
                 if (strcmp(s, "full") == 0)
-                    range = DRMU_PLANE_RANGE_FULL;
+                    range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
                 else if (strcmp(s, "limited") == 0)
-                    range = DRMU_PLANE_RANGE_LIMITED;
+                    range = DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE;
                 else {
                     printf("Unrecognised range - valid values are limited, full\n");
                     exit(1);
@@ -380,11 +380,11 @@ int main(int argc, char *argv[])
             case 'R': {
                 const char * s = optarg;
                 if (strcmp(s, "full") == 0)
-                    range = DRMU_BROADCAST_RGB_FULL;
+                    broadcast_rgb = DRMU_BROADCAST_RGB_FULL;
                 else if (strcmp(s, "limited") == 0)
-                    range = DRMU_BROADCAST_RGB_LIMITED_16_235;
+                    broadcast_rgb = DRMU_BROADCAST_RGB_LIMITED_16_235;
                 else if (strcmp(s, "auto") == 0)
-                    range = DRMU_BROADCAST_RGB_AUTOMATIC;
+                    broadcast_rgb = DRMU_BROADCAST_RGB_AUTOMATIC;
                 else {
                     printf("Unrecognised broadcast range - valid values are auto, limited, full\n");
                     exit(1);
@@ -406,7 +406,7 @@ int main(int argc, char *argv[])
             case 'y':
                 p1fmt = DRM_FORMAT_P030;
                 p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
-                default_range = DRMU_PLANE_RANGE_LIMITED;
+                default_range = DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE;
                 is_yuv = true;
                 break;
             case '8':
@@ -572,7 +572,7 @@ int main(int argc, char *argv[])
         plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
 
-    drmu_atomic_plane_fb_set(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
+    drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
 
     static const struct hdr_output_metadata meta = {
         .metadata_type = HDMI_STATIC_METADATA_TYPE1,
@@ -587,19 +587,19 @@ int main(int argc, char *argv[])
             .max_fall = 400
         }
     };
-    if (drmu_atomic_conn_hdr_metadata_set(da, dn, &meta) != 0) {
+    if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
         fprintf(stderr, "Failed metadata set");
         goto fail;
     }
-    if (drmu_atomic_conn_colorspace_set(da, dn, colorspace) != 0) {
+    if (drmu_atomic_conn_add_colorspace(da, dn, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
         goto fail;
     }
-    if (drmu_atomic_conn_broadcast_rgb_set(da, dn, broadcast_rgb) != 0) {
+    if (drmu_atomic_conn_add_broadcast_rgb(da, dn, broadcast_rgb) != 0) {
         fprintf(stderr, "Failed to set broadcast_rgb to '%s'\n", broadcast_rgb);
         goto fail;
     }
-    if (drmu_atomic_conn_hi_bpc_set(da, dn, hi_bpc) != 0)
+    if (drmu_atomic_conn_add_hi_bpc(da, dn, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
     if (try_writeback) {
