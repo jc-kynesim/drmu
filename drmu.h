@@ -486,7 +486,11 @@ drmu_plane_t * drmu_plane_ref(drmu_plane_t * const dp);
 // Returns -EBUSY if plane already associated
 int drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc);
 
+typedef bool (*drmu_plane_new_find_ok_fn)(const drmu_plane_t * dp, void * v);
 
+// Find a "free" plane that satisfies (returns true) the ok callback
+// Does not ref
+drmu_plane_t * drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v);
 // Find a "free" plane of the given type. Types can be ORed
 // Does not ref
 drmu_plane_t * drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type);

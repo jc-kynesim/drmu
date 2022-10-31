@@ -3239,7 +3239,7 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
 }
 
 drmu_plane_t *
-drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
+drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v)
 {
     uint32_t i;
     drmu_env_t * const du = drmu_crtc_env(dc);
@@ -3248,23 +3248,33 @@ drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
     const uint32_t crtc_mask = (uint32_t)1 << drmu_crtc_idx(dc);
 
     for (i = 0; (dp_t = drmu_env_plane_find_n(du, i)) != NULL; ++i) {
-        // Is wanted type?
-        if ((dp_t->plane_type & req_type) == 0)
-            continue;
-
-        // In use?
-        if (dp_t->dc != NULL)
-            continue;
-
+        // Is unused?
         // Availible for this crtc?
-        if ((dp_t->plane.possible_crtcs & crtc_mask) == 0)
+        if (dp_t->dc != NULL ||
+            (dp_t->plane.possible_crtcs & crtc_mask) == 0)
             continue;
 
-        dp = dp_t;
-        break;
+        if (cb(dp_t, v)) {
+            dp = dp_t;
+            break;
+        }
     }
+    return dp;
+}
+
+static bool plane_find_type_cb(const drmu_plane_t * dp, void * v)
+{
+    const unsigned int * const pReq = v;
+    return (*pReq & drmu_plane_type(dp)) != 0;
+}
+
+drmu_plane_t *
+drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
+{
+    drmu_env_t * const du = drmu_crtc_env(dc);
+    drmu_plane_t * const dp = drmu_plane_new_find(dc, plane_find_type_cb, (void*)&req_type);
     if (dp == NULL) {
-        drmu_err(du, "%s: No plane (count=%d) found for types %#x", __func__, i, req_type);
+        drmu_err(du, "%s: No plane found for types %#x", __func__, req_type);
         return NULL;
     }
     return dp;
