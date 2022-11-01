@@ -299,6 +299,7 @@ usage()
            "-P  pixel format fourcc\n"
            "-M  drm module name, default: " DRM_MODULE "\n"
            "-v  verbose\n"
+           "-w  write to writeback rather than screen, then writen to wb.rgb\n"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -322,7 +323,7 @@ int main(int argc, char *argv[])
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
-    drmu_mode_simple_params_t mp;
+    drmu_mode_simple_params_t mp = {0};
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
     drmu_color_encoding_t encoding = DRMU_COLOR_ENCODING_BT2020;
     drmu_color_range_t range = NULL;
@@ -477,7 +478,7 @@ int main(int argc, char *argv[])
 
     if (try_writeback) {
         if (drmu_output_add_writeback(dout) != 0) {
-            drmu_err(du, "Failed to add writeback");
+            fprintf(stderr, "Failed to add writeback\n");
             goto fail;
         }
     }
@@ -495,14 +496,14 @@ int main(int argc, char *argv[])
             mp.width = 1920;
             mp.height = 1080;
         }
-        printf("Try writeback %dx%d", mp.width, mp.height);
+        printf("Try writeback %dx%d\n", mp.width, mp.height);
 
         if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
-            printf("Failed to create fb-out");
+            printf("Failed to create fb-out\n");
             goto fail;
         }
         if (drmu_atomic_output_add_writeback_fb(da, dout, fb_out) != 0) {
-            printf("Failed to add writeback fb");
+            printf("Failed to add writeback fb\n");
             goto fail;
         }
     }
