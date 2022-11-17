@@ -597,6 +597,12 @@ int main(int argc, char *argv[])
     else if (p1fmt == DRM_FORMAT_ABGR8888)
         plane16_to_abgr8888(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
+    else if (p1fmt == DRM_FORMAT_NV12) {
+        plane16_to_y8(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
+                               p16, p16_stride, mp.width, mp.height);
+        plane16_to_uv8_420(drmu_fb_data(fb1, 1), drmu_fb_pitch(fb1, 1),
+                               p16, p16_stride, mp.width, mp.height);
+    }
     else {
         fprintf(stderr, "Unexpected p1fmt converting from p16\n");
         goto fail;
