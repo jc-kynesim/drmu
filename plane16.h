@@ -38,6 +38,19 @@ void plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride
 void plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,
              const uint64_t grey);
 
+
+// v1 -> Y(8)
+void plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h);
+// Only copies (sx % 2) == 0 && (sy % 2) == 0
+// v2 -> U(8), v3 -> V(8)
+// w, h are src dimensions
+void plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h);
+
+
 int plane16_parse_val(const char * s, char ** const ps, uint64_t * const pval);
 
 static inline uint64_t

@@ -129,6 +129,44 @@ plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride2_y,
     plane16_to_sand30_c(dst_data_c, dst_stride2_c, src_data, src_stride, w, h);
 }
 
+// v1 -> Y(8)
+void
+plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    unsigned int i, j;
+    for (i = 0; i != h; ++i) {
+        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
+        uint8_t * d = dst_data + i * dst_stride;
+        for (j = 0; j < w; ++j) {
+            *d++ = ((*s++ >> (32 + 8)) & 0xff);
+        }
+    }
+}
+
+// Only copies (sx % 2) == 0 && (sy % 2) == 0
+// v2 -> U(8), v3 -> V(8)
+// w, h are src dimensions
+void
+plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    unsigned int i, j;
+    for (i = 0; i < h; i += 2) {
+        const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
+        uint8_t * d = dst_data + (i / 2) * dst_stride;
+        for (j = 0; j < w; j += 2) {
+            *d++ = ((*s >> (16 + 8)) & 0xff);
+            *d++ = ((*s >> (0  + 8)) & 0xff);
+            s += 2;
+        }
+    }
+}
+
+
+
 void
 plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,
              const uint64_t grey)
