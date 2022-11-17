@@ -33,6 +33,7 @@
 #include "libavcodec/avcodec.h"
 #include "libavutil/hwcontext.h"
 
+#include "config.h"
 #include "drmu.h"
 #include "drmu_av.h"
 #include "drmu_output.h"
@@ -189,7 +190,10 @@ drmprime_out_env_t* drmprime_out_new()
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
-        if ((de->du = drmu_env_new_xlease(&log)) == NULL &&
+        if (
+#if HAS_XLEASE
+            (de->du = drmu_env_new_xlease(&log)) == NULL &&
+#endif
             (de->du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }

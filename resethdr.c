@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <memory.h>
 
+#include "config.h"
 #include "drmu.h"
 #include "drmu_output.h"
 #include "drmu_log.h"
@@ -43,7 +44,10 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
-        if ((du = drmu_env_new_xlease(&log)) == NULL &&
+        if (
+#if HAS_XLEASE
+            (du = drmu_env_new_xlease(&log)) == NULL &&
+#endif
             (du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }

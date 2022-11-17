@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <memory.h>
 
+#include "config.h"
 #include "drmu.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
@@ -461,7 +462,9 @@ int main(int argc, char *argv[])
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
         if (
+#if HAS_XLEASE
             (du = drmu_env_new_xlease(&log)) == NULL &&
+#endif
             (du = drmu_env_new_open(drm_device, &log)) == NULL)
             goto fail;
     }

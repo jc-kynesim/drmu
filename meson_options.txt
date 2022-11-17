@@ -1,0 +1,3 @@
+option('xlease', type : 'feature', value : 'auto')
+option('xdri3', type : 'feature', value : 'auto')
+
