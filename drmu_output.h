@@ -12,6 +12,11 @@ typedef struct drmu_output_s drmu_output_t;
 
 drmu_plane_t * drmu_output_plane_ref_primary(drmu_output_t * const dout);
 drmu_plane_t * drmu_output_plane_ref_other(drmu_output_t * const dout);
+// Find and ref a plane that supports the given format & mod on the current crtc
+// Types is a bit field of acceptable plane types (DRMU_PLANE_TYPE_xxx), 0 => any
+//
+// add_output must be called before this (so we have a crtc to check against)
+drmu_plane_t * drmu_output_plane_ref_format(drmu_output_t * const dout, const unsigned int types, const uint32_t format, const uint64_t mod);
 
 // Add all props accumulated on the output to the atomic
 int drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout);

@@ -57,6 +57,37 @@ drmu_output_plane_ref_other(drmu_output_t * const dout)
     return dp;
 }
 
+struct plane_format_s {
+    unsigned int types;
+    uint32_t fmt;
+    uint64_t mod;
+};
+
+static bool plane_find_format_cb(const drmu_plane_t * dp, void * v)
+{
+    const struct plane_format_s * const f = v;
+    return (f->types & drmu_plane_type(dp)) != 0 &&
+        drmu_plane_format_check(dp, f->fmt, f->mod);
+}
+
+drmu_plane_t *
+drmu_output_plane_ref_format(drmu_output_t * const dout, const unsigned int types, const uint32_t format, const uint64_t mod)
+{
+    struct plane_format_s fm = {
+        .types = (types != 0) ? types : (DRMU_PLANE_TYPE_PRIMARY |  DRMU_PLANE_TYPE_CURSOR | DRMU_PLANE_TYPE_OVERLAY),
+        .fmt = format,
+        .mod = mod
+    };
+
+    drmu_plane_t *const dp = drmu_plane_new_find(dout->dc, plane_find_format_cb, &fm);
+
+    if (dp == NULL || drmu_plane_ref_crtc(dp, dout->dc) != 0)
+        return NULL;
+
+    return dp;
+}
+
+
 int
 drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout)
 {
