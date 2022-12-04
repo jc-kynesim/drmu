@@ -3061,6 +3061,7 @@ typedef struct drmu_plane_s {
         drmu_prop_bitmask_t * rotation;
         drmu_prop_range_t * chroma_siting_h;
         drmu_prop_range_t * chroma_siting_v;
+        drmu_prop_range_t * zpos;
     } pid;
     uint64_t rot_vals[8];
 
@@ -3095,6 +3096,12 @@ drmu_atomic_plane_add_alpha(struct drmu_atomic_s * const da, const drmu_plane_t 
     if (alpha == DRMU_PLANE_ALPHA_UNSET)
         return 0;
     return drmu_atomic_add_prop_range(da, dp->plane.plane_id, dp->pid.alpha, alpha);
+}
+
+int
+drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int zpos)
+{
+    return drmu_atomic_add_prop_range(da, dp->plane.plane_id, dp->pid.zpos, zpos);
 }
 
 int
@@ -3343,6 +3350,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     dp->pid.rotation         = drmu_prop_enum_new(du, props_name_to_id(props, "rotation"));
     dp->pid.chroma_siting_h  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_H"));
     dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
+    dp->pid.zpos             = drmu_prop_range_new(du, props_name_to_id(props, "zpos"));
 
     dp->rot_vals[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-0");
     if (dp->rot_vals[DRMU_PLANE_ROTATION_0]) {

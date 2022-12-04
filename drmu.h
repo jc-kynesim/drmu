@@ -440,6 +440,8 @@ bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t forma
 #define DRMU_PLANE_ALPHA_OPAQUE                 0xffff
 int drmu_atomic_plane_add_alpha(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int alpha);
 
+int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int zpos);
+
 // X, Y & TRANSPOSE can be ORed to get all others
 #define DRMU_PLANE_ROTATION_0                   0
 #define DRMU_PLANE_ROTATION_X_FLIP              1
