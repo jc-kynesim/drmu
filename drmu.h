@@ -225,6 +225,8 @@ typedef void (* drmu_fb_on_delete_fn)(struct drmu_fb_s * dfb, void * v);
 void drmu_fb_pre_delete_set(drmu_fb_t *const dfb, drmu_fb_pre_delete_fn fn, void * v);
 void drmu_fb_pre_delete_unset(drmu_fb_t *const dfb);
 unsigned int drmu_fb_pixel_bits(const drmu_fb_t * const dfb);
+uint32_t drmu_fb_pixel_format(const drmu_fb_t * const dfb);
+uint64_t drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane);
 drmu_fb_t * drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format);
 drmu_fb_t * drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 drmu_fb_t * drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format);

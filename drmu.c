@@ -1404,6 +1404,19 @@ drmu_fb_pixel_bits(const drmu_fb_t * const dfb)
     return dfb->fmt_info->bpp;
 }
 
+uint32_t
+drmu_fb_pixel_format(const drmu_fb_t * const dfb)
+{
+    return dfb->fb.pixel_format;
+}
+
+uint64_t
+drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane)
+{
+    return plane >= 4 ? DRM_FORMAT_MOD_INVALID : dfb->fb.modifier[plane];
+}
+
+
 // Writeback fence
 // Must be unset before set again
 // (This is as a handy hint that you must wait for the previous fence
