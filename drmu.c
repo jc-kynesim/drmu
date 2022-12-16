@@ -1217,18 +1217,6 @@ drmu_fb_height(const drmu_fb_t *const dfb)
     return dfb->fb.height;
 }
 
-static inline drmu_rect_t
-rect_to_frac_rect(const drmu_rect_t a)
-{
-    drmu_rect_t b = {
-        .x = a.x << 16,
-        .y = a.y << 16,
-        .w = a.w << 16,
-        .h = a.h << 16
-    };
-    return b;
-}
-
 // Set cropping (fractional) - x, y, relative to active x, y (and must be +ve)
 int
 drmu_fb_crop_frac_set(drmu_fb_t *const dfb, drmu_rect_t crop_frac)
@@ -1269,7 +1257,7 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
     dfb->fb.width        = w;
     dfb->fb.height       = h;
     dfb->active          = active;
-    dfb->crop            = rect_to_frac_rect(active);
+    dfb->crop            = drmu_rect_shl16(active);
     dfb->chroma_siting   = dfb->fmt_info ? dfb->fmt_info->chroma_siting : DRMU_CHROMA_SITING_TOP_LEFT;
 }
 
@@ -1574,7 +1562,7 @@ fb_try_reuse(drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format)
         return 0;
 
     dfb->active = drmu_rect_wh(w, h);
-    dfb->crop   = rect_to_frac_rect(dfb->active);
+    dfb->crop   = drmu_rect_shl16(dfb->active);
     return 1;
 }
 
