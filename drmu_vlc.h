@@ -60,6 +60,10 @@ drmu_ufrac_vlc_to_rational(const drmu_ufrac_t x)
 }
 
 
+// Convert chroma to drm - can't cope with RGB32 or RGB16 as they require
+// more info. returns 0 if unknown.
+uint32_t drmu_format_vlc_chroma_to_drm(const vlc_fourcc_t chroma);
+// Convert format to drm fourcc - does cope with RGB32 & RGB16
 uint32_t drmu_format_vlc_to_drm(const video_frame_format_t * const vf_vlc);
 vlc_fourcc_t drmu_format_vlc_to_vlc(const uint32_t vf_drm);
 

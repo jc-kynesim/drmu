@@ -71,6 +71,47 @@ drmu_format_vlc_to_drm_prime(const vlc_fourcc_t chroma_in, uint64_t * const pmod
 }
 #endif
 
+// Convert chroma to drm - can't cope with RGB32 or RGB16 as they require
+// more info
+uint32_t
+drmu_format_vlc_chroma_to_drm(const vlc_fourcc_t chroma)
+{
+    switch (chroma) {
+        case VLC_CODEC_RGBA:
+            return DRM_FORMAT_ABGR8888;
+        case VLC_CODEC_BGRA:
+            return DRM_FORMAT_ARGB8888;
+        case VLC_CODEC_ARGB:
+            return DRM_FORMAT_BGRA8888;
+        // VLC_CODEC_ABGR does not exist in VLC
+        case VLC_CODEC_VUYA:
+            return DRM_FORMAT_AYUV;
+        // AYUV appears to be the only DRM YUVA-like format
+        case VLC_CODEC_VYUY:
+            return DRM_FORMAT_YUYV;
+        case VLC_CODEC_UYVY:
+            return DRM_FORMAT_YVYU;
+        case VLC_CODEC_YUYV:
+            return DRM_FORMAT_VYUY;
+        case VLC_CODEC_YVYU:
+            return DRM_FORMAT_UYVY;
+        case VLC_CODEC_NV12:
+            return DRM_FORMAT_NV12;
+        case VLC_CODEC_NV21:
+            return DRM_FORMAT_NV21;
+        case VLC_CODEC_I420:
+            return DRM_FORMAT_YUV420;
+        default:
+            break;
+    }
+
+#if HAS_ZC_CMA
+    return drmu_format_vlc_to_drm_cma(chroma);
+#else
+    return 0;
+#endif
+}
+
 uint32_t
 drmu_format_vlc_to_drm(const video_frame_format_t * const vf_vlc)
 {
@@ -103,38 +144,11 @@ drmu_format_vlc_to_drm(const video_frame_format_t * const vf_vlc)
                 return DRM_FORMAT_BGR565;
             break;
         }
-        case VLC_CODEC_RGBA:
-            return DRM_FORMAT_ABGR8888;
-        case VLC_CODEC_BGRA:
-            return DRM_FORMAT_ARGB8888;
-        case VLC_CODEC_ARGB:
-            return DRM_FORMAT_BGRA8888;
-        // VLC_CODEC_ABGR does not exist in VLC
-        case VLC_CODEC_VUYA:
-            return DRM_FORMAT_AYUV;
-        // AYUV appears to be the only DRM YUVA-like format
-        case VLC_CODEC_VYUY:
-            return DRM_FORMAT_YUYV;
-        case VLC_CODEC_UYVY:
-            return DRM_FORMAT_YVYU;
-        case VLC_CODEC_YUYV:
-            return DRM_FORMAT_VYUY;
-        case VLC_CODEC_YVYU:
-            return DRM_FORMAT_UYVY;
-        case VLC_CODEC_NV12:
-            return DRM_FORMAT_NV12;
-        case VLC_CODEC_NV21:
-            return DRM_FORMAT_NV21;
-        case VLC_CODEC_I420:
-            return DRM_FORMAT_YUV420;
         default:
             break;
     }
-#if HAS_ZC_CMA
-    return drmu_format_vlc_to_drm_cma(vf_vlc->i_chroma);
-#else
-    return 0;
-#endif
+
+    return drmu_format_vlc_chroma_to_drm(vf_vlc->i_chroma);
 }
 
 vlc_fourcc_t
