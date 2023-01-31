@@ -36,6 +36,7 @@
 #include "config.h"
 #include "drmu.h"
 #include "drmu_av.h"
+#include "drmu_log.h"
 #include "drmu_output.h"
 #include <drm_fourcc.h>
 
@@ -86,6 +87,17 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
         drmu_fb_t * dfb = drmu_fb_av_new_frame_attach(de->du, src_frame);
         const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
         drmu_rect_t r = drmu_rect_wh(sp->width, sp->height);
+
+        if (de->dp == NULL) {
+            de->dp = drmu_output_plane_ref_format(de->dout, 0, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+            if (!de->dp) {
+                fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
+                drmu_atomic_unref(&da);
+                av_frame_free(&frame);
+                return AVERROR(EINVAL);
+            }
+        }
+
         drmu_output_fb_info_set(de->dout, dfb);
 #if 0
         const struct hdr_output_metadata * const meta = drmu_fb_hdr_metadata_get(dfb);
@@ -209,9 +221,7 @@ drmprime_out_env_t* drmprime_out_new()
     if ((de->pic_pool = drmu_pool_new(de->du, 5)) == NULL)
         goto fail;
 
-    // This wants to be the primary
-    if ((de->dp = drmu_output_plane_ref_primary(de->dout)) == NULL)
-        goto fail;
+    // Plane allocation delayed till we have a format - not all planes are idempotent
 
     return de;
 
