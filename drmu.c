@@ -697,8 +697,10 @@ drmu_atomic_add_prop_range(drmu_atomic_t * const da, const uint32_t obj_id, cons
         drmu_atomic_add_prop_generic(da, obj_id, drmu_prop_range_id(pra), x, NULL, NULL);
 
     if (rv != 0)
-        drmu_warn(drmu_atomic_env(da), "%s: Failed to add range obj_id=%#x, prop_id=%#x, val=%"PRId64": %s", __func__,
-                  obj_id, drmu_prop_range_id(pra), x, strerror(-rv));
+        drmu_warn(drmu_atomic_env(da),
+                  "%s: Failed to add range %s obj_id=%#x, prop_id=%#x, val=%"PRId64", range=%"PRId64"->%"PRId64": %s",
+                  __func__, pra->name,
+                  obj_id, drmu_prop_range_id(pra), x, drmu_prop_range_min(pra), drmu_prop_range_max(pra), strerror(-rv));
 
     return rv;
 }
