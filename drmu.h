@@ -179,6 +179,7 @@ int drmu_atomic_add_prop_bitmask(struct drmu_atomic_s * const da, const uint32_t
 
 void drmu_prop_range_delete(drmu_prop_range_t ** pppra);
 bool drmu_prop_range_validate(const drmu_prop_range_t * const pra, const uint64_t x);
+bool drmu_prop_range_immutable(const drmu_prop_range_t * const pra);
 uint64_t drmu_prop_range_max(const drmu_prop_range_t * const pra);
 uint64_t drmu_prop_range_min(const drmu_prop_range_t * const pra);
 uint32_t drmu_prop_range_id(const drmu_prop_range_t * const pra);

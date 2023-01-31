@@ -557,6 +557,12 @@ drmu_prop_range_validate(const drmu_prop_range_t * const pra, const uint64_t x)
     return pra->range[0] <= x && pra->range[1] >= x;
 }
 
+bool
+drmu_prop_range_immutable(const drmu_prop_range_t * const pra)
+{
+    return !pra || (pra->flags & DRM_MODE_PROP_IMMUTABLE) != 0;
+}
+
 uint64_t
 drmu_prop_range_max(const drmu_prop_range_t * const pra)
 {
@@ -631,6 +637,7 @@ drmu_atomic_add_prop_range(drmu_atomic_t * const da, const uint32_t obj_id, cons
 
     rv = !pra ? -ENOENT :
         !drmu_prop_range_validate(pra, x) ? -EINVAL :
+        drmu_prop_range_immutable(pra) ? -EPERM :
         drmu_atomic_add_prop_generic(da, obj_id, drmu_prop_range_id(pra), x, NULL, NULL);
 
     if (rv != 0)
