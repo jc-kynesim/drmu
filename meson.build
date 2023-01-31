@@ -41,7 +41,7 @@ if xlease_dep.found()
 			xlease_dep,
 		],
 	)
-	drmu_xlease_opt = [drmu_xlease]
+	drmu_xlease_opt += [drmu_xlease]
 endif
 
 if xdri3_dep.found()
@@ -56,7 +56,7 @@ if xdri3_dep.found()
 			xdri3_dep,
 		],
 	)
-	drmu_xlease_opt = [drmu_xdri3]
+	drmu_xlease_opt += [drmu_xdri3]
 endif
 
 drmu_av = library('drmu_av',
