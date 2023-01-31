@@ -23,7 +23,7 @@ conf_data.set10('HAS_XLEASE', xlease_dep.found())
 xcb_dep = dependency('xcb', required : xlease_dep.found() or xdri3_dep.found())
 
 drmu_base = library('drmu_base',
-	'drmu_output.c', 'drmu.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
+	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
 	dependencies : [
 		threads_dep,
 		libdrm_dep

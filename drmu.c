@@ -1,4 +1,5 @@
 #include "drmu.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 
 #include <pthread.h>
@@ -93,70 +94,6 @@ drmu_ufrac_reduce(drmu_ufrac_t x)
             x.den = xd;
         }
     }
-}
-
-//----------------------------------------------------------------------------
-//
-// Format properties
-
-typedef struct drmu_format_info_s {
-    uint32_t fourcc;
-    uint8_t  bpp;  // For dumb BO alloc
-    uint8_t  bit_depth;  // For display
-    uint8_t  plane_count;
-    struct {
-        uint8_t wdiv;
-        uint8_t hdiv;
-    } planes[4];
-    drmu_chroma_siting_t chroma_siting;  // Default for this format (YUV420 = (0.0, 0.5), otherwise (0, 0)
-} drmu_format_info_t;
-
-static const drmu_format_info_t format_info[] = {
-    { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ARGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ARGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_AYUV, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-
-    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = {{1, 1}}},
-
-    { .fourcc = DRM_FORMAT_NV12,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}},
-      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
-    { .fourcc = DRM_FORMAT_NV21,   .bpp = 8, .bit_depth = 8, .plane_count = 2, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}},
-      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
-    { .fourcc = DRM_FORMAT_YUV420, .bpp = 8, .bit_depth = 8, .plane_count = 3, .planes = {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}},
-      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
-
-    // 3 pel in 32 bits. So code as 32bpp with wdiv 3.
-    { .fourcc = DRM_FORMAT_P030,   .bpp = 32, .bit_depth = 10, .plane_count = 2, .planes = {{.wdiv = 3, .hdiv = 1}, {.wdiv = 3, .hdiv = 2}},
-      .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
-
-    { .fourcc = 0 }
-};
-
-static const drmu_format_info_t *
-format_info_find(const uint32_t fourcc)
-{
-    for (const drmu_format_info_t * p = format_info; p->fourcc; ++p) {
-        if (p->fourcc == fourcc)
-            return p;
-    }
-    return NULL;
 }
 
 //----------------------------------------------------------------------------
@@ -1006,16 +943,6 @@ drmu_bo_env_init(drmu_bo_env_t * boe)
 
 //----------------------------------------------------------------------------
 //
-// Format info fns
-
-unsigned int
-drmu_format_info_bit_depth(const drmu_format_info_t * const fmt_info)
-{
-    return !fmt_info ? 0 : fmt_info->bit_depth;
-}
-
-//----------------------------------------------------------------------------
-//
 // FB fns
 
 typedef struct drmu_fb_s {
@@ -1025,7 +952,7 @@ typedef struct drmu_fb_s {
 
     struct drmu_env_s * du;
 
-    const struct drmu_format_info_s * fmt_info;
+    const struct drmu_fmt_info_s * fmt_info;
 
     struct drm_mode_fb_cmd2 fb;
 
@@ -1254,13 +1181,13 @@ drmu_fb_active(const drmu_fb_t *const dfb)
 void
 drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_t h, const drmu_rect_t active)
 {
-    dfb->fmt_info = format_info_find(fmt);
+    dfb->fmt_info        = drmu_fmt_info_find_fmt(fmt);
     dfb->fb.pixel_format = fmt;
     dfb->fb.width        = w;
     dfb->fb.height       = h;
     dfb->active          = active;
     dfb->crop            = drmu_rect_shl16(active);
-    dfb->chroma_siting   = dfb->fmt_info ? dfb->fmt_info->chroma_siting : DRMU_CHROMA_SITING_TOP_LEFT;
+    dfb->chroma_siting   = drmu_fmt_info_chroma_siting(dfb->fmt_info);
 }
 
 void
@@ -1368,7 +1295,7 @@ drmu_fb_color_range_get(const drmu_fb_t * const dfb)
     return dfb->color_range;
 }
 
-const struct drmu_format_info_s *
+const struct drmu_fmt_info_s *
 drmu_fb_format_info_get(const drmu_fb_t * const dfb)
 {
     return dfb->fmt_info;
@@ -1391,7 +1318,7 @@ drmu_fb_int_alloc(drmu_env_t * const du)
 unsigned int
 drmu_fb_pixel_bits(const drmu_fb_t * const dfb)
 {
-    return dfb->fmt_info->bpp;
+    return drmu_fmt_info_pixel_bits(dfb->fmt_info);
 }
 
 uint32_t
@@ -1434,12 +1361,13 @@ static unsigned int
 fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
 {
     unsigned int i;
-    const drmu_format_info_t *const f = dfb->fmt_info;
+    const drmu_fmt_info_t *const f = dfb->fmt_info;
     unsigned int t = 0;
-    unsigned int h0 = h * f->planes[0].wdiv;
+    unsigned int h0 = h * drmu_fmt_info_wdiv(f, 0);
+    const unsigned int c = drmu_fmt_info_plane_count(f);
 
-    for (i = 0; i != f->plane_count; ++i)
-        t += h0 / (f->planes[i].hdiv * f->planes[i].wdiv);
+    for (i = 0; i != c; ++i)
+        t += h0 / (drmu_fmt_info_hdiv(f, i) * drmu_fmt_info_wdiv(f, i));
 
     return t;
 }
@@ -1447,9 +1375,10 @@ fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
 static void
 fb_pitches_set_mod(drmu_fb_t * const dfb, uint64_t mod)
 {
-    const drmu_format_info_t *const f = dfb->fmt_info;
-    const uint32_t pitch0 = dfb->map_pitch * f->planes[0].wdiv;
+    const drmu_fmt_info_t *const f = dfb->fmt_info;
+    const uint32_t pitch0 = dfb->map_pitch * drmu_fmt_info_wdiv(f, 0);
     const uint32_t h = drmu_fb_height(dfb);
+    const unsigned int c = drmu_fmt_info_plane_count(f);
     uint32_t t = 0;
     unsigned int i;
 
@@ -1462,9 +1391,10 @@ fb_pitches_set_mod(drmu_fb_t * const dfb, uint64_t mod)
         return;
     }
 
-    for (i = 0; i != f->plane_count; ++i) {
-        drmu_fb_int_layer_mod_set(dfb, i, 0, pitch0 / f->planes[i].wdiv, t, mod);
-        t += (pitch0 * h) / (f->planes[i].hdiv * f->planes[i].wdiv);
+    for (i = 0; i != c; ++i) {
+        const unsigned int wdiv = drmu_fmt_info_wdiv(f, i);
+        drmu_fb_int_layer_mod_set(dfb, i, 0, pitch0 / wdiv, t, mod);
+        t += (pitch0 * h) / (drmu_fmt_info_hdiv(f, i) * wdiv);
     }
 }
 
@@ -1505,7 +1435,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
     {
         struct drm_mode_create_dumb dumb = {
             .height = fb_total_height(dfb, dfb->fb.height),
-            .width = dfb->fb.width / dfb->fmt_info->planes[0].wdiv,
+            .width = dfb->fb.width / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
             .bpp = bpp
         };
 

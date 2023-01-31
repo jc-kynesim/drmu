@@ -1,4 +1,6 @@
 #include "drmu_output.h"
+
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 
 #include <errno.h>
@@ -26,7 +28,7 @@ struct drmu_output_s {
     drmu_mode_simple_params_t mode_params;
 
     // These are expected to be static consts so no copy / no free
-    const drmu_format_info_t * fmt_info;
+    const drmu_fmt_info_t * fmt_info;
     drmu_colorspace_t colorspace;
     drmu_broadcast_rgb_t broadcast_rgb;
 
@@ -103,7 +105,7 @@ drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dou
         drmu_conn_t * const dn = dout->dns[i];
 
         if (dout->fmt_info && dout->max_bpc_allow)
-            rv = rvup(rv, drmu_atomic_conn_add_hi_bpc(da, dn, (drmu_format_info_bit_depth(dout->fmt_info) > 8)));
+            rv = rvup(rv, drmu_atomic_conn_add_hi_bpc(da, dn, (drmu_fmt_info_bit_depth(dout->fmt_info) > 8)));
         if (drmu_colorspace_is_set(dout->colorspace))
             rv = rvup(rv, drmu_atomic_conn_add_colorspace(da, dn, dout->colorspace));
         if (drmu_broadcast_rgb_is_set(dout->broadcast_rgb))
@@ -126,7 +128,7 @@ int
 drmu_output_fb_info_set(drmu_output_t * const dout, const drmu_fb_t * const fb)
 {
     const drmu_isset_t hdr_isset = drmu_fb_hdr_metadata_isset(fb);
-    const drmu_format_info_t * fmt_info = drmu_fb_format_info_get(fb);
+    const drmu_fmt_info_t * fmt_info = drmu_fb_format_info_get(fb);
     const drmu_colorspace_t colorspace  = drmu_fb_colorspace_get(fb);
     const drmu_broadcast_rgb_t broadcast_rgb = drmu_color_range_to_broadcast_rgb(drmu_fb_color_range_get(fb));
 

@@ -1,4 +1,5 @@
 #include "drmu_vlc.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 
 #if HAS_ZC_CMA

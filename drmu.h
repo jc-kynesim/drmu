@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "drmu_chroma.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,9 +32,6 @@ typedef struct drmu_fb_s drmu_fb_t;
 struct drmu_prop_object_s;
 typedef struct drmu_prop_object_s drmu_prop_object_t;
 
-struct drmu_format_info_s;
-typedef struct drmu_format_info_s drmu_format_info_t;
-
 struct drmu_pool_s;
 typedef struct drmu_pool_s drmu_pool_t;
 
@@ -54,10 +53,6 @@ typedef struct drmu_rect_s {
     int32_t x, y;
     uint32_t w, h;
 } drmu_rect_t;
-
-typedef struct drmu_chroma_siting_s {
-    int32_t x, y;
-} drmu_chroma_siting_t;
 
 typedef struct drmu_ufrac_s {
     unsigned int num;
@@ -144,12 +139,6 @@ drmu_rect_shl16(const drmu_rect_t a)
     };
 }
 
-static inline bool
-drmu_chroma_siting_eq(const drmu_chroma_siting_t a, const drmu_chroma_siting_t b)
-{
-    return a.x == b.x && a.y == b.y;
-}
-
 // Blob
 
 void drmu_blob_unref(drmu_blob_t ** const ppBlob);
@@ -207,13 +196,9 @@ drmu_bo_t * drmu_bo_new_dumb(drmu_env_t *const du, struct drm_mode_create_dumb *
 void drmu_bo_env_uninit(drmu_bo_env_t * const boe);
 void drmu_bo_env_init(drmu_bo_env_t * boe);
 
-// format_info
-
-unsigned int drmu_format_info_bit_depth(const drmu_format_info_t * const fmt_info);
-
 // fb
 struct hdr_output_metadata;
-struct drmu_format_info_s;
+struct drmu_fmt_info_s;
 
 // Called pre delete.
 // Zero returned means continue delete.
@@ -306,7 +291,7 @@ const struct hdr_output_metadata * drmu_fb_hdr_metadata_get(const drmu_fb_t *con
 drmu_broadcast_rgb_t drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range);
 drmu_colorspace_t drmu_fb_colorspace_get(const drmu_fb_t * const dfb);
 drmu_color_range_t drmu_fb_color_range_get(const drmu_fb_t * const dfb);
-const struct drmu_format_info_s * drmu_fb_format_info_get(const drmu_fb_t * const dfb);
+const struct drmu_fmt_info_s * drmu_fb_format_info_get(const drmu_fb_t * const dfb);
 void drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta);
 int drmu_fb_int_make(drmu_fb_t *const dfb);
 
@@ -456,24 +441,6 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
-// Init constants - C winges if the struct is specified in a const init (which seems like a silly error)
-#define drmu_chroma_siting_float_i(_x, _y) {.x = (int32_t)((double)(_x) * 65536 + .5), .y = (int32_t)((double)(_y) * 65536 + .5)}
-#define DRMU_CHROMA_SITING_BOTTOM_I             drmu_chroma_siting_float_i(0.5, 1.0)
-#define DRMU_CHROMA_SITING_BOTTOM_LEFT_I        drmu_chroma_siting_float_i(0.0, 1.0)
-#define DRMU_CHROMA_SITING_CENTER_I             drmu_chroma_siting_float_i(0.5, 0.5)
-#define DRMU_CHROMA_SITING_LEFT_I               drmu_chroma_siting_float_i(0.0, 0.5)
-#define DRMU_CHROMA_SITING_TOP_I                drmu_chroma_siting_float_i(0.5, 0.0)
-#define DRMU_CHROMA_SITING_TOP_LEFT_I           drmu_chroma_siting_float_i(0.0, 0.0)
-#define DRMU_CHROMA_SITING_UNSPECIFIED_I        {INT32_MIN, INT32_MIN}
-// Inline constants
-#define drmu_chroma_siting_float(_x, _y) (drmu_chroma_siting_t)drmu_chroma_siting_float_i(_x, _y)
-#define DRMU_CHROMA_SITING_BOTTOM               drmu_chroma_siting_float(0.5, 1.0)
-#define DRMU_CHROMA_SITING_BOTTOM_LEFT          drmu_chroma_siting_float(0.0, 1.0)
-#define DRMU_CHROMA_SITING_CENTER               drmu_chroma_siting_float(0.5, 0.5)
-#define DRMU_CHROMA_SITING_LEFT                 drmu_chroma_siting_float(0.0, 0.5)
-#define DRMU_CHROMA_SITING_TOP                  drmu_chroma_siting_float(0.5, 0.0)
-#define DRMU_CHROMA_SITING_TOP_LEFT             drmu_chroma_siting_float(0.0, 0.0)
-#define DRMU_CHROMA_SITING_UNSPECIFIED          (drmu_chroma_siting_t){INT32_MIN, INT32_MIN}
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);
 
 // Adds the fb to the plane along with all fb properties that apply to a plane
