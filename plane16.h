@@ -39,10 +39,20 @@ void plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsign
              const uint64_t grey);
 
 
-// v1 -> Y(8)
-void plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
+// vN -> Y(8)
+// decimate by wdiv, hdiv
+void plane16_to_8(uint8_t * const dst_data, const unsigned int dst_stride,
                   const uint8_t * const src_data, const unsigned int src_stride,
-                  const unsigned int w, const unsigned int h);
+                  const unsigned int w, const unsigned int h,
+                  const unsigned int n, const unsigned int wdiv, const unsigned int hdiv);
+// v1 -> Y(8)
+static inline void plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
+                  const uint8_t * const src_data, const unsigned int src_stride,
+                  const unsigned int w, const unsigned int h)
+{
+    plane16_to_8(dst_data, dst_stride, src_data, src_stride, w, h, 1, 1, 1);
+}
+
 // Only copies (sx % 2) == 0 && (sy % 2) == 0
 // v2 -> U(8), v3 -> V(8)
 // w, h are src dimensions

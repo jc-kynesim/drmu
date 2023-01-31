@@ -129,19 +129,22 @@ plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride2_y,
     plane16_to_sand30_c(dst_data_c, dst_stride2_c, src_data, src_stride, w, h);
 }
 
-// v1 -> Y(8)
+// vN -> Y(8)
 void
-plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
+plane16_to_8(uint8_t * const dst_data, const unsigned int dst_stride,
                   const uint8_t * const src_data, const unsigned int src_stride,
-                  const unsigned int w, const unsigned int h)
+                  const unsigned int w, const unsigned int h,
+                  const unsigned int n, const unsigned int wdiv, const unsigned int hdiv)
 {
     unsigned int i, j;
-    for (i = 0; i != h; ++i) {
+    const unsigned int shift = n * 16 + 8;
+    uint8_t * d2 = dst_data;
+
+    for (i = 0; i < h; i += hdiv, d2 += dst_stride) {
         const uint64_t * s = (const uint64_t *)(src_data + i * src_stride);
-        uint8_t * d = dst_data + i * dst_stride;
-        for (j = 0; j < w; ++j) {
-            *d++ = ((*s++ >> (32 + 8)) & 0xff);
-        }
+        uint8_t * d = d2;
+        for (j = 0; j < w; j += wdiv, ++d)
+            *d = ((s[j] >> shift) & 0xff);
     }
 }
 
