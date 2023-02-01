@@ -3125,6 +3125,9 @@ drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, co
     const uint32_t * const fmts = (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
     unsigned int i;
 
+    if (!format)
+        return false;
+
     // * Simplistic lookup; Could be made much faster
 
     for (i = 0; i != dp->fmts_hdr->count_modifiers; ++i) {
