@@ -3123,10 +3123,15 @@ drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, co
 {
     const struct drm_format_modifier * const mods = (const struct drm_format_modifier *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->modifiers_offset);
     const uint32_t * const fmts = (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
+    uint64_t modbase = modifier;
     unsigned int i;
 
     if (!format)
         return false;
+
+    // If broadcom then remove parameters before checking
+    if ((modbase >> 56) == DRM_FORMAT_MOD_VENDOR_BROADCOM)
+        modbase = fourcc_mod_broadcom_mod(modbase);
 
     // * Simplistic lookup; Could be made much faster
 
@@ -3135,7 +3140,7 @@ drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, co
         uint64_t fbits;
         unsigned int j;
 
-        if (mod->modifier != modifier)
+        if (mod->modifier != modbase)
             continue;
 
         for (fbits = mod->formats, j = mod->offset; fbits; fbits >>= 1, ++j) {
