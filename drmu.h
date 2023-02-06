@@ -183,6 +183,7 @@ bool drmu_prop_range_immutable(const drmu_prop_range_t * const pra);
 uint64_t drmu_prop_range_max(const drmu_prop_range_t * const pra);
 uint64_t drmu_prop_range_min(const drmu_prop_range_t * const pra);
 uint32_t drmu_prop_range_id(const drmu_prop_range_t * const pra);
+const char * drmu_prop_range_name(const drmu_prop_range_t * const pra);
 drmu_prop_range_t * drmu_prop_range_new(drmu_env_t * const du, const uint32_t id);
 int drmu_atomic_add_prop_range(struct drmu_atomic_s * const da, const uint32_t obj_id, const drmu_prop_range_t * const pra, const uint64_t x);
 

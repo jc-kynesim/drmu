@@ -581,6 +581,12 @@ drmu_prop_range_id(const drmu_prop_range_t * const pra)
     return pra == NULL ? 0 : pra->id;
 }
 
+const char *
+drmu_prop_range_name(const drmu_prop_range_t * const pra)
+{
+    return pra == NULL ? "{norange}" : pra->name;
+}
+
 drmu_prop_range_t *
 drmu_prop_range_new(drmu_env_t * const du, const uint32_t id)
 {
