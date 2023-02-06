@@ -27,10 +27,20 @@ typedef struct drmu_fmt_info_s {
 #define P_YUV444    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
 
 static const drmu_fmt_info_t format_info[] = {
+    { .fourcc = DRM_FORMAT_XRGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_XBGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_RGBX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_BGRX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_ARGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_ABGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_RGBA5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_BGRA5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_BGR565, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGB565, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+
     { .fourcc = DRM_FORMAT_RGB888, .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_BGR888, .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+
     { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
@@ -39,6 +49,7 @@ static const drmu_fmt_info_t format_info[] = {
     { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+
     { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
@@ -47,7 +58,14 @@ static const drmu_fmt_info_t format_info[] = {
     { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_AYUV, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+
+    { .fourcc = DRM_FORMAT_AYUV,        .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_XYUV8888,    .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_VUY888,      .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_XVYU2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
+
+    { .fourcc = DRM_FORMAT_XVYU12_16161616, .bpp = 64, .bit_depth = 12, .plane_count = 1, .planes = P_ONE},
+    { .fourcc = DRM_FORMAT_XVYU16161616, .bpp = 64, .bit_depth = 16, .plane_count = 1, .planes = P_ONE},
 
     { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = P_ONE,
         .chroma_siting = DRMU_CHROMA_SITING_TOP_LEFT_I },
