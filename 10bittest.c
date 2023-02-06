@@ -634,7 +634,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to set broadcast_rgb to '%s'\n", broadcast_rgb);
         goto fail;
     }
-    if (drmu_atomic_conn_add_hi_bpc(da, dn, hi_bpc) != 0)
+    if (!try_writeback && drmu_atomic_conn_add_hi_bpc(da, dn, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
 
     if (try_writeback) {
