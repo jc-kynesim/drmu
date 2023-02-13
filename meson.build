@@ -22,8 +22,19 @@ conf_data.set10('HAS_XLEASE', xlease_dep.found())
 
 xcb_dep = dependency('xcb', required : xlease_dep.found() or xdri3_dep.found())
 
+mk_sorted_fmts = executable(
+	'mk_sorted_fmts',
+	'drmu_fmts.c',
+	c_args : ['-DBUILD_MK_SORTED_FMTS_H'],
+)
+
+h_sorted_fmts = custom_target('mk_sorted_fmts_h',
+	output : ['sorted_fmts.h'],
+	command : [mk_sorted_fmts, '@OUTPUT@'],
+)
+
 drmu_base = library('drmu_base',
-	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
+	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c', h_sorted_fmts,
 	dependencies : [
 		threads_dep,
 		libdrm_dep

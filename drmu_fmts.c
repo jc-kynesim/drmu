@@ -18,6 +18,8 @@ typedef struct drmu_fmt_info_s {
     drmu_chroma_siting_t chroma_siting;  // Default for this format (YUV420 = (0.0, 0.5), otherwise (0, 0)
 } drmu_fmt_info_t;
 
+#ifdef BUILD_MK_SORTED_FMTS_H
+
 #define P_ONE       {{.wdiv = 1, .hdiv = 1}}
 #define P_YC420     {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}
 #define P_YC422     {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
@@ -26,7 +28,8 @@ typedef struct drmu_fmt_info_s {
 #define P_YUV422    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}}
 #define P_YUV444    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
 
-static const drmu_fmt_info_t format_info[] = {
+// Not const 'cos we sort in place when creating the sorted version
+static drmu_fmt_info_t format_info[] = {
     { .fourcc = DRM_FORMAT_XRGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_XBGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
@@ -111,14 +114,88 @@ static const drmu_fmt_info_t format_info[] = {
 
     { .fourcc = 0 }
 };
+static const unsigned int format_count = sizeof(format_info)/sizeof(format_info[0]) - 1;  // Ignore null term in count
+
+// ---------------------------------------------------------------------------
+//
+// Sort & emit format table (not part of the lib)
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <inttypes.h>
+
+static int sort_fn(const void * va, const void * vb)
+{
+    const drmu_fmt_info_t * a = va;
+    const drmu_fmt_info_t * b = vb;
+    return a->fourcc < b->fourcc ? -1 : a->fourcc == b->fourcc ? 0 : 1;
+}
+
+int
+main(int argc, char * argv[])
+{
+    FILE * f;
+    unsigned int i;
+
+    if (argc != 2) {
+        fprintf(stderr, "Needs output file only\n");
+        return 1;
+    }
+    if ((f = fopen(argv[1], "wt")) == NULL) {
+        fprintf(stderr, "Failed to open'%s'\n", argv[1]);
+        return 1;
+    }
+    qsort(format_info, format_count, sizeof(format_info[0]), sort_fn);
+
+    fprintf(f, "static const drmu_fmt_info_t format_info[] = {\n");
+    for (i = 0; i != format_count; ++i) {
+        const drmu_fmt_info_t * x = format_info + i;
+        unsigned int j;
+        fprintf(f, "{%#"PRIx32",%d,%d,%d,{", x->fourcc, x->bpp, x->bit_depth, x->plane_count);
+        for (j = 0; j != sizeof(x->planes)/sizeof(x->planes[0]); ++j) {
+            fprintf(f, "{%d,%d},", x->planes[j].wdiv, x->planes[j].hdiv);
+        }
+        fprintf(f, "},");
+        fprintf(f, "{%d,%d},", x->chroma_siting.x, x->chroma_siting.y);
+        fprintf(f, "},\n");
+    }
+    fprintf(f, "{0}\n};\n");
+    fprintf(f, "static const unsigned int format_count = %d;\n", format_count);
+
+    fclose(f);
+    return 0;
+}
+
+#else
+// ---------------------------------------------------------------------------
+//
+// Include sorted format table
+#include "sorted_fmts.h"
 
 const drmu_fmt_info_t *
 drmu_fmt_info_find_fmt(const uint32_t fourcc)
 {
+    if (!fourcc)
+        return NULL;
+#if 1
+    unsigned int lo = 0;
+    unsigned int hi = format_count;
+
+    while (lo < hi) {
+        unsigned int x = (hi + lo) / 2;
+        if (format_info[x].fourcc == fourcc)
+            return &format_info[x];
+        if (format_info[x].fourcc < fourcc)
+            lo = x + 1;
+        else
+            hi = x;
+    }
+#else
     for (const drmu_fmt_info_t * p = format_info; p->fourcc; ++p) {
         if (p->fourcc == fourcc)
             return p;
     }
+#endif
     return NULL;
 }
 
@@ -152,4 +229,5 @@ drmu_chroma_siting_t drmu_fmt_info_chroma_siting(const drmu_fmt_info_t * const f
     return !fmt_info ? DRMU_CHROMA_SITING_TOP_LEFT : fmt_info->chroma_siting;
 }
 
+#endif
 

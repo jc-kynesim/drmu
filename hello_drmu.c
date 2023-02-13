@@ -471,6 +471,8 @@ loopy:
     if (hw_decoder_init(decoder_ctx, type) < 0)
         return -1;
 
+    decoder_ctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
+    decoder_ctx->sw_pix_fmt = AV_PIX_FMT_NONE;
     decoder_ctx->thread_count = 3;
     decoder_ctx->flags = AV_CODEC_FLAG_LOW_DELAY;
 
@@ -478,6 +480,8 @@ loopy:
         fprintf(stderr, "Failed to open codec for stream #%u\n", video_stream);
         return -1;
     }
+
+    printf("Pixfmt after init: %s / %s\n", av_get_pix_fmt_name(decoder_ctx->pix_fmt), av_get_pix_fmt_name(decoder_ctx->sw_pix_fmt));
 
     if (wants_deinterlace) {
         if (init_filters(video, decoder_ctx, "deinterlace_v4l2m2m") < 0) {
