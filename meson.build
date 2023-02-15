@@ -20,21 +20,31 @@ xlease_dep = dependency('xcb-randr', required : get_option('xlease'))
 #mesondefine HAS_XLEASE
 conf_data.set10('HAS_XLEASE', xlease_dep.found())
 
+has_sorted_fmts = get_option('sorted_fmts')
+
 xcb_dep = dependency('xcb', required : xlease_dep.found() or xdri3_dep.found())
 
 mk_sorted_fmts = executable(
 	'mk_sorted_fmts',
 	'drmu_fmts.c',
+	build_by_default : false,
 	c_args : ['-DBUILD_MK_SORTED_FMTS_H'],
 )
 
-h_sorted_fmts = custom_target('mk_sorted_fmts_h',
-	output : ['sorted_fmts.h'],
-	command : [mk_sorted_fmts, '@OUTPUT@'],
-)
+h_sorted_fmts = []
+args_sorted_fmts = []
+
+if has_sorted_fmts
+	h_sorted_fmts = [ custom_target('mk_sorted_fmts_h',
+		output : ['sorted_fmts.h'],
+		command : [mk_sorted_fmts, '@OUTPUT@'],
+	) ]
+	args_sorted_fmts = ['-DHAS_SORTED_FMTS=1']
+endif
 
 drmu_base = library('drmu_base',
 	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c', h_sorted_fmts,
+	c_args : args_sorted_fmts,
 	dependencies : [
 		threads_dep,
 		libdrm_dep

@@ -4,6 +4,13 @@
 
 #include <libdrm/drm_fourcc.h>
 
+#ifndef HAS_SORTED_FMTS
+#define HAS_SORTED_FMTS 0
+#endif
+#ifndef BUILD_MK_SORTED_FMTS_H
+#define BUILD_MK_SORTED_FMTS_H 0
+#endif
+
 // Format properties
 
 typedef struct drmu_fmt_info_s {
@@ -18,7 +25,7 @@ typedef struct drmu_fmt_info_s {
     drmu_chroma_siting_t chroma_siting;  // Default for this format (YUV420 = (0.0, 0.5), otherwise (0, 0)
 } drmu_fmt_info_t;
 
-#ifdef BUILD_MK_SORTED_FMTS_H
+#if BUILD_MK_SORTED_FMTS_H || !HAS_SORTED_FMTS
 
 #define P_ONE       {{.wdiv = 1, .hdiv = 1}}
 #define P_YC420     {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}
@@ -114,8 +121,9 @@ static drmu_fmt_info_t format_info[] = {
 
     { .fourcc = 0 }
 };
-static const unsigned int format_count = sizeof(format_info)/sizeof(format_info[0]) - 1;  // Ignore null term in count
+#endif
 
+#if BUILD_MK_SORTED_FMTS_H
 // ---------------------------------------------------------------------------
 //
 // Sort & emit format table (not part of the lib)
@@ -123,6 +131,8 @@ static const unsigned int format_count = sizeof(format_info)/sizeof(format_info[
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+
+static const unsigned int format_count = sizeof(format_info)/sizeof(format_info[0]) - 1;  // Ignore null term in count
 
 static int sort_fn(const void * va, const void * vb)
 {
@@ -170,14 +180,16 @@ main(int argc, char * argv[])
 // ---------------------------------------------------------------------------
 //
 // Include sorted format table
+#if HAS_SORTED_FMTS
 #include "sorted_fmts.h"
+#endif
 
 const drmu_fmt_info_t *
 drmu_fmt_info_find_fmt(const uint32_t fourcc)
 {
     if (!fourcc)
         return NULL;
-#if 1
+#if HAS_SORTED_FMTS
     unsigned int lo = 0;
     unsigned int hi = format_count;
 
