@@ -24,15 +24,15 @@ buf_fb_delete_cb(drmu_fb_t * dfb, void * v)
 }
 
 // Take a paranoid approach to the rational
-static uint_fast32_t
-hdr_rat_x50000(const AVRational x)
+static inline uint_fast32_t
+hdr_rat_x50000(const AVRational x, const uint_fast32_t maxval)
 {
     int64_t t;
     if (x.den == 0)
         return 0;
 
     t = ((int64_t)x.num * 50000) / x.den;
-    return (t < 0 || t > UINT_MAX) ? 0 : (uint_fast32_t)t;
+    return (t < 0 || (uint64_t)t > maxval) ? 0 : (uint_fast32_t)t;
 }
 
 // See CEA-861_G 6.9 (Pg 84)
@@ -76,15 +76,15 @@ drmu_crtc_av_hdr_metadata_from_av(struct hdr_output_metadata * const out_meta,
         // CEA-861-G says the order of these doesn't matter
         // RGB are determined by relative values
         for (i = 0; i != 3; ++i) {
-            info->display_primaries[i].x = hdr_rat_x50000(av_disp->display_primaries[i][0]);
-            info->display_primaries[i].y = hdr_rat_x50000(av_disp->display_primaries[i][1]);
+            info->display_primaries[i].x = hdr_rat_x50000(av_disp->display_primaries[i][0], UINT16_MAX);
+            info->display_primaries[i].y = hdr_rat_x50000(av_disp->display_primaries[i][1], UINT16_MAX);
         }
-        info->white_point.x = hdr_rat_x50000(av_disp->white_point[0]);
-        info->white_point.y = hdr_rat_x50000(av_disp->white_point[1]);
+        info->white_point.x = hdr_rat_x50000(av_disp->white_point[0], UINT16_MAX);
+        info->white_point.y = hdr_rat_x50000(av_disp->white_point[1], UINT16_MAX);
     }
     if (av_disp && av_disp->has_luminance) {
-        info->min_display_mastering_luminance = hdr_rat_x50000(av_disp->min_luminance) / 5;
-        info->max_display_mastering_luminance = hdr_rat_x50000(av_disp->max_luminance) / 50000U;
+        info->min_display_mastering_luminance = hdr_rat_x50000(av_disp->min_luminance, UINT16_MAX * 5) / 5;
+        info->max_display_mastering_luminance = hdr_rat_x50000(av_disp->max_luminance, UINT16_MAX * 50000U) / 50000U;
     }
 
     if (av_light) {
