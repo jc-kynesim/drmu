@@ -43,8 +43,9 @@ if has_sorted_fmts
 endif
 
 drmu_base = library('drmu_base',
-	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c', h_sorted_fmts,
+	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
 	c_args : args_sorted_fmts,
+	sources : h_sorted_fmts,
 	dependencies : [
 		threads_dep,
 		libdrm_dep
