@@ -64,6 +64,7 @@ get_lease_fd(const drmu_log_env_t * const log)
         xcb_randr_get_screen_resources_cookie_t gsr_c = xcb_randr_get_screen_resources(connection, root);
 
         xcb_randr_get_screen_resources_reply_t *gsr_r = xcb_randr_get_screen_resources_reply(connection, gsr_c, NULL);
+        int o;
 
         if (!gsr_r) {
             drmu_err_log(log, "get_screen_resources failed");
@@ -72,7 +73,7 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         xcb_randr_output_t * const ro = xcb_randr_get_screen_resources_outputs(gsr_r);
 
-        for (int o = 0; output == 0 && o < gsr_r->num_outputs; o++) {
+        for (o = 0; output == 0 && o < gsr_r->num_outputs; o++) {
             xcb_randr_get_output_info_cookie_t goi_c = xcb_randr_get_output_info(connection, ro[o], gsr_r->config_timestamp);
 
             xcb_randr_get_output_info_reply_t *goi_r = xcb_randr_get_output_info_reply(connection, goi_c, NULL);
@@ -92,7 +93,7 @@ get_lease_fd(const drmu_log_env_t * const log)
         free(gsr_r);
 
         if (output == 0) {
-            drmu_warn_log(log, "Failed to find active output (outputs=%d)", gsr_r->num_outputs);
+            drmu_warn_log(log, "Failed to find active output (outputs=%d)", o);
             return -1;
         }
     }
