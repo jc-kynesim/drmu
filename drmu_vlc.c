@@ -248,10 +248,9 @@ typedef struct fb_aux_pic_s {
 } fb_aux_pic_t;
 
 static void
-pic_fb_delete_cb(drmu_fb_t * dfb, void * v)
+pic_fb_delete_cb(void * v)
 {
     fb_aux_pic_t * const aux = v;
-    VLC_UNUSED(dfb);
 
     aux->pic_ctx->destroy(aux->pic_ctx);
     free(aux);

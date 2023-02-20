@@ -207,7 +207,9 @@ struct drmu_fmt_info_s;
 // Non-zero means stop delete - fb will have zero refs so will probably want a new ref
 //   before next use
 typedef int (* drmu_fb_pre_delete_fn)(struct drmu_fb_s * dfb, void * v);
-typedef void (* drmu_fb_on_delete_fn)(struct drmu_fb_s * dfb, void * v);
+// Called after an fb has been deleted and therefore has ceased using any
+// user resources
+typedef void (* drmu_fb_on_delete_fn)(void * v);
 
 void drmu_fb_pre_delete_set(drmu_fb_t *const dfb, drmu_fb_pre_delete_fn fn, void * v);
 void drmu_fb_pre_delete_unset(drmu_fb_t *const dfb);

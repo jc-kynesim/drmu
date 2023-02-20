@@ -1056,10 +1056,15 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
 
     // Call on_delete last so we have stopped using anything that might be
     // freed by it
-    if (dfb->on_delete_fn)
-        dfb->on_delete_fn(dfb, dfb->on_delete_v);
+    {
+        void * const v = dfb->on_delete_v;
+        const drmu_fb_on_delete_fn fn = dfb->on_delete_fn;
 
-    free(dfb);
+        free(dfb);
+
+        if (fn)
+            fn(v);
+    }
 }
 
 void

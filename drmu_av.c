@@ -14,10 +14,9 @@ typedef struct fb_aux_buf_s {
 } fb_aux_buf_t;
 
 static void
-buf_fb_delete_cb(drmu_fb_t * dfb, void * v)
+buf_fb_delete_cb(void * v)
 {
     fb_aux_buf_t * const aux = v;
-    (void)dfb;
 
     av_buffer_unref(&aux->buf);
     free(aux);
