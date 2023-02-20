@@ -579,6 +579,10 @@ drmu_env_t * drmu_env_new_xlease(const struct drmu_log_env_s * const log);
 
 drmu_env_t * drmu_env_new_xdri3(const drmu_log_env_t * const log);
 
+// drmu_waylease
+
+drmu_env_t * drmu_env_new_waylease(const struct drmu_log_env_s * const log);
+
 #ifdef __cplusplus
 }
 #endif

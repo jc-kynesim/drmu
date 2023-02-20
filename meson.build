@@ -81,6 +81,52 @@ if xdri3_dep.found()
 	drmu_xlease_opt += [drmu_xdri3]
 endif
 
+# waylease -------------------------------------------------------------------
+
+wl_client_dep = dependency('wayland-client', required : get_option('waylease'))
+#mesondefine HAS_WAYLEASE
+conf_data.set10('HAS_WAYLEASE', wl_client_dep.found())
+
+if wl_client_dep.found()
+	wl_protocol_dep = dependency('wayland-protocols', version : '>= 1.30')
+	wl_scanner = find_program('wayland-scanner')
+
+	protocols_datadir = wl_protocol_dep.get_variable(pkgconfig: 'pkgdatadir', internal: 'pkgdatadir')
+
+	protocol_defs = [
+		['/staging/drm-lease/drm-lease-v1.xml', 'drm-lease-v1.c', 'drm-lease-v1-client-protocol.h'],
+	]
+	protocols_files = []
+
+	foreach protodef: protocol_defs
+		xmlfile = protocols_datadir + protodef.get(0)
+
+		protocols_files += [
+			custom_target(protodef.get(1),
+				output : protodef.get(1),
+				input : xmlfile,
+				command : [wl_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])]
+
+		protocols_files += [
+			custom_target(protodef.get(2),
+				output : protodef.get(2),
+				input : xmlfile,
+				command : [wl_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])]
+	endforeach
+
+	drmu_waylease = library('drmu_waylease',
+		'drmu_waylease.c',
+		sources : protocols_files,
+		link_with : drmu_base,
+		dependencies : [
+			threads_dep,
+			wl_client_dep,
+			wl_protocol_dep,
+		],
+	)
+	drmu_xlease_opt += [drmu_waylease]
+endif
+
 drmu_av = library('drmu_av',
 	'drmu_av.c',
 	link_with : drmu_base,
