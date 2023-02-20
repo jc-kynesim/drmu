@@ -310,7 +310,11 @@ int main(int argc, char *argv[])
     int video_stream, ret;
     AVStream *video = NULL;
     AVCodecContext *decoder_ctx = NULL;
+#if LIBAVFORMAT_VERSION_MAJOR >= 59
+    const AVCodec *decoder = NULL;
+#else
     AVCodec *decoder = NULL;
+#endif
     AVPacket packet;
     enum AVHWDeviceType type;
     const char * in_file;
