@@ -1,3 +1,7 @@
+// Needed to ensure we get a 64-bit offset to mmap when mapping BOs
+#undef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+
 #include "drmu.h"
 #include "drmu_fmts.h"
 #include "drmu_log.h"
@@ -1478,9 +1482,9 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
 
         if ((dfb->map_ptr = mmap(NULL, dfb->map_size,
                                  PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
-                                 drmu_fd(du), (off_t)map_dumb.offset)) == MAP_FAILED) {
-            drmu_err(du, "%s: mmap failed (size=%zd, fd=%d, off=%zd): %s", __func__,
-                     dfb->map_size, drmu_fd(du), (size_t)map_dumb.offset, strerror(errno));
+                                 drmu_fd(du), map_dumb.offset)) == MAP_FAILED) {
+            drmu_err(du, "%s: mmap failed (size=%zd, fd=%d, off=%#"PRIx64"): %s", __func__,
+                     dfb->map_size, drmu_fd(du), map_dumb.offset, strerror(errno));
             goto fail;
         }
     }
