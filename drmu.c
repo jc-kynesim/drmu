@@ -2775,7 +2775,7 @@ typedef struct drmu_pool_s {
     struct drmu_env_s * du;
 
     pthread_mutex_t lock;
-    int dead;
+    bool dead;
 
     unsigned int seq;  // debug
 
@@ -2972,8 +2972,10 @@ drmu_pool_delete(drmu_pool_t ** const pppool)
         return;
     *pppool = NULL;
 
-    pool->dead = 1;
+    pool->dead = true;
+    pthread_mutex_lock(&pool->lock);
     pool_free_pool(pool);
+    pthread_mutex_unlock(&pool->lock);
 
     drmu_pool_unref(&pool);
 }
