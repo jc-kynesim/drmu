@@ -167,6 +167,7 @@ int drmprime_out_modeset(drmprime_out_env_t * de, int w, int h, const AVRational
 
 void drmprime_out_delete(drmprime_out_env_t *de)
 {
+    drmu_pool_delete(&de->pic_pool);
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);
     drmu_env_unref(&de->du);

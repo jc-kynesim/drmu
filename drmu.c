@@ -46,6 +46,20 @@ static inline int rvup(int rv1, int rv2)
     return rv2 ? rv2 : rv1;
 }
 
+#define VALGRIND_DEBUG 0
+
+// Use io_alloc when allocating arrays to pass into ioctls.
+//
+// When debugging with valgrind use calloc rather than malloc otherwise arrays
+// set by ioctls that valgrind doesn't know about (e.g. all drm ioctls) will
+// still be full of 'undefined'.
+// For normal use malloc should be fine
+#if VALGRIND_DEBUG
+#define io_alloc(p, n) (uintptr_t)((p) = calloc((n), sizeof(*(p))))
+#else
+#define io_alloc(p, n) (uintptr_t)((p) = malloc((n) * sizeof(*(p))))
+#endif
+
 // Alloc retry helper
 static inline int
 retry_alloc_u32(uint32_t ** const pp, uint32_t * const palloc_count, uint32_t const new_count)
@@ -54,7 +68,7 @@ retry_alloc_u32(uint32_t ** const pp, uint32_t * const palloc_count, uint32_t co
         return 0;
     free(*pp);
     *palloc_count = 0;
-    if ((*pp = malloc(sizeof(**pp) * new_count)) == NULL)
+    if (io_alloc(*pp, new_count) == 0)
         return -ENOMEM;
     *palloc_count = new_count;
     return 1;
@@ -255,7 +269,7 @@ drmu_blob_update(drmu_env_t * const du, drmu_blob_t ** const ppblob, const void 
 static int
 blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
 {
-    void * data;
+    uint8_t * data;
     struct drm_mode_get_blob gblob = {.blob_id = blob_id};
     int rv;
 
@@ -271,10 +285,9 @@ blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, si
     if (gblob.length == 0)
         return 0;
 
-    if ((data = malloc(gblob.length)) == NULL)
+    if ((gblob.data = io_alloc(data, gblob.length)) == 0)
         return -ENOMEM;
 
-    gblob.data = (uintptr_t)data;
     if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPBLOB, &gblob)) != 0) {
         free(data);
         return rv;
@@ -458,7 +471,7 @@ drmu_prop_enum_new(drmu_env_t * const du, const uint32_t id)
         free(enums);
 
         pen->n = prop.count_enum_blobs;
-        if ((enums = malloc(pen->n * sizeof(*enums))) == NULL)
+        if (io_alloc(enums, pen->n) == 0)
             goto fail;
     }
     if (retries >= 8) {
@@ -1734,14 +1747,12 @@ props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t
         free(propids);
         propids = NULL;
         n = obj_props.count_props;
-        if ((values = malloc(n * sizeof(*values))) == NULL ||
-            (propids = malloc(n * sizeof(*propids))) == NULL) {
+        if ((obj_props.prop_values_ptr = io_alloc(values, n)) == 0 ||
+            (obj_props.props_ptr =       io_alloc(propids, n)) == 0) {
             drmu_err(du, "obj/value array alloc failed");
             rv = -ENOMEM;
             goto fail;
         }
-        obj_props.prop_values_ptr = (uintptr_t)values;
-        obj_props.props_ptr = (uintptr_t)propids;
     }
 
     *ppValues = values;
@@ -1913,16 +1924,17 @@ typedef struct drmu_crtc_s {
 } drmu_crtc_t;
 
 static void
-free_crtc(drmu_crtc_t * const dc)
+crtc_uninit(drmu_crtc_t * const dc)
 {
+    drmu_prop_range_delete(&dc->pid.active);
     drmu_blob_unref(&dc->mode_id_blob);
-    free(dc);
 }
 
 static void
-crtc_uninit(drmu_crtc_t * const dc)
+crtc_free(drmu_crtc_t * const dc)
 {
-    (void)dc;
+    crtc_uninit(dc);
+    free(dc);
 }
 
 
@@ -1995,7 +2007,7 @@ drmu_crtc_delete(drmu_crtc_t ** ppdc)
         return;
     *ppdc = NULL;
 
-    free_crtc(dc);
+    crtc_free(dc);
 }
 
 drmu_env_t *
@@ -2414,7 +2426,7 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
 
         if (modes_req > dn->modes_size) {
             free(dn->modes);
-            if ((dn->modes = malloc(modes_req * sizeof(*dn->modes))) == NULL) {
+            if (io_alloc(dn->modes, modes_req) == 0) {
                 drmu_err(du, "Failed to alloc modes array");
                 goto fail;
             }
@@ -2425,7 +2437,7 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
 
         if (encs_req > dn->enc_ids_size) {
             free(dn->enc_ids);
-            if ((dn->enc_ids = malloc(encs_req * sizeof(*dn->enc_ids))) == NULL) {
+            if (io_alloc(dn->enc_ids, encs_req) == 0) {
                 drmu_err(du, "Failed to alloc encs array");
                 goto fail;
             }
@@ -3262,6 +3274,7 @@ plane_uninit(drmu_plane_t * const dp)
     drmu_prop_enum_delete(&dp->pid.color_range);
     drmu_prop_enum_delete(&dp->pid.pixel_blend_mode);
     drmu_prop_enum_delete(&dp->pid.rotation);
+    drmu_prop_range_delete(&dp->pid.zpos);
     free(dp->formats_in);
     dp->formats_in = NULL;
 }

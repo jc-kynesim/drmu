@@ -583,6 +583,7 @@ output_free(drmu_output_t * const dout)
     unsigned int i;
     for (i = 0; i != dout->conn_n; ++i)
         drmu_conn_unref(dout->dns + i);
+    free(dout->dns);
     drmu_crtc_unref(&dout->dc);
     free(dout);
 }
