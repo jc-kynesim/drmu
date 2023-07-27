@@ -3700,7 +3700,7 @@ drmu_atomic_env_restore_add_snapshot(drmu_atomic_t ** const ppda)
 static int
 evt_read(drmu_env_t * const du)
 {
-    uint8_t buf[128];
+    uint8_t buf[256] __attribute__((aligned(__BIGGEST_ALIGNMENT__)));
     const ssize_t rlen = read(drmu_fd(du), buf, sizeof(buf));
     size_t i;
 
