@@ -42,9 +42,14 @@ if has_sorted_fmts
 	args_sorted_fmts = ['-DHAS_SORTED_FMTS=1']
 endif
 
+args_io_calloc = []
+if get_option('valgrind')
+	args_io_calloc = ['-DOPT_IO_CALLOC=1']
+endif
+
 drmu_base = library('drmu_base',
 	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
-	c_args : args_sorted_fmts,
+	c_args : args_sorted_fmts + args_io_calloc,
 	sources : h_sorted_fmts,
 	dependencies : [
 		threads_dep,

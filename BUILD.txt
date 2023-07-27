@@ -18,6 +18,40 @@ resethdr      Trivial utility to reset HDR if it has become set and is burning
 
 10bittest     Tries to set 10 bit mode and displays graduated colour bars
               Hit return to terminate
-	      "./10bittest -h" should give options
+              "./10bittest -h" should give options
 
 argbtest      Trivial test prog to check colour ordering in ARGB
+
+
+Meson setup options (defaults in []):
+-------------------------------------
+
+xlease ([auto]/enabled/disabled)
+              Build utilities with xlease drm handle support
+
+xdri3 ([auto]/enabled/disabled)
+              Build utilities with xdri3 drm handle support
+              Doesn't actually work in any useful manner
+
+waylease (auto/enabled/[disabled])
+              Build utilities with wayland leasing drm handle support
+              Whilst the wayland api exists for doing this I have yet to find a
+              wayland compositor that supports this unless the device is marked
+              as being a VR device. Code untested but left in repo for the
+              future
+
+sorted_fmts ([true]/false)
+              Build drmu format info code with a pre-sorted format array array
+              This gives faster format lookup. There is no downside. Option
+              given to test the case where (say) VLC cannot be bothered with
+              the extra build complexity.
+
+valgrind (true/[false])
+              Build drmu s.t. it works around valgrinds lack of knowledge about
+              DRM ioctls. Clears arrays that are passed to ioctl to avoid use
+              of undefined errors on the returned results. In normal usage
+              malloc is used.
+
+
+
+

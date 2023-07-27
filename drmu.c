@@ -29,6 +29,10 @@
 
 #define TRACE_PROP_NEW 0
 
+#ifndef OPT_IO_CALLOC
+#define OPT_IO_CALLOC 0
+#endif
+
 #ifndef DRM_FORMAT_P030
 #define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
 #endif
@@ -46,15 +50,13 @@ static inline int rvup(int rv1, int rv2)
     return rv2 ? rv2 : rv1;
 }
 
-#define VALGRIND_DEBUG 0
-
 // Use io_alloc when allocating arrays to pass into ioctls.
 //
 // When debugging with valgrind use calloc rather than malloc otherwise arrays
 // set by ioctls that valgrind doesn't know about (e.g. all drm ioctls) will
 // still be full of 'undefined'.
 // For normal use malloc should be fine
-#if VALGRIND_DEBUG
+#if OPT_IO_CALLOC
 #define io_alloc(p, n) (uintptr_t)((p) = calloc((n), sizeof(*(p))))
 #else
 #define io_alloc(p, n) (uintptr_t)((p) = malloc((n) * sizeof(*(p))))
