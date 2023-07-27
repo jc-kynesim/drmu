@@ -2632,17 +2632,10 @@ atomic_q_retry(drmu_atomic_q_t * const aq, drmu_env_t * const du)
 // Called after an atomic commit has completed
 // not called on every vsync, so if we haven't committed anything this won't be called
 static void
-drmu_atomic_page_flip_cb(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *user_data)
+drmu_atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
 {
     drmu_atomic_t * const da = user_data;
-    drmu_env_t * const du = drmu_atomic_env(da);
     drmu_atomic_q_t * const aq = env_atomic_q(du);
-
-    (void)fd;
-    (void)sequence;
-    (void)tv_sec;
-    (void)tv_usec;
-    (void)crtc_id;
 
     // At this point:
     //  next   The atomic we are about to commit
@@ -3703,20 +3696,56 @@ drmu_atomic_env_restore_add_snapshot(drmu_atomic_t ** const ppda)
     return drmu_atomic_merge(du->da_restore, &da);
 }
 
+#define EVT(p) ((const struct drm_event *)(p))
+static int
+evt_read(drmu_env_t * const du)
+{
+    uint8_t buf[128];
+    const ssize_t rlen = read(drmu_fd(du), buf, sizeof(buf));
+    size_t i;
+
+    if (rlen < 0) {
+        const int err = errno;
+        drmu_err(du, "Event read failure: %s", strerror(err));
+        return -err;
+    }
+
+    for (i = 0;
+         i + sizeof(struct drm_event) <= (size_t)rlen && EVT(buf + i)->length <= (size_t)rlen - i;
+         i += EVT(buf + i)->length) {
+        switch (EVT(buf + i)->type) {
+            case DRM_EVENT_FLIP_COMPLETE:
+            {
+                const struct drm_event_vblank * const vb = (struct drm_event_vblank*)(buf + i);
+                if (EVT(buf + i)->length < sizeof(*vb))
+                    break;
+
+                drmu_atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
+                break;
+            }
+            default:
+                drmu_warn(du, "Unexpected DRM event #%x", EVT(buf + i)->type);
+                break;
+        }
+    }
+
+    if (i != (size_t)rlen)
+        drmu_warn(du, "Partial event received: len=%zd, processed=%zd", rlen, i);
+
+    return 0;
+}
+#undef EVT
+
 static void
 drmu_env_polltask_cb(void * v, short revents)
 {
     drmu_env_t * const du = v;
-    drmEventContext ctx = {
-        .version = DRM_EVENT_CONTEXT_VERSION,
-        .page_flip_handler2 = drmu_atomic_page_flip_cb,
-    };
 
     if (revents == 0) {
         drmu_debug(du, "%s: Timeout", __func__);
     }
     else {
-        drmHandleEvent(du->fd, &ctx);
+        evt_read(du);
     }
 
     pollqueue_add_task(du->pt, 1000);
