@@ -6,6 +6,9 @@
 struct polltask;
 struct pollqueue;
 
+// Max number of tasks that can be Qed
+#define POLLQUEUE_MAX_QUEUE 128
+
 // Create a new polltask
 // Holds a reference on the pollqueue until the polltask is deleted
 //
@@ -29,9 +32,13 @@ struct polltask *polltask_new_timer(struct pollqueue *const pq,
 // It is safe to call whilst a polltask is queued (and may be triggered)
 // Callback may occur whilst this is in progress but will not occur
 // once it is done. (*ppt is nulled only once the callback can not occur)
-// DO NOT CALL in a polltask callback
+// May be called in a polltask callback
+// If called from outside the polltask thread and this causes the pollqueue
+// to be deleted then it will wait for the polltask thread to terminate
+// before returning.
 void polltask_delete(struct polltask **const ppt);
 
+// Queue a polltask
 // timeout_ms == -1 => never
 // May be called from the polltask callback
 // May only be added once (currently)
@@ -43,6 +50,9 @@ struct pollqueue * pollqueue_new(void);
 
 // Unref a pollqueue
 // Will be deleted once all polltasks (Qed or otherwise) are deleted too
+// If called from outside the polltask thread and this causes the pollqueue
+// to be deleted then it will wait for the polltask thread to terminate
+// before returning.
 void pollqueue_unref(struct pollqueue **const ppq);
 
 // Add a reference to a pollqueue
