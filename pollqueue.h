@@ -58,4 +58,14 @@ void pollqueue_unref(struct pollqueue **const ppq);
 // Add a reference to a pollqueue
 struct pollqueue * pollqueue_ref(struct pollqueue *const pq);
 
+// Set pre & post poll functions
+// Both set s.t. there is always matched pre - poll - post even when
+// changing the fns.
+// pollfd will be added to polls if *pfd set (leave unset if not wanted)
+// One or both of pre/post may be 0 (uncalled)
+void pollqueue_set_pre_post(struct pollqueue *const pq,
+                            void (*fn_pre)(void *v, struct pollfd *pfd),
+                            void (*fn_post)(void *v, short revents),
+                            void *v);
+
 #endif /* POLLQUEUE_H_ */

@@ -51,6 +51,12 @@ struct pollqueue {
     struct polltask *head;
     struct polltask *tail;
 
+    struct prepost_ss {
+        void (*pre)(void *v, struct pollfd *pfd);
+        void (*post)(void *v, short revents);
+        void *v;
+    } prepost;
+
     bool kill;
     bool no_prod;
     int prod_fd;
@@ -235,6 +241,7 @@ static void *poll_thread(void *v)
         unsigned int npoll = 0;
         struct polltask *pt;
         struct polltask *pt_next;
+        struct prepost_ss prepost;
         uint64_t now = pollqueue_now(0);
         int timeout = -1;
         int rv;
@@ -256,7 +263,7 @@ static void *poll_thread(void *v)
             }
 
             if (pt->fd != -1) {
-                assert(npoll < POLLQUEUE_MAX_QUEUE);
+                assert(npoll < POLLQUEUE_MAX_QUEUE - 1); // Allow for pre/post
                 a[npoll++] = (struct pollfd){
                     .fd = pt->fd,
                     .events = pt->events
@@ -269,13 +276,25 @@ static void *poll_thread(void *v)
                 timeout = (t < 0) ? 0 : (int)t;
             ++nall;
         }
+        prepost = pq->prepost;
         pthread_mutex_unlock(&pq->lock);
 
-        if ((rv = poll(a, npoll, timeout)) == -1) {
-            if (errno != EINTR) {
-                request_log("Poll error: %s\n", strerror(errno));
-                goto fail_unlocked;
-            }
+        a[npoll] = (struct pollfd){.fd=-1, .events=0, .revents=0};
+        if (prepost.pre)
+            prepost.pre(prepost.v, a + npoll);
+
+        while ((rv = poll(a, npoll + (a[npoll].fd != -1), timeout)) == -1)
+        {
+            if (errno != EINTR)
+                break;
+        }
+
+        if (prepost.post)
+            prepost.post(prepost.v, a[npoll].revents);
+
+        if (rv == -1) {
+            request_log("Poll error: %s\n", strerror(errno));
+            goto fail_unlocked;
         }
 
         now = pollqueue_now(0);
@@ -413,5 +432,19 @@ void pollqueue_unref(struct pollqueue **const ppq)
     pollqueue_free(pq);
 }
 
-
+void pollqueue_set_pre_post(struct pollqueue *const pq,
+                            void (*fn_pre)(void *v, struct pollfd *pfd),
+                            void (*fn_post)(void *v, short revents),
+                            void *v)
+{
+    bool no_prod;
+    pthread_mutex_lock(&pq->lock);
+    pq->prepost.pre = fn_pre;
+    pq->prepost.post = fn_post;
+    pq->prepost.v = v;
+    no_prod = pq->no_prod;
+    pthread_mutex_unlock(&pq->lock);
+    if (!no_prod)
+        pollqueue_prod(pq);
+}
 
