@@ -5,6 +5,24 @@
 
 struct drmu_env_s;
 
+enum drmu_log_level_e {
+        DRMU_LOG_LEVEL_NONE = -1,     // Max level specifier for nothing (not a real level)
+        DRMU_LOG_LEVEL_MESSAGE = 0,   // (Nearly) always printed info
+        DRMU_LOG_LEVEL_ERROR,         // Error
+        DRMU_LOG_LEVEL_WARNING,
+        DRMU_LOG_LEVEL_INFO,          // Interesting but not critical info
+        DRMU_LOG_LEVEL_DEBUG,         // Info only useful for debug
+        DRMU_LOG_LEVEL_ALL,           // Max level specifier for everything (not a real level)
+};
+
+typedef void drmu_log_fn(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl);
+
+typedef struct drmu_log_env_s {
+        drmu_log_fn * fn;
+        void * v;
+        enum drmu_log_level_e max_level;
+} drmu_log_env_t;
+
 void drmu_log_generic(const struct drmu_log_env_s * const log, const enum drmu_log_level_e level,
                       const char * const fmt, ...);
 
