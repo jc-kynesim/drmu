@@ -3573,16 +3573,19 @@ env_free(drmu_env_t * const du)
 
     atomic_q_flush(&du->aq);
 
-    pollqueue_unref(&du->pq);
     polltask_delete(&du->pt);
+    pollqueue_finish(&du->pq);
 
-    atomic_q_uninit(&du->aq);
-
+    // Restore previous values after shutting down the polltask but
+    // before uniniting the Q commits
+    //
+    // The Q uninit stands a plausible chance of causing BOs or dmabufs that
+    // are in use to be reclaimed so restoring the old FBs before that is a
+    // good idea (prevents visible artifacts in VLC).
     if (du->da_restore) {
         int rv;
-        if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
-            drmu_atomic_t * bad = drmu_atomic_new(du);
-            drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_TEST_ONLY | DRM_MODE_ATOMIC_ALLOW_MODESET, bad);
+        drmu_atomic_t * bad = drmu_atomic_new(du);
+        if ((rv = drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET, bad)) != 0) {
             drmu_atomic_sub(du->da_restore, bad);
             if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
                 drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
@@ -3591,10 +3594,12 @@ env_free(drmu_env_t * const du)
 
             if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG)
                 drmu_atomic_dump(bad);
-            drmu_atomic_unref(&bad);
         }
+        drmu_atomic_unref(&bad);
         drmu_atomic_unref(&du->da_restore);
     }
+
+    atomic_q_uninit(&du->aq);
 
     env_free_planes(du);
     env_free_conns(du);
