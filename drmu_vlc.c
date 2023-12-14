@@ -240,7 +240,8 @@ drmu_fb_vlc_new_pic_cma_attach(drmu_env_t * const du, picture_t * const pic)
     int i;
     drmu_fb_t * const dfb = drmu_fb_int_alloc(du);
     fb_aux_pic_t * aux = NULL;
-    uint32_t fmt = drmu_format_vlc_to_drm_cma(pic->format.i_chroma);
+    uint64_t mod;
+    uint32_t fmt = drmu_format_vlc_to_drm_cma(&pic->format, &mod);
     const bool is_sand = (pic->format.i_chroma == VLC_CODEC_MMAL_ZC_SAND8 ||
                           pic->format.i_chroma == VLC_CODEC_MMAL_ZC_SAND30);
     cma_buf_t * const cb = cma_buf_pic_get(pic);
@@ -289,7 +290,7 @@ drmu_fb_vlc_new_pic_cma_attach(drmu_env_t * const du, picture_t * const pic)
                 drmu_fb_int_layer_mod_set(dfb, i, 0, pic->format.i_width, pic->p[i].p_pixels - base_addr,
                                           DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(pic->p[i].i_pitch));
             else
-                drmu_fb_int_layer_mod_set(dfb, i, 0, pic->p[i].i_pitch, pic->p[i].p_pixels - base_addr, 0);
+                drmu_fb_int_layer_mod_set(dfb, i, 0, pic->p[i].i_pitch, pic->p[i].p_pixels - base_addr, mod);
         }
     }
 
