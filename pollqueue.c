@@ -28,6 +28,8 @@ enum polltask_state {
     POLLTASK_RUN_KILL,
 };
 
+#define POLLTASK_FLAG_ONCE 1
+
 struct polltask {
     struct polltask *next;
     struct polltask *prev;
@@ -36,6 +38,7 @@ struct polltask {
 
     int fd;
     short events;
+    unsigned short flags;
 
     void (*fn)(void *v, short revents);
     void * v;
@@ -58,16 +61,23 @@ struct pollqueue {
     } prepost;
 
     bool kill;
+    bool join_req;  // On thread exit do not detach
     bool no_prod;
+
+    bool sig_seq; // Signal cond when seq incremented
+    uint32_t seq;
+
     int prod_fd;
     struct polltask *prod_pt;
     pthread_t worker;
 };
 
-struct polltask *polltask_new(struct pollqueue *const pq,
-                              const int fd, const short events,
-                  void (*const fn)(void *v, short revents),
-                  void *const v)
+static struct polltask *
+polltask_new2(struct pollqueue *const pq,
+              const int fd, const short events,
+              void (*const fn)(void *v, short revents),
+              void *const v,
+              const unsigned short flags)
 {
     struct polltask *pt;
 
@@ -84,6 +94,7 @@ struct polltask *polltask_new(struct pollqueue *const pq,
         .q = pollqueue_ref(pq),
         .fd = fd,
         .events = events,
+        .flags = flags,
         .fn = fn,
         .v = v
     };
@@ -91,11 +102,32 @@ struct polltask *polltask_new(struct pollqueue *const pq,
     return pt;
 }
 
+struct polltask *
+polltask_new(struct pollqueue *const pq,
+             const int fd, const short events,
+             void (*const fn)(void *v, short revents),
+             void *const v)
+{
+    return polltask_new2(pq, fd, events, fn, v, 0);
+}
+
 struct polltask *polltask_new_timer(struct pollqueue *const pq,
                   void (*const fn)(void *v, short revents),
                   void *const v)
 {
     return polltask_new(pq, -1, 0, fn, v);
+}
+
+int
+pollqueue_callback_once(struct pollqueue *const pq,
+                        void (*const fn)(void *v, short revents),
+                        void *const v)
+{
+    struct polltask * const pt = polltask_new2(pq, -1, 0, fn, v, POLLTASK_FLAG_ONCE);
+    if (pt == NULL)
+        return -EINVAL;
+    pollqueue_add_task(pt, 0);
+    return 0;
 }
 
 static void pollqueue_rem_task(struct pollqueue *const pq, struct polltask *const pt)
@@ -304,6 +336,14 @@ static void *poll_thread(void *v)
          * infinite looping
         */
         pq->no_prod = true;
+
+        // Sync for prepost changes
+        ++pq->seq;
+        if (pq->sig_seq) {
+            pq->sig_seq = false;
+            pthread_cond_broadcast(&pq->cond);
+        }
+
         for (i = 0, j = 0, pt = pq->head; i < nall; ++i, pt = pt_next) {
             const short r = pt->fd == -1 ? 0 : a[j++].revents;
             pt_next = pt->next;
@@ -324,10 +364,13 @@ static void *poll_thread(void *v)
                 pt->fn(pt->v, r);
 
                 pthread_mutex_lock(&pq->lock);
-                if (pt->state == POLLTASK_RUNNING)
-                    pt->state = POLLTASK_UNQUEUED;
-                if (pt->state == POLLTASK_RUN_KILL)
+                if (pt->state == POLLTASK_Q_KILL)
+                    polltask_dead(pt);
+                else if (pt->state == POLLTASK_RUN_KILL ||
+                    (pt->flags & POLLTASK_FLAG_ONCE) != 0)
                     polltask_kill(pt);
+                else if (pt->state == POLLTASK_RUNNING)
+                    pt->state = POLLTASK_UNQUEUED;
             }
         }
         pq->no_prod = false;
@@ -341,6 +384,8 @@ fail_unlocked:
     pthread_cond_destroy(&pq->cond);
     pthread_mutex_destroy(&pq->lock);
     close(pq->prod_fd);
+    if (!pq->join_req)
+        pthread_detach(pthread_self());
     free(pq);
 
     return NULL;
@@ -399,16 +444,18 @@ static void pollqueue_free(struct pollqueue *const pq)
 
     if (pthread_equal(worker, pthread_self())) {
         pq->kill = true;
-        pollqueue_prod(pq);
-        pthread_detach(worker);
+        if (!pq->no_prod)
+            pollqueue_prod(pq);
     }
     else
     {
         pthread_mutex_lock(&pq->lock);
         pq->kill = true;
-        pollqueue_prod(pq);
+        // Must prod inside lock here as otherwise there is a potential race
+        // where the worker terminates and pq is freed before the prod
+        if (!pq->no_prod)
+            pollqueue_prod(pq);
         pthread_mutex_unlock(&pq->lock);
-        pthread_join(worker, NULL);
     }
 }
 
@@ -432,19 +479,45 @@ void pollqueue_unref(struct pollqueue **const ppq)
     pollqueue_free(pq);
 }
 
+void pollqueue_finish(struct pollqueue **const ppq)
+{
+    struct pollqueue * const pq = *ppq;
+    pthread_t worker;
+
+    if (!pq)
+        return;
+
+    pq->join_req = true;
+    worker = pq->worker;
+
+    pollqueue_unref(ppq);
+
+    pthread_join(worker, NULL);
+}
+
 void pollqueue_set_pre_post(struct pollqueue *const pq,
                             void (*fn_pre)(void *v, struct pollfd *pfd),
                             void (*fn_post)(void *v, short revents),
                             void *v)
 {
     bool no_prod;
+
     pthread_mutex_lock(&pq->lock);
     pq->prepost.pre = fn_pre;
     pq->prepost.post = fn_post;
     pq->prepost.v = v;
     no_prod = pq->no_prod;
-    pthread_mutex_unlock(&pq->lock);
-    if (!no_prod)
+
+    if (!no_prod) {
+        const uint32_t seq = pq->seq;
+        int rv = 0;
+
         pollqueue_prod(pq);
+
+        pq->sig_seq = true;
+        while (rv == 0 && pq->seq == seq)
+            rv = pthread_cond_wait(&pq->cond, &pq->lock);
+    }
+    pthread_mutex_unlock(&pq->lock);
 }
 
