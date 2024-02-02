@@ -312,21 +312,22 @@ drmu_fb_vlc_plane(drmu_fb_t * const dfb, const unsigned int plane_n)
     const drmu_fmt_info_t *const f = drmu_fb_format_info_get(dfb);
     unsigned int hdiv = drmu_fmt_info_hdiv(f, plane_n);
     unsigned int wdiv = drmu_fmt_info_wdiv(f, plane_n);
-    const unsigned int bpp = drmu_fmt_info_pixel_bits(f);
+    const unsigned int bypp = (drmu_fmt_info_pixel_bits(f) + 7) / 8;
     const uint32_t pitch_n = drmu_fb_pitch(dfb, plane_n);
-    const drmu_rect_t crop = drmu_fb_crop_frac(dfb);
+    const drmu_rect_t crop = drmu_rect_shr16_rnd(drmu_fb_crop_frac(dfb));
 
     if (pitch_n == 0) {
         return (plane_t) {.p_pixels = NULL };
     }
 
     return (plane_t){
-        .p_pixels = drmu_fb_data(dfb, plane_n),
+        .p_pixels = (uint8_t *)drmu_fb_data(dfb, plane_n) +
+            pitch_n * (crop.y / hdiv) + (crop.x / wdiv) * bypp,
         .i_lines = drmu_fb_height(dfb) / hdiv,
         .i_pitch = pitch_n,
-        .i_pixel_pitch = bpp / 8,
-        .i_visible_lines = (crop.h >> 16) / hdiv,
-        .i_visible_pitch = ((crop.w >> 16) * bpp / 8) / wdiv
+        .i_pixel_pitch = bypp,
+        .i_visible_lines = crop.h / hdiv,
+        .i_visible_pitch = (crop.w / wdiv) * bypp
     };
 }
 
