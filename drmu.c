@@ -2186,6 +2186,17 @@ drmu_crtc_ref(drmu_crtc_t * const dc)
     return dc;
 }
 
+static int
+crtc_state_save(drmu_env_t * const du, drmu_crtc_t * const dc)
+{
+    int rv = 0;
+    // 1st time through save state
+    if (!dc->saved &&
+        (rv = env_object_state_save(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC)) == 0)
+        dc->saved = true;
+    return rv;
+}
+
 // A Conn should be claimed before any op that might change its state
 int
 drmu_crtc_claim_ref(drmu_crtc_t * const dc)
@@ -2196,8 +2207,7 @@ drmu_crtc_claim_ref(drmu_crtc_t * const dc)
         return -EBUSY;
 
     // 1st time through save state
-    if (!dc->saved && env_object_state_save(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC) == 0)
-        dc->saved = true;
+    crtc_state_save(du, dc);
 
     return 0;
 }
@@ -2539,6 +2549,17 @@ drmu_conn_ref(drmu_conn_t * const dn)
     return dn;
 }
 
+static int
+conn_state_save(drmu_env_t * const du, drmu_conn_t * const dn)
+{
+    int rv = 0;
+    // 1st time through save state
+    if (!dn->saved &&
+        (rv = env_object_state_save(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR)) == 0)
+        dn->saved = true;
+    return rv;
+}
+
 // A Conn should be claimed before any op that might change its state
 int
 drmu_conn_claim_ref(drmu_conn_t * const dn)
@@ -2549,8 +2570,7 @@ drmu_conn_claim_ref(drmu_conn_t * const dn)
         return -EBUSY;
 
     // 1st time through save state
-    if (!dn->saved && env_object_state_save(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR) == 0)
-        dn->saved = true;
+    conn_state_save(du, dn);
 
     return 0;
 }
@@ -3198,6 +3218,18 @@ drmu_plane_ref(drmu_plane_t * const dp)
     return dp;
 }
 
+static int
+plane_state_save(drmu_env_t * const du, drmu_plane_t * const dp)
+{
+    int rv = 0;
+
+    // 1st time through save state
+    if (!dp->saved &&
+        (rv = env_object_state_save(du, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE)) == 0)
+        dp->saved = true;
+    return rv;
+}
+
 // Associate a plane with a crtc and ref it
 // Returns -EBUSY if plane already associated
 int
@@ -3210,9 +3242,8 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
         return -EBUSY;
     dp->dc = dc;
 
-    // 1st time through save state
-    if (!dp->saved && env_object_state_save(du, drmu_plane_id(dp), DRM_MODE_OBJECT_PLANE) == 0)
-        dp->saved = true;
+    // 1st time through save state if required - ignore fail
+    plane_state_save(du, dp);
 
     return 0;
 }
@@ -3665,10 +3696,26 @@ fail:
 int
 drmu_env_restore_enable(drmu_env_t * const du)
 {
+    uint32_t i;
+
     if (du->da_restore)
         return 0;
     if ((du->da_restore = drmu_atomic_new(du)) == NULL)
         return -ENOMEM;
+
+    // Save state of anything already claimed
+    // Cannot rewind time but this allows us to be a bit lax with the
+    // precise ordering of calls on setup (which is handy for scan)
+    for (i = 0; i != du->conn_count; ++i)
+        if (drmu_conn_is_claimed(du->conns + i))
+            conn_state_save(du, du->conns + i);
+    for (i = 0; i != du->crtc_count; ++i)
+        if (drmu_crtc_is_claimed(du->crtcs + i))
+            crtc_state_save(du, du->crtcs + i);
+    for (i = 0; i != du->plane_count; ++i)
+        if (drmu_plane_is_claimed(du->planes + i))
+            plane_state_save(du, du->planes + i);
+
     return 0;
 }
 
