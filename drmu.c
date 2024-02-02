@@ -3030,12 +3030,12 @@ typedef struct drmu_plane_s {
     struct {
         uint32_t crtc_id;
         uint32_t fb_id;
-        uint32_t crtc_h;
-        uint32_t crtc_w;
+        drmu_prop_range_t * crtc_h;
+        drmu_prop_range_t * crtc_w;
         uint32_t crtc_x;
         uint32_t crtc_y;
-        uint32_t src_h;
-        uint32_t src_w;
+        drmu_prop_range_t * src_h;
+        drmu_prop_range_t * src_w;
         uint32_t src_x;
         uint32_t src_y;
         drmu_prop_range_t * alpha;
@@ -3065,12 +3065,12 @@ plane_set_atomic(drmu_atomic_t * const da,
     drmu_atomic_add_prop_fb(da, plid, dp->pid.fb_id, dfb);
     drmu_atomic_add_prop_value(da, plid, dp->pid.crtc_x, crtc_x);
     drmu_atomic_add_prop_value(da, plid, dp->pid.crtc_y, crtc_y);
-    drmu_atomic_add_prop_value(da, plid, dp->pid.crtc_w, crtc_w);
-    drmu_atomic_add_prop_value(da, plid, dp->pid.crtc_h, crtc_h);
+    drmu_atomic_add_prop_range(da, plid, dp->pid.crtc_w, crtc_w);
+    drmu_atomic_add_prop_range(da, plid, dp->pid.crtc_h, crtc_h);
     drmu_atomic_add_prop_value(da, plid, dp->pid.src_x,  src_x);
     drmu_atomic_add_prop_value(da, plid, dp->pid.src_y,  src_y);
-    drmu_atomic_add_prop_value(da, plid, dp->pid.src_w,  src_w);
-    drmu_atomic_add_prop_value(da, plid, dp->pid.src_h,  src_h);
+    drmu_atomic_add_prop_range(da, plid, dp->pid.src_w,  src_w);
+    drmu_atomic_add_prop_range(da, plid, dp->pid.src_h,  src_h);
     return 0;
 }
 
@@ -3299,6 +3299,10 @@ drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
 static void
 plane_uninit(drmu_plane_t * const dp)
 {
+    drmu_prop_range_delete(&dp->pid.crtc_h);
+    drmu_prop_range_delete(&dp->pid.crtc_w);
+    drmu_prop_range_delete(&dp->pid.src_h);
+    drmu_prop_range_delete(&dp->pid.src_w);
     drmu_prop_range_delete(&dp->pid.alpha);
     drmu_prop_range_delete(&dp->pid.chroma_siting_h);
     drmu_prop_range_delete(&dp->pid.chroma_siting_v);
@@ -3337,12 +3341,12 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
 
     if ((dp->pid.crtc_id = props_name_to_id(props, "CRTC_ID")) == 0 ||
         (dp->pid.fb_id  = props_name_to_id(props, "FB_ID")) == 0 ||
-        (dp->pid.crtc_h = props_name_to_id(props, "CRTC_H")) == 0 ||
-        (dp->pid.crtc_w = props_name_to_id(props, "CRTC_W")) == 0 ||
+        (dp->pid.crtc_h = drmu_prop_range_new(du, props_name_to_id(props, "CRTC_H"))) == NULL ||
+        (dp->pid.crtc_w = drmu_prop_range_new(du, props_name_to_id(props, "CRTC_W"))) == NULL ||
         (dp->pid.crtc_x = props_name_to_id(props, "CRTC_X")) == 0 ||
         (dp->pid.crtc_y = props_name_to_id(props, "CRTC_Y")) == 0 ||
-        (dp->pid.src_h  = props_name_to_id(props, "SRC_H")) == 0 ||
-        (dp->pid.src_w  = props_name_to_id(props, "SRC_W")) == 0 ||
+        (dp->pid.src_h  = drmu_prop_range_new(du, props_name_to_id(props, "SRC_H"))) == NULL ||
+        (dp->pid.src_w  = drmu_prop_range_new(du, props_name_to_id(props, "SRC_W"))) == NULL ||
         (dp->pid.src_x  = props_name_to_id(props, "SRC_X")) == 0 ||
         (dp->pid.src_y  = props_name_to_id(props, "SRC_Y")) == 0 ||
         props_name_get_blob(props, "IN_FORMATS", &dp->formats_in, &dp->formats_in_len) != 0)
