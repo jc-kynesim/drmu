@@ -509,7 +509,9 @@ bool drmu_env_restore_is_enabled(const drmu_env_t * const du);
 int drmu_atomic_env_restore_add_snapshot(struct drmu_atomic_s ** const ppda);
 
 // Open a drmu environment with the drm fd
-// Takes a logging structure so early errors can be reported.
+// Takes a logging structure so early errors can be reported. The logging
+// environment is copied so does not have to be valid for greater than the
+// duration of the call.
 // If log = NULL logging is disabled (set to drmu_log_env_none).
 drmu_env_t * drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log);
 drmu_env_t * drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log);
