@@ -253,6 +253,7 @@ uint64_t drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane)
 drmu_fb_t * drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format);
 drmu_fb_t * drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 drmu_fb_t * drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format);
+drmu_fb_t * drmu_fb_realloc_dumb_mod(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 void drmu_fb_unref(drmu_fb_t ** const ppdfb);
 drmu_fb_t * drmu_fb_ref(drmu_fb_t * const dfb);
 
@@ -346,6 +347,7 @@ void drmu_pool_unref(drmu_pool_t ** const pppool);
 drmu_pool_t * drmu_pool_ref(drmu_pool_t * const pool);
 drmu_pool_t * drmu_pool_new(drmu_env_t * const du, unsigned int total_fbs_max);
 drmu_fb_t * drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format);
+drmu_fb_t * drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 void drmu_pool_delete(drmu_pool_t ** const pppool);
 
 // Object Id

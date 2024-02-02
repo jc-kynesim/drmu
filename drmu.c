@@ -1277,7 +1277,8 @@ drmu_fb_int_make(drmu_fb_t *const dfb)
     drmu_env_t * du = dfb->du;
     int rv;
 
-    dfb->fb.flags = (dfb->fb.modifier[0] == DRM_FORMAT_MOD_INVALID || dfb->fb.modifier[0] == 0) ? 0 : DRM_MODE_FB_MODIFIERS;
+    dfb->fb.flags = (dfb->fb.modifier[0] == DRM_FORMAT_MOD_INVALID ||
+                     dfb->fb.modifier[0] == DRM_FORMAT_MOD_LINEAR) ? 0 : DRM_MODE_FB_MODIFIERS;
 
     if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ADDFB2, &dfb->fb)) != 0)
         drmu_err(du, "AddFB2 failed: %s", strerror(-rv));
@@ -1521,31 +1522,37 @@ fail:
 drmu_fb_t *
 drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format)
 {
-    return drmu_fb_new_dumb_mod(du, w, h, format, DRM_FORMAT_MOD_INVALID);
+    return drmu_fb_new_dumb_mod(du, w, h, format, DRM_FORMAT_MOD_LINEAR);
 }
 
-static int
-fb_try_reuse(drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format)
+static bool
+fb_try_reuse(drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
 {
-    if (w > dfb->fb.width || h > dfb->fb.height || format != dfb->fb.pixel_format)
-        return 0;
+    if (w > dfb->fb.width || h > dfb->fb.height || format != dfb->fb.pixel_format || mod != dfb->fb.modifier[0])
+        return false;
 
     dfb->active = drmu_rect_wh(w, h);
     dfb->crop   = drmu_rect_shl16(dfb->active);
-    return 1;
+    return true;
+}
+
+drmu_fb_t *
+drmu_fb_realloc_dumb_mod(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
+{
+    if (dfb == NULL)
+        return drmu_fb_new_dumb_mod(du, w, h, format, mod);
+
+    if (fb_try_reuse(dfb, w, h, format, mod))
+        return dfb;
+
+    drmu_fb_unref(&dfb);
+    return drmu_fb_new_dumb_mod(du, w, h, format, mod);
 }
 
 drmu_fb_t *
 drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format)
 {
-    if (dfb == NULL)
-        return drmu_fb_new_dumb(du, w, h, format);
-
-    if (fb_try_reuse(dfb, w, h, format))
-        return dfb;
-
-    drmu_fb_unref(&dfb);
-    return drmu_fb_new_dumb(du, w, h, format);
+    return drmu_fb_realloc_dumb_mod(du, dfb, w, h, format, DRM_FORMAT_MOD_LINEAR);
 }
 
 static void
@@ -2948,7 +2955,7 @@ pool_fb_pre_delete_cb(drmu_fb_t * dfb, void * v)
 }
 
 drmu_fb_t *
-drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format)
+drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
 {
     drmu_env_t * const du = pool->du;
     drmu_fb_t * dfb;
@@ -2957,7 +2964,7 @@ drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const ui
 
     dfb = fb_list_peek_head(&pool->free_fbs);
     while (dfb != NULL) {
-        if (fb_try_reuse(dfb, w, h, format)) {
+        if (fb_try_reuse(dfb, w, h, format, mod)) {
             fb_list_extract(&pool->free_fbs, dfb);
             break;
         }
@@ -2973,7 +2980,7 @@ drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const ui
         pthread_mutex_unlock(&pool->lock);
 
         drmu_fb_unref(&dfb);  // Will free the dfb as pre-delete CB will be unset
-        if ((dfb = drmu_fb_realloc_dumb(du, NULL, w, h, format)) == NULL) {
+        if ((dfb = drmu_fb_realloc_dumb_mod(du, NULL, w, h, format, mod)) == NULL) {
             --pool->fb_count;  // ??? lock
             return NULL;
         }
@@ -2985,6 +2992,12 @@ drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const ui
     drmu_fb_pre_delete_set(dfb, pool_fb_pre_delete_cb, pool);
     drmu_pool_ref(pool);
     return dfb;
+}
+
+drmu_fb_t *
+drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format)
+{
+    return drmu_pool_fb_new_dumb_mod(pool, w, h, format, DRM_FORMAT_MOD_LINEAR);
 }
 
 // Mark pool as dead (i.e. no new allocs) and unref it
