@@ -3195,6 +3195,12 @@ drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, co
     return false;
 }
 
+bool
+drmu_plane_is_claimed(drmu_plane_t * const dp)
+{
+    return atomic_load(&dp->ref_count) != 0;
+}
+
 void
 drmu_plane_unref(drmu_plane_t ** const ppdp)
 {

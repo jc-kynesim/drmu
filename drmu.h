@@ -454,6 +454,9 @@ int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const d
 // pos is dest rect on the plane in full pixels (not frac)
 int drmu_atomic_plane_add_fb(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 
+// Is this plane reffed?
+bool drmu_plane_is_claimed(drmu_plane_t * const dp);
+
 // Unref a plane
 void drmu_plane_unref(drmu_plane_t ** const ppdp);
 
