@@ -67,6 +67,33 @@ fillgrid(uint8_t * const grid)
 }
 
 static void
+fillpatch3(uint8_t * patch, const uint8_t a, const uint8_t b, const uint8_t c)
+{
+    unsigned int i, j;
+    for (i = 0; i != 32; ++i, patch += 128*3) {
+        for (j = 0; j != 32*3; j += 3) {
+            patch[j + 0] = a;
+            patch[j + 1] = b;
+            patch[j + 2] = c;
+        }
+    }
+}
+
+static void
+fillgrid3(uint8_t * const grid)
+{
+    unsigned int i, j;
+    for (i = 0; i != 2; ++i) {
+        for (j = 0; j != 4; ++j) {
+            fillpatch3(grid + j*32*3 + i*32*128*3,
+                      (j & 1) ? 255 : 0,
+                      (j & 2) ? 255 : 0,
+                      (i & 1) ? 255 : 0);
+        }
+    }
+}
+
+static void
 drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl)
 {
     char buf[256];
@@ -87,24 +114,26 @@ int main(int argc, char *argv[])
     drmu_env_t * du = NULL;
     drmu_output_t * dout = NULL;
     drmu_plane_t * p0 = NULL;
-    drmu_plane_t * psub[4] = {NULL};
+    drmu_plane_t * psub[6] = {NULL};
     drmu_fb_t * fb0 = NULL;
-    drmu_fb_t * fbsub[4] = {NULL};
+    drmu_fb_t * fbsub[6] = {NULL};
     drmu_atomic_t * da = NULL;
     const drmu_mode_simple_params_t * sp = NULL;
 
-    static const uint32_t fmts[4] = {
+    static const uint32_t fmts[6] = {
         DRM_FORMAT_ARGB8888,
         DRM_FORMAT_ABGR8888,
         DRM_FORMAT_RGBA8888,
         DRM_FORMAT_BGRA8888,
+        DRM_FORMAT_RGB888,
+        DRM_FORMAT_BGR888,
     };
 
     {
         const drmu_log_env_t log = {
             .fn = drmu_log_stderr_cb,
             .v = NULL,
-            .max_level = DRMU_LOG_LEVEL_ALL
+            .max_level = DRMU_LOG_LEVEL_INFO
         };
         if (
 #if HAS_XLEASE
@@ -127,7 +156,7 @@ int main(int argc, char *argv[])
     // This wants to be the primary
     if ((p0 = drmu_output_plane_ref_primary(dout)) == NULL)
         goto fail;
-    for (i = 0; i!= 4; ++i) {
+    for (i = 0; i!= 6; ++i) {
         if ((psub[i] = drmu_output_plane_ref_other(dout)) == NULL)
             fprintf(stderr, "Cannot allocate plane for %s\n", drmu_log_fourcc(fmts[i]));
         if (psub[i] && !drmu_plane_format_check(psub[i], fmts[i], 0)) {
@@ -154,16 +183,34 @@ int main(int argc, char *argv[])
             fillgrid(drmu_fb_data(fbsub[i], 0));
     }
 
+    for (i = 4; i!= 6; ++i) {
+        if ((fbsub[i] = drmu_fb_new_dumb(du, 128, 64, fmts[i])) == NULL)
+            fprintf(stderr, "Cannot find make dumb for %s\n", drmu_log_fourcc(fmts[i]));
+        else
+            fillgrid3(drmu_fb_data(fbsub[i], 0));
+    }
+
     da = drmu_atomic_new(du);
 
     drmu_atomic_plane_add_fb(da, p0, fb0, drmu_rect_wh(sp->width, sp->height));
-    for (i = 0; i!= 4; ++i) {
+    for (i = 0; i != 6; ++i) {
         if (fbsub[i] && psub[i]) {
             fprintf(stderr, "Set patch %d to %s\n", i, drmu_log_fourcc(fmts[i]));
-            drmu_atomic_plane_add_fb(da, psub[i], fbsub[i], (drmu_rect_t){i * (128 * 5/4) + 32, 32, 128, 128});
+            drmu_atomic_plane_add_fb(da, psub[i], fbsub[i], (drmu_rect_t){(i & 3) * (128 * 5/4) + 32, (i & ~3) * (128/4 * 5/4) + 32, 128, 128});
         }
     }
+
     drmu_atomic_queue(&da);
+
+    printf("\n"
+           "Set bytes in patch in byte order:"
+           "0000 1000 0100 1100\n"
+           "0010 1010 0110 1110\n"
+           "0001 1001 0101 1101\n"
+           "0011 1011 0111 1111\n\n"
+           "Set bytes in patch in byte order:\n"
+           "000 100 010 110\n"
+           "001 101 011 111\n");
 
     sleep(3000);
 
