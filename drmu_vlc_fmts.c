@@ -71,8 +71,9 @@ static const drmu_vlc_fmt_info_t fmt_table[] = {
     RM(VLC_CODEC_RGB32, DRM_FORMAT_XBGR8888, 0xff, 0xff00, 0xff0000),
     RM(VLC_CODEC_RGB32, DRM_FORMAT_RGBX8888, 0xff000000, 0xff0000, 0xff00),
     RM(VLC_CODEC_RGB32, DRM_FORMAT_BGRX8888, 0xff00, 0xff0000, 0xff000000),
-    RM(VLC_CODEC_RGB24, DRM_FORMAT_RGB888,   0xff0000, 0xff00, 0xff),
-    RM(VLC_CODEC_RGB24, DRM_FORMAT_BGR888,   0xff, 0xff00, 0xff0000),
+    // The 24-bit versions seem to have BE masks?!
+    RM(VLC_CODEC_RGB24, DRM_FORMAT_BGR888,   0xff0000, 0xff00, 0xff),
+    RM(VLC_CODEC_RGB24, DRM_FORMAT_RGB888,   0xff, 0xff00, 0xff0000),
     RM(VLC_CODEC_RGB16, DRM_FORMAT_RGB565,   0xf800, 0x7e0, 0x1f),
     RM(VLC_CODEC_RGB16, DRM_FORMAT_BGR565,   0x1f, 0x7e0, 0xf800),
 
