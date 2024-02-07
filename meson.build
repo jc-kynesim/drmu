@@ -26,7 +26,7 @@ xcb_dep = dependency('xcb', required : xlease_dep.found() or xdri3_dep.found())
 
 mk_sorted_fmts = executable(
 	'mk_sorted_fmts',
-	'drmu_fmts.c',
+	'drmu/drmu_fmts.c',
 	build_by_default : false,
 	c_args : ['-DBUILD_MK_SORTED_FMTS_H'],
 )
@@ -48,9 +48,10 @@ if get_option('valgrind')
 endif
 
 drmu_base = library('drmu_base',
-	'drmu_output.c', 'drmu.c', 'drmu_fmts.c', 'drmu_atomic.c', 'pollqueue.c', 'drmu_util.c',
+	'drmu/drmu_output.c', 'drmu/drmu.c', 'drmu/drmu_fmts.c', 'drmu/drmu_atomic.c', 'drmu/drmu_util.c', 'pollqueue/pollqueue.c',
 	c_args : args_sorted_fmts + args_io_calloc,
 	sources : h_sorted_fmts,
+	include_directories : ['pollqueue'],
 	dependencies : [
 		threads_dep,
 		libdrm_dep
@@ -60,7 +61,7 @@ drmu_base = library('drmu_base',
 drmu_xlease_opt = []
 if xlease_dep.found()
 	drmu_xlease = library('drmu_xlease',
-		'drmu_xlease.c',
+		'drmu/drmu_xlease.c',
 		link_with : drmu_base,
 		dependencies : [
 			threads_dep,
@@ -73,7 +74,7 @@ endif
 
 if xdri3_dep.found()
 	drmu_xdri3 = library('drmu_xdri3',
-		'drmu_xdri3.c',
+		'drmu/drmu_xdri3.c',
 		link_with : drmu_base,
 		dependencies : [
 			threads_dep,
@@ -120,7 +121,7 @@ if wl_client_dep.found()
 	endforeach
 
 	drmu_waylease = library('drmu_waylease',
-		'drmu_waylease.c',
+		'drmu/drmu_waylease.c',
 		sources : protocols_files,
 		link_with : drmu_base,
 		dependencies : [
@@ -133,7 +134,7 @@ if wl_client_dep.found()
 endif
 
 drmu_av = library('drmu_av',
-	'drmu_av.c',
+	'drmu/drmu_av.c',
 	link_with : drmu_base,
 	dependencies : [
 		threads_dep,
@@ -141,9 +142,12 @@ drmu_av = library('drmu_av',
 	],
 )
 
+drmu_incs = include_directories('drmu', 'pollqueue')
+
 executable(
 	'hello_drmu',
-	'hello_drmu.c', 'drmprime_out.c',
+	'test/hello_drmu.c', 'test/drmprime_out.c',
+	include_directories : drmu_incs,
 	link_with : [ drmu_base, drmu_av ] + drmu_xlease_opt,
 	dependencies : [
 		threads_dep,
@@ -157,7 +161,8 @@ executable(
 
 executable(
 	'argbtest',
-	'argbtest.c',
+	'test/argbtest.c',
+	include_directories : drmu_incs,
 	link_with : [ drmu_base ] + drmu_xlease_opt,
 	dependencies : [
 		threads_dep,
@@ -167,7 +172,8 @@ executable(
 
 executable(
 	'10bittest',
-	'10bittest.c', 'plane16.c',
+	'test/10bittest.c', 'test/plane16.c',
+	include_directories : drmu_incs,
 	link_with : [ drmu_base ] + drmu_xlease_opt,
 	dependencies : [
 		threads_dep,
@@ -177,7 +183,8 @@ executable(
 
 executable(
 	'resethdr',
-	'resethdr.c',
+	'test/resethdr.c',
+	include_directories : drmu_incs,
 	link_with : [ drmu_base ] + drmu_xlease_opt,
 	dependencies : [
 		threads_dep,
