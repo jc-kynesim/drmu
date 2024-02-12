@@ -766,11 +766,16 @@ drmu_atomic_add_prop_object(drmu_atomic_t * const da, drmu_prop_object_t * obj, 
 //----------------------------------------------------------------------------
 //
 // BO fns
+//
+// Beware that when importing from FD we need to check that we don't already
+// have the BO as multiple FDs can map to the same BO and a single close will
+// close it irrespective of how many imports have occured.
 
 enum drmu_bo_type_e {
     BO_TYPE_NONE = 0,
-    BO_TYPE_FD,
-    BO_TYPE_DUMB
+    BO_TYPE_FD,         // Created from FD import
+    BO_TYPE_DUMB,       // Locally allocated
+    BO_TYPE_EXTERNAL,   // Externally allocated and closed
 };
 
 // BO handles come in 2 very distinct types: DUMB and FD
@@ -864,6 +869,11 @@ drmu_bo_unref(drmu_bo_t ** const ppbo)
             if (atomic_fetch_sub(&bo->ref_count, 1) == 0)
                 bo_free_dumb(bo);
             break;
+        case BO_TYPE_EXTERNAL:
+            // Simple imported BO - close dealt with elsewhere
+            if (atomic_fetch_sub(&bo->ref_count, 1) == 0)
+                free(bo);
+            break;
         case BO_TYPE_NONE:
         default:
             free(bo);
@@ -892,6 +902,20 @@ bo_alloc(drmu_env_t *const du, enum drmu_bo_type_e bo_type)
     bo->du = du;
     bo->bo_type = bo_type;
     atomic_init(&bo->ref_count, 0);
+    return bo;
+}
+
+drmu_bo_t *
+drmu_bo_new_external(drmu_env_t *const du, const uint32_t bo_handle)
+{
+    drmu_bo_t *const bo = bo_alloc(du, BO_TYPE_EXTERNAL);
+
+    if (bo == NULL) {
+        drmu_err(du, "%s: Failed to alloc BO", __func__);
+        return NULL;
+    }
+
+    bo->handle = bo_handle;
     return bo;
 }
 
