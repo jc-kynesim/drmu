@@ -142,6 +142,21 @@ drmu_av = library('drmu_av',
 	],
 )
 
+gbm_dep = dependency('gbm', required : get_option('gbm'))
+#mesondefine HAS_GBM
+conf_data.set10('HAS_GBM', gbm_dep.found())
+
+if gbm_dep.found()
+	drmu_gbm = library('drmu_gbm',
+		'drmu/drmu_gbm.c',
+		link_with : drmu_base,
+		dependencies : [
+			threads_dep,
+			dependency('gbm'),
+		],
+	)
+endif
+
 drmu_incs = include_directories('drmu', 'pollqueue')
 
 executable(

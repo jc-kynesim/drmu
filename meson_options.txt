@@ -1,5 +1,6 @@
 option('xlease',	type : 'feature',	value : 'auto')
 option('xdri3',		type : 'feature',	value : 'auto')
+option('gbm',		type : 'feature',	value : 'auto')
 option('waylease', 	type : 'feature',	value : 'disabled')
 option('sorted_fmts',	type : 'boolean',	value : 'true')
 option('valgrind',	type : 'boolean',	value : 'false')
