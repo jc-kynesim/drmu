@@ -4,6 +4,7 @@
 #include "drmu_log.h"
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include <libdrm/drm.h>
@@ -16,6 +17,8 @@ static inline int rvup(int rv1, int rv2)
 }
 
 struct drmu_output_s {
+    atomic_int ref_count;
+
     drmu_env_t * du;
     drmu_crtc_t * dc;
     unsigned int conn_n;
@@ -596,7 +599,16 @@ drmu_output_unref(drmu_output_t ** const ppdout)
         return;
     *ppdout = NULL;
 
-    output_free(dout);
+    if (atomic_fetch_sub(&dout->ref_count, 1) == 0)
+        output_free(dout);
+}
+
+drmu_output_t *
+drmu_output_ref(drmu_output_t * const dout)
+{
+    if (dout != NULL)
+        atomic_fetch_add(&dout->ref_count, 1);
+    return dout;
 }
 
 drmu_output_t *
