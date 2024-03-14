@@ -417,7 +417,7 @@ struct pollqueue * pollqueue_new(void)
     };
 
     pq->prod_fd = eventfd(0, EFD_NONBLOCK);
-    if (pq->prod_fd == 1)
+    if (pq->prod_fd == -1)
         goto fail1;
     pq->prod_pt = polltask_new(pq, pq->prod_fd, POLLIN, prod_fn, pq);
     if (!pq->prod_pt)
