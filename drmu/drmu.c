@@ -3858,23 +3858,14 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     drmu_bo_env_init(&du->boe);
     atomic_q_init(&du->aq);
 
-    if ((du->pq = pollqueue_new()) == NULL) {
-        drmu_err(du, "Failed to create pollqueue");
-        goto fail1;
-    }
-    if ((du->pt = polltask_new(du->pq, du->fd, POLLIN | POLLPRI, drmu_env_polltask_cb, du)) == NULL) {
-        drmu_err(du, "Failed to create polltask");
-        goto fail1;
-    }
-
-    // We want the primary plane for video
-    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) != 0)
-        drmu_debug(du, "Failed to set universal planes cap");
     // We need atomic for almost everything we do
     if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1)) != 0) {
         drmu_err(du, "Failed to set atomic cap");
         goto fail1;
     }
+    // We want the primary plane for video
+    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) != 0)
+        drmu_debug(du, "Failed to set universal planes cap");
     // We can understand AR info
     if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ASPECT_RATIO, 1)) != 0)
         drmu_debug(du, "Failed to set AR cap");
@@ -3940,6 +3931,15 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
         free(crtc_ids);
         conn_ids = NULL;
         crtc_ids = NULL;
+    }
+
+    if ((du->pq = pollqueue_new()) == NULL) {
+        drmu_err(du, "Failed to create pollqueue");
+        goto fail1;
+    }
+    if ((du->pt = polltask_new(du->pq, du->fd, POLLIN | POLLPRI, drmu_env_polltask_cb, du)) == NULL) {
+        drmu_err(du, "Failed to create polltask");
+        goto fail1;
     }
 
     pollqueue_add_task(du->pt, 1000);
