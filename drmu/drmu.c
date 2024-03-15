@@ -2848,6 +2848,10 @@ typedef struct drmu_pool_s {
 
     struct drmu_env_s * du;
 
+    drmu_pool_alloc_fn alloc_fn;
+    drmu_pool_on_delete_fn on_delete_fn;
+    void * callback_v;
+
     pthread_mutex_t lock;
     bool dead;
 
@@ -2922,9 +2926,13 @@ pool_free_pool(drmu_pool_t * const pool)
 static void
 pool_free(drmu_pool_t * const pool)
 {
+    void *const v = pool->callback_v;
+    const drmu_pool_on_delete_fn on_delete_fn = pool->on_delete_fn;
     pool_free_pool(pool);
     pthread_mutex_destroy(&pool->lock);
     free(pool);
+
+    on_delete_fn(v);
 }
 
 void
@@ -2950,20 +2958,45 @@ drmu_pool_ref(drmu_pool_t * const pool)
 }
 
 drmu_pool_t *
-drmu_pool_new(drmu_env_t * const du, unsigned int total_fbs_max)
+drmu_pool_new_alloc(drmu_env_t * const du, const unsigned int total_fbs_max,
+                    const drmu_pool_alloc_fn alloc_fn, const drmu_pool_on_delete_fn on_delete_fn,
+                    void * const v)
 {
     drmu_pool_t * const pool = calloc(1, sizeof(*pool));
 
     if (pool == NULL) {
         drmu_err(du, "Failed pool env alloc");
+        on_delete_fn(v);
         return NULL;
     }
 
     pool->du = du;
     pool->fb_max = total_fbs_max;
+    pool->alloc_fn = alloc_fn;
+    pool->on_delete_fn = on_delete_fn;
+    pool->callback_v = v;
+
     pthread_mutex_init(&pool->lock, NULL);
 
     return pool;
+}
+
+static drmu_fb_t *
+pool_dumb_alloc_cb(void * const v, const uint32_t w, const uint32_t h, const uint32_t format, const uint64_t mod)
+{
+    return drmu_fb_new_dumb_mod(v, w, h, format, mod);
+}
+
+static void
+pool_dumb_on_delete_cb(void * const v)
+{
+    (void)v;
+}
+
+drmu_pool_t *
+drmu_pool_new_dumb(drmu_env_t * const du, unsigned int total_fbs_max)
+{
+    return drmu_pool_new_alloc(du, total_fbs_max, pool_dumb_alloc_cb, pool_dumb_on_delete_cb, du);
 }
 
 static int
@@ -2995,9 +3028,8 @@ pool_fb_pre_delete_cb(drmu_fb_t * dfb, void * v)
 }
 
 drmu_fb_t *
-drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
+drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
 {
-    drmu_env_t * const du = pool->du;
     drmu_fb_t * dfb;
 
     pthread_mutex_lock(&pool->lock);
@@ -3020,7 +3052,7 @@ drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, cons
         pthread_mutex_unlock(&pool->lock);
 
         drmu_fb_unref(&dfb);  // Will free the dfb as pre-delete CB will be unset
-        if ((dfb = drmu_fb_realloc_dumb_mod(du, NULL, w, h, format, mod)) == NULL) {
+        if ((dfb = pool->alloc_fn(pool->callback_v, w, h, format, mod)) == NULL) {
             --pool->fb_count;  // ??? lock
             return NULL;
         }
@@ -3034,17 +3066,11 @@ drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, cons
     return dfb;
 }
 
-drmu_fb_t *
-drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format)
-{
-    return drmu_pool_fb_new_dumb_mod(pool, w, h, format, DRM_FORMAT_MOD_LINEAR);
-}
-
 // Mark pool as dead (i.e. no new allocs) and unref it
 // Simple unref will also work but this reclaims storage faster
 // Actual pool structure will persist until all referencing fbs are deleted too
 void
-drmu_pool_delete(drmu_pool_t ** const pppool)
+drmu_pool_kill(drmu_pool_t ** const pppool)
 {
     drmu_pool_t * pool = *pppool;
 

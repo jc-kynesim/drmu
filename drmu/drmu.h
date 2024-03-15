@@ -351,10 +351,30 @@ int drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms);
 
 void drmu_pool_unref(drmu_pool_t ** const pppool);
 drmu_pool_t * drmu_pool_ref(drmu_pool_t * const pool);
-drmu_pool_t * drmu_pool_new(drmu_env_t * const du, unsigned int total_fbs_max);
-drmu_fb_t * drmu_pool_fb_new_dumb(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format);
-drmu_fb_t * drmu_pool_fb_new_dumb_mod(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
-void drmu_pool_delete(drmu_pool_t ** const pppool);
+
+// cb to allocate a new pool fb
+typedef drmu_fb_t * (* drmu_pool_alloc_fn)(void * const v, const uint32_t w, const uint32_t h, const uint32_t format, const uint64_t mod);
+// cb called when pool deleted or on new_pool failure - takes the same v as alloc
+typedef void (* drmu_pool_on_delete_fn)(void * const v);
+
+// Create a new pool with custom alloc & pool delete
+// If pool creation fails then on_delete_fn(v) called and NULL returned
+// Pool entries are not pre-allocated.
+drmu_pool_t * drmu_pool_new_alloc(drmu_env_t * const du, const unsigned int total_fbs_max,
+                                  const drmu_pool_alloc_fn alloc_fn, const drmu_pool_on_delete_fn on_delete_fn,
+                                  void * const v);
+// Create a new pool of fb allocated from dumb objects
+// N.B. BOs are alloced from uncached memory so may be slow to do anything other
+// than copy into. (See drmu_dmabuf_ if you want cached data)
+drmu_pool_t * drmu_pool_new_dumb(drmu_env_t * const du, unsigned int total_fbs_max);
+// Allocate a fb from the pool
+// Allocations need not be all of the same size but no guarantees are made about
+// efficient memory use if this is the case
+drmu_fb_t * drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
+// Marks the pool as dead & unrefs this reference
+//   No allocs will succeed after this
+//   All free fbs are unrefed
+void drmu_pool_kill(drmu_pool_t ** const pppool);
 
 // Object Id
 
