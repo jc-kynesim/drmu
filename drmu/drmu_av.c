@@ -281,6 +281,33 @@ fb_av_chroma_siting(const enum AVChromaLocation loc)
     return DRMU_CHROMA_SITING_UNSPECIFIED;
 }
 
+int
+drmu_av_fb_frame_metadata_set(drmu_fb_t * const dfb, const AVFrame * const frame)
+{
+    struct hdr_output_metadata meta;
+    const AVFrameSideData * const side_disp = av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    const AVFrameSideData * const side_light = av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+
+    drmu_fb_color_set(dfb,
+                      fb_av_color_encoding(frame),
+                      fb_av_color_range(frame),
+                      fb_av_colorspace(frame));
+
+    drmu_fb_chroma_siting_set(dfb,
+                              frame->chroma_location == AVCHROMA_LOC_UNSPECIFIED ?
+                                  drmu_fmt_info_chroma_siting(drmu_fb_format_info_get(dfb)) :
+                                  fb_av_chroma_siting(frame->chroma_location));
+
+    // * Metadata can turn up in container but not ES but I don't have an example of that yet
+    if (drmu_crtc_av_hdr_metadata_from_av(&meta,
+            frame->color_trc,
+            !side_disp ? NULL : (const AVMasteringDisplayMetadata *)side_disp->data,
+            !side_light ? NULL : (const AVContentLightMetadata *)side_light->data) == 0)
+        drmu_fb_hdr_metadata_set(dfb, &meta);
+
+    return 0;
+}
+
 // Create a new fb from a VLC DRM_PRIME picture.
 // Buf is held reffed by the fb until the fb is deleted
 drmu_fb_t *
@@ -315,13 +342,6 @@ drmu_fb_av_new_frame_attach(drmu_env_t * const du, AVFrame * const frame)
                                  .w = frame->width - (frame->crop_left + frame->crop_right),
                                  .h = frame->height - (frame->crop_top + frame->crop_bottom)});
 
-    drmu_fb_int_color_set(dfb,
-                          fb_av_color_encoding(frame),
-                          fb_av_color_range(frame),
-                          fb_av_colorspace(frame));
-
-    drmu_fb_int_chroma_siting_set(dfb, fb_av_chroma_siting(frame->chroma_location));
-
     // Set delete callback & hold this pic
     // Aux attached to dfb immediately so no fail cleanup required
     if ((aux = calloc(1, sizeof(*aux))) == NULL) {
@@ -351,22 +371,10 @@ drmu_fb_av_new_frame_attach(drmu_env_t * const du, AVFrame * const frame)
         }
     }
 
-    // * Metadata can turn up in container but not ES but I don't have an example of that yet
-
-    {
-        struct hdr_output_metadata meta;
-        const AVFrameSideData * const side_disp = av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
-        const AVFrameSideData * const side_light = av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
-        int rv = drmu_crtc_av_hdr_metadata_from_av(&meta,
-            frame->color_trc,
-            !side_disp ? NULL : (const AVMasteringDisplayMetadata *)side_disp->data,
-            !side_light ? NULL : (const AVContentLightMetadata *)side_light->data);
-        if (rv == 0)
-            drmu_fb_hdr_metadata_set(dfb, &meta);
-    }
-
     if (drmu_fb_int_make(dfb) != 0)
         goto fail;
+
+    drmu_av_fb_frame_metadata_set(dfb, frame);
     return dfb;
 
 fail:

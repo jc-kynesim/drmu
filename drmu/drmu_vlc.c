@@ -150,12 +150,12 @@ drmu_fb_vlc_pic_set_metadata(drmu_fb_t * const dfb, const picture_t * const pic)
 {
     struct hdr_output_metadata meta;
 
-    drmu_fb_int_color_set(dfb,
+    drmu_fb_color_set(dfb,
                           fb_vlc_color_encoding(&pic->format),
                           fb_vlc_color_range(&pic->format),
                           fb_vlc_colorspace(&pic->format));
 
-    drmu_fb_int_chroma_siting_set(dfb, fb_vlc_chroma_siting(&pic->format));
+    drmu_fb_chroma_siting_set(dfb, fb_vlc_chroma_siting(&pic->format));
 
     drmu_fb_hdr_metadata_set(dfb, pic_hdr_metadata(&meta, &pic->format) == 0 ? &meta : NULL);
 }

@@ -1252,7 +1252,7 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
 }
 
 void
-drmu_fb_int_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space)
+drmu_fb_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space)
 {
     dfb->color_encoding = enc;
     dfb->color_range    = range;
@@ -1260,7 +1260,7 @@ drmu_fb_int_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, con
 }
 
 void
-drmu_fb_int_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting)
+drmu_fb_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting)
 {
     dfb->chroma_siting   = siting;
 }

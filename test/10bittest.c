@@ -228,7 +228,7 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
         rv = -ENOMEM;
         goto fail;
     }
-    drmu_fb_int_color_set(fb, DRMU_COLOR_ENCODING_BT2020, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE, DRMU_COLORSPACE_BT2020_RGB);
+    drmu_fb_color_set(fb, DRMU_COLOR_ENCODING_BT2020, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE, DRMU_COLORSPACE_BT2020_RGB);
 
     if (dofrac)
         drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
@@ -570,7 +570,7 @@ int main(int argc, char *argv[])
         goto fail;
     }
 
-    drmu_fb_int_color_set(fb1, encoding, range, colorspace);
+    drmu_fb_color_set(fb1, encoding, range, colorspace);
     printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
 
     // Start with grey fill
