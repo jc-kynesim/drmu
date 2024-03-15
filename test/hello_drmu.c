@@ -51,6 +51,7 @@
 static enum AVPixelFormat hw_pix_fmt;
 static FILE *output_file = NULL;
 static long frames = 0;
+static bool wants_modeset = false;
 
 static AVFilterContext *buffersink_ctx = NULL;
 static AVFilterContext *buffersrc_ctx = NULL;
@@ -139,9 +140,10 @@ static int decode_write(AVCodecContext * const avctx,
                         fprintf(stderr, "Failed to get frame: %s", av_err2str(ret));
                     goto fail;
                 }
-                drmprime_out_modeset(dpo, av_buffersink_get_w(buffersink_ctx), av_buffersink_get_h(buffersink_ctx), av_buffersink_get_time_base(buffersink_ctx));
+                if (wants_modeset)
+                    drmprime_out_modeset(dpo, av_buffersink_get_w(buffersink_ctx), av_buffersink_get_h(buffersink_ctx), av_buffersink_get_time_base(buffersink_ctx));
             }
-            else {
+            else if (wants_modeset) {
                 drmprime_out_modeset(dpo, avctx->coded_width, avctx->coded_height, avctx->framerate);
             }
 
@@ -300,6 +302,9 @@ void usage()
     fprintf(stderr,
             "Usage: hello_drmprime [-l loop_count] [-f <frames>] [-o yuv_output_file]\n"
             "                      [--deinterlace] [--pace-input <hz>]\n"
+            "                      [--modeset]\n"
+            "                      [--ticker <text>]\n"
+            "                      [--cube]\n"
             "                      <input file> [<input_file> ...]\n");
     exit(1);
 }
@@ -329,6 +334,9 @@ int main(int argc, char *argv[])
     const char * out_name = NULL;
     bool wants_deinterlace = false;
     long pace_input_hz = 0;
+    bool try_hw = true;
+    bool wants_cube = false;
+    const char * ticker_text = NULL;
 
     {
         char * const * a = argv + 1;
@@ -375,6 +383,19 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "--deinterlace") == 0) {
                 wants_deinterlace = true;
             }
+            else if (strcmp(arg, "--cube") == 0) {
+                wants_cube = true;
+            }
+            else if (strcmp(arg, "--modeset") == 0) {
+                wants_modeset = true;
+            }
+            else if (strcmp(arg, "--ticker") == 0) {
+                if (n == 0)
+                    usage();
+                ticker_text = *a;
+                --n;
+                ++a;
+            }
             else if (strcmp(arg, "--") == 0) {
                 --n;  // If we are going to break out then need to dec count like in the while
                 break;
@@ -416,6 +437,12 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (wants_cube)
+        drmprime_out_runcube_start(dpo);
+
+    if (ticker_text != NULL)
+        drmprime_out_runticker_start(dpo, ticker_text);
+
 loopy:
     in_file = in_filelist[in_n];
     if (++in_n >= in_count)
@@ -432,6 +459,7 @@ loopy:
         return -1;
     }
 
+retry_hw:
     /* find the video stream information */
     ret = av_find_best_stream(input_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, &decoder, 0);
     if (ret < 0) {
@@ -440,7 +468,10 @@ loopy:
     }
     video_stream = ret;
 
-    if (decoder->id == AV_CODEC_ID_H264) {
+    if (!try_hw) {
+        hw_pix_fmt = AV_PIX_FMT_NONE;
+    }
+    else if (decoder->id == AV_CODEC_ID_H264) {
         if ((decoder = avcodec_find_decoder_by_name("h264_v4l2m2m")) == NULL) {
             fprintf(stderr, "Cannot find the h264 v4l2m2m decoder\n");
             return -1;
@@ -470,17 +501,37 @@ loopy:
     if (avcodec_parameters_to_context(decoder_ctx, video->codecpar) < 0)
         return -1;
 
-    decoder_ctx->get_format  = get_hw_format;
+    if (try_hw) {
+        decoder_ctx->get_format  = get_hw_format;
 
-    if (hw_decoder_init(decoder_ctx, type) < 0)
-        return -1;
+        if (hw_decoder_init(decoder_ctx, type) < 0)
+            return -1;
 
-    decoder_ctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
-    decoder_ctx->sw_pix_fmt = AV_PIX_FMT_NONE;
-    decoder_ctx->thread_count = 3;
-    decoder_ctx->flags = AV_CODEC_FLAG_LOW_DELAY;
+        decoder_ctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        decoder_ctx->sw_pix_fmt = AV_PIX_FMT_NONE;
+        decoder_ctx->thread_count = 3;
+        decoder_ctx->flags = AV_CODEC_FLAG_LOW_DELAY;
+    }
+    else {
+        decoder_ctx->get_buffer2 = drmprime_out_get_buffer2;
+        decoder_ctx->opaque = dpo;
+    }
+
+#if LIBAVCODEC_VERSION_MAJOR < 60
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    decoder_ctx->thread_safe_callbacks = 1;
+#pragma GCC diagnostic pop
+#endif
 
     if ((ret = avcodec_open2(decoder_ctx, decoder, NULL)) < 0) {
+        if (try_hw) {
+            try_hw = false;
+            avcodec_free_context(&decoder_ctx);
+
+            printf("H/w init failed - trying s/w\n");
+            goto retry_hw;
+        }
         fprintf(stderr, "Failed to open codec for stream #%u\n", video_stream);
         return -1;
     }

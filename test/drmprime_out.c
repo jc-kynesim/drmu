@@ -22,12 +22,17 @@
 // *** This module is a work in progress and its utility is strictly
 //     limited to testing.
 
+#include "drmprime_out.h"
+
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 #include <pthread.h>
 #include <semaphore.h>
+
+#include <sys/eventfd.h>
 
 #include "libavutil/frame.h"
 #include "libavcodec/avcodec.h"
@@ -36,15 +41,21 @@
 #include "config.h"
 #include "drmu.h"
 #include "drmu_av.h"
+#include "drmu_dmabuf.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include <drm_fourcc.h>
+
+#include "cube/runcube.h"
+
+#include "freetype/runticker.h"
 
 #define TRACE_ALL 0
 
 #define DRM_MODULE "vc4"
 
-typedef struct drmprime_out_env_s
+struct drmprime_out_env_s
 {
     drmu_env_t * du;
     drmu_output_t * dout;
@@ -54,11 +65,80 @@ typedef struct drmprime_out_env_s
 
     int mode_id;
     drmu_mode_simple_params_t picked;
-} drmprime_out_env_t;
+
+    bool prod_wait;
+    int prod_fd;
+
+    runticker_env_t * rte;
+    runcube_env_t * rce;
+};
+
+typedef struct gb2_dmabuf_s
+{
+    drmu_fb_t * fb;
+} gb2_dmabuf_t;
+
+static void
+do_prod(void *v)
+{
+    static const uint64_t one = 1;
+    drmprime_out_env_t *const dpo = v;
+    write(dpo->prod_fd, &one, sizeof(one));
+}
+
+static void gb2_free(void * v, uint8_t * data)
+{
+    gb2_dmabuf_t * const gb2 = v;
+    (void)data;
+
+    drmu_fb_unref(&gb2->fb);
+    free(gb2);
+}
+
+// Assumes drmprime_out_env in s->opaque
+int drmprime_out_get_buffer2(struct AVCodecContext *s, AVFrame *frame, int flags)
+{
+    drmprime_out_env_t * const dpo = s->opaque;
+    int align[AV_NUM_DATA_POINTERS];
+    int w = frame->width;
+    int h = frame->height;
+    uint64_t mod;
+    const uint32_t fmt = drmu_av_fmt_to_drm(frame->format, &mod);
+    unsigned int i;
+    unsigned int layers;
+    const drmu_fmt_info_t * fmti;
+    gb2_dmabuf_t * gb2;
+    (void)flags;
+
+    assert((s->codec->capabilities & AV_CODEC_CAP_DR1) != 0);
+    assert(fmt != 0);
+
+    // Alignment logic taken directly from avcodec_default_get_buffer2
+    avcodec_align_dimensions2(s, &w, &h, align);
+
+    gb2 = calloc(1, sizeof(*gb2));
+    if ((gb2->fb = drmu_pool_fb_new(dpo->pic_pool, w, h, fmt, mod)) == NULL)
+        return AVERROR(ENOMEM);
+
+    frame->buf[0] = av_buffer_create((uint8_t*)gb2, sizeof(*gb2), gb2_free, gb2, 0);
+
+    fmti = drmu_fb_format_info_get(gb2->fb);
+    layers = drmu_fmt_info_plane_count(fmti);
+
+    for (i = 0; i != layers; ++i) {
+        frame->data[i] = drmu_fb_data(gb2->fb, i);
+        frame->linesize[i] = drmu_fb_pitch(gb2->fb, i);
+    }
+
+    drmu_fb_write_start(gb2->fb);
+
+    frame->opaque = dpo;
+    return 0;
+}
 
 int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
 {
-    AVFrame *frame;
+    bool is_prime;
 
     if ((src_frame->flags & AV_FRAME_FLAG_CORRUPT) != 0) {
         fprintf(stderr, "Discard corrupt frame: fmt=%d, ts=%" PRId64 "\n", src_frame->format, src_frame->pts);
@@ -66,34 +146,39 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
     }
 
     if (src_frame->format == AV_PIX_FMT_DRM_PRIME) {
-        frame = av_frame_alloc();
-        av_frame_ref(frame, src_frame);
-    } else if (src_frame->format == AV_PIX_FMT_VAAPI) {
-        frame = av_frame_alloc();
-        frame->format = AV_PIX_FMT_DRM_PRIME;
-        if (av_hwframe_map(frame, src_frame, 0) != 0) {
-            fprintf(stderr, "Failed to map frame (format=%d) to DRM_PRiME\n", src_frame->format);
-            av_frame_free(&frame);
-            return AVERROR(EINVAL);
-        }
-    } else {
-        fprintf(stderr, "Frame (format=%d) not DRM_PRiME\n", src_frame->format);
+        is_prime = true;
+    } else if (src_frame->opaque == de) {
+        is_prime = false;
+    }
+    else {
+        fprintf(stderr, "Frame (format=%d) not DRM_PRiME & frame->opaque not ours\n", src_frame->format);
         return AVERROR(EINVAL);
     }
 
-    drmu_env_queue_wait(de->du);
+    if (de->prod_wait) {
+        uint64_t buf[1];
+        de->prod_wait = false;
+        read(de->prod_fd, buf, 8);
+    }
+
     {
         drmu_atomic_t * da = drmu_atomic_new(de->du);
-        drmu_fb_t * dfb = drmu_fb_av_new_frame_attach(de->du, src_frame);
+        drmu_fb_t * dfb = is_prime ?
+            drmu_fb_av_new_frame_attach(de->du, src_frame) :
+            drmu_fb_ref(((gb2_dmabuf_t *)src_frame->buf[0]->data)->fb);
         const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
         drmu_rect_t r = drmu_rect_wh(sp->width, sp->height);
+
+        drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
+
+        if (!is_prime)
+            drmu_av_fb_frame_metadata_set(dfb, src_frame);
 
         if (de->dp == NULL) {
             de->dp = drmu_output_plane_ref_format(de->dout, 0, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
             if (!de->dp) {
                 fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
                 drmu_atomic_unref(&da);
-                av_frame_free(&frame);
                 return AVERROR(EINVAL);
             }
         }
@@ -119,12 +204,12 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
 #endif
         drmu_atomic_output_add_props(da, de->dout);
         drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
+        drmu_atomic_add_commit_callback(da, do_prod, de);
+        de->prod_wait = true;
 
         drmu_fb_unref(&dfb);
         drmu_atomic_queue(&da);
     }
-
-    av_frame_free(&frame);
 
     return 0;
 }
@@ -167,10 +252,15 @@ int drmprime_out_modeset(drmprime_out_env_t * de, int w, int h, const AVRational
 
 void drmprime_out_delete(drmprime_out_env_t *de)
 {
-    drmu_pool_delete(&de->pic_pool);
+    drmprime_out_runticker_stop(de);
+    drmprime_out_runcube_stop(de);
+
+    drmu_pool_unref(&de->pic_pool);
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);
     drmu_env_unref(&de->du);
+    if (de->prod_fd != -1)
+        close(de->prod_fd);
     free(de);
 }
 
@@ -196,6 +286,7 @@ drmprime_out_env_t* drmprime_out_new()
         return NULL;
 
     de->mode_id = -1;
+    de->prod_fd = -1;
 
     {
         const drmu_log_env_t log = {
@@ -219,7 +310,12 @@ drmprime_out_env_t* drmprime_out_new()
 
     drmu_output_max_bpc_allow(de->dout, true);
 
-    if ((de->pic_pool = drmu_pool_new(de->du, 5)) == NULL)
+    if ((de->prod_fd = eventfd(0, 0)) == -1) {
+        fprintf(stderr, "Failed to get event fd\n");
+        goto fail;
+    }
+
+    if ((de->pic_pool = drmu_pool_new_dmabuf_video(de->du, 32)) == NULL)
         goto fail;
 
     // Plane allocation delayed till we have a format - not all planes are idempotent
@@ -230,5 +326,51 @@ fail:
     drmprime_out_delete(de);
     fprintf(stderr, ">>> %s: FAIL\n", __func__);
     return NULL;
+}
+
+void drmprime_out_runticker_start(drmprime_out_env_t * const dpo, const char * const ticker_text)
+{
+#if HAS_RUNTICKER
+    const drmu_mode_simple_params_t * mode = drmu_output_mode_simple_params(dpo->dout);
+    static const char fontfile[] = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf";
+
+    if ((dpo->rte = runticker_start(dpo->dout,
+                               mode->width / 10, mode->height * 8/10, mode->width * 8/10, mode->height / 10,
+                               ticker_text, fontfile)) == NULL) {
+        fprintf(stderr, "Failed to create ticker\n");
+    }
+#else
+    (void)dpo;
+    (void)ticker_text;
+    fprintf(stderr, "Ticker support not compiled\n");
+#endif
+}
+
+void drmprime_out_runticker_stop(drmprime_out_env_t * const dpo)
+{
+#if HAS_RUNTICKER
+    runticker_stop(&dpo->rte);
+#else
+    (void)dpo;
+#endif
+}
+
+void drmprime_out_runcube_start(drmprime_out_env_t * const dpo)
+{
+#if HAS_RUNCUBE
+    dpo->rce = runcube_drmu_start(dpo->dout);
+#else
+    (void)dpo;
+    fprintf(stderr, "Cube support not compiled\n");
+#endif
+}
+
+void drmprime_out_runcube_stop(drmprime_out_env_t * const dpo)
+{
+#if HAS_RUNCUBE
+    runcube_drmu_stop(&dpo->rce);
+#else
+    (void)dpo;
+#endif
 }
 

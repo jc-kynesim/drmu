@@ -4,6 +4,13 @@ sudo apt install meson\
  libavutil-dev libavcodec-dev libavfilter-dev\
  libdrm-dev libxcb1-dev libxcb-randr0-dev libx11-dev\
  libx11-xcb-dev libxcb-dri3-dev
+
+# For ticker demos
+sudo apt install libfreetype-dev
+
+# For kmscube - other required libraries included in Pi desktop distribution
+sudo apt install libgbm-dev
+
 meson setup build
 cd build
 meson compile
@@ -11,7 +18,12 @@ meson compile
 This builds various executables
 
 hello_drmu    A demo of how to use drmu to play video from libav*
-              Very similar to my hello_drmprime project
+              Very similar to my hello_drmprime project.
+	      Note that it deliberately does not have audio or proper pacing;
+	      frames are played at one per vsync
+	      Has options to play a ticker and rotate a cube on top of the
+	      video if the freetype & cube libraries are built
+	      ./hello_drmu -h will give options
 
 resethdr      Trivial utility to reset HDR if it has become set and is burning
               your eyes
@@ -21,6 +33,13 @@ resethdr      Trivial utility to reset HDR if it has become set and is burning
               "./10bittest -h" should give options
 
 argbtest      Trivial test prog to check colour ordering in ARGB
+
+freetype/example1
+              A simple text scroller example based off the freetype tutorial
+	      example program
+
+cude/kmscube  The kmscube example extended to use drmu
+
 
 
 Meson setup options (defaults in []):
