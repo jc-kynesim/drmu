@@ -12,6 +12,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stdatomic.h>
@@ -888,6 +889,21 @@ drmu_bo_ref(drmu_bo_t * const bo)
     if (bo != NULL)
         atomic_fetch_add(&bo->ref_count, 1);
     return bo;
+}
+
+int
+drmu_bo_export_fd(drmu_bo_t * bo, uint32_t flags)
+{
+    struct drm_prime_handle prime_handle = {
+        .handle = bo->handle,
+        .flags = flags == 0 ? DRM_RDWR | DRM_CLOEXEC : flags,
+        .fd = 0
+    };
+
+   if (drmu_ioctl(bo->du, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime_handle) != 0)
+       return -1;
+
+   return prime_handle.fd;
 }
 
 static drmu_bo_t *

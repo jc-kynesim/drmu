@@ -225,6 +225,11 @@ int drmu_atomic_add_prop_range(struct drmu_atomic_s * const da, const uint32_t o
 
 struct drm_mode_create_dumb;
 
+// Create an fd from a bo
+// fd not tracked by the bo so it is the callers reponsibility to free it
+// if flags are 0 then RDWR | CLOEXEC will be used
+int drmu_bo_export_fd(drmu_bo_t * bo, uint32_t flags);
+
 void drmu_bo_unref(drmu_bo_t ** const ppbo);
 drmu_bo_t * drmu_bo_ref(drmu_bo_t * const bo);
 drmu_bo_t * drmu_bo_new_fd(drmu_env_t *const du, const int fd);
