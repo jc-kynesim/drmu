@@ -576,6 +576,15 @@ int drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags);
 // This does NOT remove failing props from da.  If da_fail == NULL then same as _commit
 int drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_atomic_t * const da_fail);
 
+// Add a callback that occurs when the atomic has been committed
+// This will occur on flip if atomic queued via _atomic_queue - if multiple
+// atomics are queued before flip then all fill occur on the same flip
+// If cb is 0 then NOP
+typedef void drmu_atomic_commit_fn(void * v);
+int drmu_atomic_add_commit_callback(drmu_atomic_t * const da, drmu_atomic_commit_fn * const cb, void * const v);
+// Clear all commit callbacks from this atomic
+void drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da);
+
 typedef void drmu_prop_unref_fn(void * v);
 typedef void drmu_prop_ref_fn(void * v);
 typedef void drmu_prop_commit_fn(void * v, uint64_t value);

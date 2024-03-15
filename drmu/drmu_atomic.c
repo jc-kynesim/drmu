@@ -33,18 +33,42 @@ typedef struct aprop_hdr_s {
     aprop_obj_t * objs;
 } aprop_hdr_t;
 
+typedef struct atomic_cb_s {
+    struct atomic_cb_s * next;
+    void * v;
+    drmu_atomic_commit_fn * cb;
+} atomic_cb_t;
+
 typedef struct drmu_atomic_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
 
     struct drmu_env_s * du;
 
     aprop_hdr_t props;
+
+    atomic_cb_t * commit_cb_q;
+    atomic_cb_t ** commit_cb_last_ptr;
 } drmu_atomic_t;
 
 static inline unsigned int
 max_uint(const unsigned int a, const unsigned int b)
 {
     return a < b ? b : a;
+}
+
+atomic_cb_t *
+atomic_cb_new(drmu_atomic_commit_fn * cb, void * v)
+{
+    atomic_cb_t * acb = malloc(sizeof(*acb));
+    if (acb == NULL)
+        return NULL;
+
+    *acb = (atomic_cb_t){
+        .next = NULL,
+        .cb = cb,
+        .v = v
+    };
+    return acb;
 }
 
 static void
@@ -552,6 +576,36 @@ drmu_prop_fn_null_commit(void * v, uint64_t value)
 }
 
 int
+drmu_atomic_add_commit_callback(drmu_atomic_t * const da, drmu_atomic_commit_fn * const cb, void * const v)
+{
+    if (cb) {
+        atomic_cb_t *acb = atomic_cb_new(cb, v);
+        if (acb == NULL)
+            return -ENOMEM;
+
+        *da->commit_cb_last_ptr = acb;
+        da->commit_cb_last_ptr = &acb->next;
+    }
+
+    return 0;
+}
+
+void
+drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da)
+{
+    atomic_cb_t *p = da->commit_cb_q;
+
+    da->commit_cb_q = NULL;
+    da->commit_cb_last_ptr = &da->commit_cb_q;
+
+    while (p != NULL) {
+        atomic_cb_t * const next = p->next;
+        free(p);
+        p = next;
+    }
+}
+
+int
 drmu_atomic_add_prop_generic(drmu_atomic_t * const da,
                   const uint32_t obj_id, const uint32_t prop_id, const uint64_t value,
                   const drmu_atomic_prop_fns_t * const fns, void * const v)
@@ -604,6 +658,7 @@ drmu_atomic_env(const drmu_atomic_t * const da)
 static void
 drmu_atomic_free(drmu_atomic_t * const da)
 {
+    drmu_atomic_clear_commit_callbacks(da);
     aprop_hdr_uninit(&da->props);
     free(da);
 }
@@ -638,11 +693,13 @@ drmu_atomic_new(drmu_env_t * const du)
         return NULL;
     }
     da->du = du;
+    da->commit_cb_last_ptr = &da->commit_cb_q;
 
     return da;
 }
 
 // Merge b into a. b is unrefed (inc on error)
+// Commit cbs are added
 int
 drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
 {
@@ -663,10 +720,19 @@ drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
 
     // If this is the only copy of b then use it directly otherwise
     // copy before (probably) making it unusable
-    if (atomic_load(&b->ref_count) == 0)
+    if (atomic_load(&b->ref_count) == 0) {
         rv = aprop_hdr_move(&bh, &b->props);
-    else
+        if (rv == 0 && b->commit_cb_q != NULL) {
+            *a->commit_cb_last_ptr = b->commit_cb_q;
+            a->commit_cb_last_ptr = b->commit_cb_last_ptr;
+            b->commit_cb_q = NULL;
+        }
+    }
+    else {
         rv = aprop_hdr_copy(&bh, &b->props);
+        for (atomic_cb_t * p = b->commit_cb_q; rv == 0 && p != NULL; p = p->next)
+            rv = drmu_atomic_add_commit_callback(a, p->cb, p->v);
+    }
     drmu_atomic_unref(&b);
 
     if (rv != 0) {
@@ -799,7 +865,12 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
 
         aprop_hdr_atomic_fill(&da->props, obj_ids, prop_counts, prop_ids, prop_values);
 
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic)) == 0 || !da_fail)
+        rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic);
+
+        for (atomic_cb_t * p = da->commit_cb_q; p != NULL; p = p->next)
+            p->cb(p->v);
+
+        if (rv  == 0 || !da_fail)
             return rv;
 
         for (;;) {
