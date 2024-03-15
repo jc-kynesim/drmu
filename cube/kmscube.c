@@ -41,12 +41,13 @@ static const struct egl *egl;
 static const struct gbm *gbm;
 static const struct drm *drm;
 
-static const char *shortopts = "Ac:D:f:gM:m:n:Op:S:s:V:v:x";
+static const char *shortopts = "Ac:D:f:gM:m:n:Op:S:s:uV:v:x";
 
 static const struct option longopts[] = {
 	{"atomic", no_argument,       0, 'A'},
 	{"count",  required_argument, 0, 'c'},
 	{"device", required_argument, 0, 'D'},
+	{"drmu",   no_argument,       0, 'u'},
 	{"format", required_argument, 0, 'f'},
 	{"gears",  no_argument,       0, 'g'},
 	{"mode",   required_argument, 0, 'M'},
@@ -83,6 +84,7 @@ static void usage(const char *name)
 			"                             the AMD_performance_monitor extension (comma\n"
 			"                             separated list, shadertoy mode only)\n"
 			"    -S, --shadertoy=FILE     use specified shadertoy shader\n"
+			"    -u, --drmu               use drmu\n"
 			"    -s, --samples=N          use MSAA\n"
 			"    -V, --video=FILE         video textured cube (comma separated list)\n"
 			"    -v, --vmode=VMODE        specify the video mode in the format\n"
@@ -108,6 +110,7 @@ int main(int argc, char *argv[])
 	int gears = 0;
 	int offscreen = 0;
 	int connector_id = -1;
+	int drmu = 0;
 	int opt;
 	unsigned int len;
 	unsigned int vrefresh = 0;
@@ -182,6 +185,9 @@ int main(int argc, char *argv[])
 		case 's':
 			samples = strtoul(optarg, NULL, 0);
 			break;
+		case 'u':
+			drmu = 1;
+			break;
 		case 'V':
 			mode = VIDEO;
 			video = optarg;
@@ -213,7 +219,9 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if (offscreen)
+	if (drmu)
+		drm = init_drmu(device, mode_str, count, format);
+	else if (offscreen)
 		drm = init_drm_offscreen(device, mode_str, count);
 	else if (atomic)
 		drm = init_drm_atomic(device, mode_str, connector_id, vrefresh, count);
@@ -226,6 +234,9 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	if (drmu)
+		gbm = init_gbm_drmu(drm->du, drm->mode->hdisplay, drm->mode->vdisplay, format, modifier);
+	else
 	gbm = init_gbm(drm->fd, drm->mode->hdisplay, drm->mode->vdisplay,
 			format, modifier, surfaceless);
 	if (!gbm) {
@@ -258,7 +269,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* clear the color buffer */
-	glClearColor(0.5, 0.5, 0.5, 1.0);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	return drm->run(gbm, egl);

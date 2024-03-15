@@ -814,7 +814,7 @@ static const struct option longopts[] = {
 
 static void usage(const char *name)
 {
-	printf("Usage: %1$s [-Dvz] <target> <format> <minsize> [<maxsize>]\n"
+	printf("Usage: %s [-Dvz] <target> <format> <minsize> [<maxsize>]\n"
 		"\n"
 		"options:\n"
 		"    -D, --device=DEVICE  use the given device\n"
@@ -834,8 +834,8 @@ static void usage(const char *name)
 		"    <size>    is XxY (2D) or XxYxZ (2DArray/3D)\n"
 		"\n"
 		"example:\n"
-		"    %1$s -z 3D RG16UI 37x65x4\n"
-		, name);
+		"    %s -z 3D RG16UI 37x65x4\n"
+		, name, name);
 	exit(-1);
 }
 

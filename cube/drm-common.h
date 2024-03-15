@@ -24,6 +24,7 @@
 #ifndef _DRM_COMMON_H
 #define _DRM_COMMON_H
 
+#include <semaphore.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -48,6 +49,10 @@ struct connector {
 	drmModePropertyRes **props_info;
 };
 
+struct drmu_env_s;
+struct drmu_output_s;
+struct drmu_plane_s;
+
 struct drm {
 	int fd;
 
@@ -66,6 +71,15 @@ struct drm {
 	/* number of frames to run for: */
 	unsigned int count;
 
+	// drmu vars
+	struct drmu_env_s * du;
+	struct drmu_output_s * dout;
+	struct drmu_plane_s * dp;
+	sem_t commit_sem;
+
+	unsigned int buf_no;
+	unsigned int run_no;
+
 	int (*run)(const struct gbm *gbm, const struct egl *egl);
 };
 
@@ -75,11 +89,20 @@ struct drm_fb {
 };
 
 struct drm_fb * drm_fb_get_from_bo(struct gbm_bo *bo);
+struct drmu_env_s;
+struct drmu_output_s;
 
 int init_drm(struct drm *drm, const char *device, const char *mode_str, int connector_id, unsigned int vrefresh, unsigned int count);
 int init_drm_render(struct drm *drm, const char *device, const char *mode_str, unsigned int count);
 const struct drm * init_drm_legacy(const char *device, const char *mode_str, int connector_id, unsigned int vrefresh, unsigned int count);
 const struct drm * init_drm_atomic(const char *device, const char *mode_str, int connector_id, unsigned int vrefresh, unsigned int count);
 const struct drm * init_drm_offscreen(const char *device, const char *mode_str, unsigned int count);
+
+const struct drm * init_drmu(const char *device, const char *mode_str, unsigned int count, const uint32_t format);
+struct drm * init_drmu_dout(struct drmu_output_s * const dout, unsigned int count, const uint32_t format);
+
+const struct gbm * init_gbm_drmu(struct drmu_env_s * du, int w, int h, uint32_t format, uint64_t modifier);
+
+void cube_run_drmu(struct drm * const drm, const struct gbm * const gbm, const struct egl * const egl);
 
 #endif /* _DRM_COMMON_H */

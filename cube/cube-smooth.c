@@ -178,7 +178,7 @@ static void draw_cube_smooth(unsigned i)
 	ESMatrix modelview;
 
 	/* clear the color buffer */
-	glClearColor(0.5, 0.5, 0.5, 1.0);
+	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	esMatrixLoadIdentity(&modelview);

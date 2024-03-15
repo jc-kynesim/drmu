@@ -34,6 +34,7 @@
 #include <gbm.h>
 #include <drm_fourcc.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
@@ -98,12 +99,17 @@ EGLAPI EGLSurface EGLAPIENTRY eglCreatePlatformPixmapSurfaceEXT (EGLDisplay dpy,
 
 #define NUM_BUFFERS 2
 
+struct drmu_env_s;
+struct drmu_fb_s;
+
 struct gbm {
 	struct gbm_device *dev;
 	struct gbm_surface *surface;
 	struct gbm_bo *bos[NUM_BUFFERS];    /* for the surfaceless case */
 	uint32_t format;
 	int width, height;
+
+	struct drmu_fb_s *dfbs[NUM_BUFFERS];
 };
 
 const struct gbm * init_gbm(int drm_fd, int w, int h, uint32_t format, uint64_t modifier, bool surfaceless);
@@ -149,16 +155,16 @@ struct egl {
 	void (*draw)(unsigned i);
 };
 
-static inline int __egl_check(void *ptr, const char *name)
+static inline int __egl_check(bool bad, const char *name)
 {
-	if (!ptr) {
+	if (bad) {
 		printf("no %s\n", name);
 		return -1;
 	}
 	return 0;
 }
 
-#define egl_check(egl, name) __egl_check((egl)->name, #name)
+#define egl_check(egl, name) __egl_check(!(egl)->name, #name)
 
 int init_egl(struct egl *egl, const struct gbm *gbm, int samples);
 int create_program(const char *vs_src, const char *fs_src);
