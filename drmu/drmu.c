@@ -28,6 +28,8 @@
 #include <libdrm/drm_fourcc.h>
 #include <xf86drm.h>
 
+#include <linux/dma-buf.h>
+
 #define TRACE_PROP_NEW 0
 
 #ifndef OPT_IO_CALLOC
@@ -1031,6 +1033,8 @@ typedef struct drmu_fb_s {
     drmu_rect_t active;     // Area that was asked for inside the buffer; pixels
     drmu_rect_t crop;       // Cropping inside that; fractional pels (16.16, 16.16)
 
+    int buf_fd;
+
     void * map_ptr;
     size_t map_size;
     size_t map_pitch;
@@ -1112,6 +1116,9 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
 
     for (i = 0; i != 4; ++i)
         drmu_bo_unref(dfb->bo_list + i);
+
+    if (dfb->buf_fd != -1)
+        close(dfb->buf_fd);
 
     // Call on_delete last so we have stopped using anything that might be
     // freed by it
@@ -1211,6 +1218,12 @@ drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer)
     return (layer >= 4 || dfb->map_ptr == NULL) ? NULL : (uint8_t * )dfb->map_ptr + dfb->fb.offsets[layer];
 }
 
+drmu_bo_t *
+drmu_fb_bo(const drmu_fb_t * const dfb, const unsigned int layer)
+{
+    return (layer >= 4) ? NULL : dfb->bo_list[layer];
+}
+
 uint32_t
 drmu_fb_width(const drmu_fb_t *const dfb)
 {
@@ -1292,6 +1305,20 @@ void
 drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo)
 {
     dfb->bo_list[i] = bo;
+}
+
+void
+drmu_fb_int_fd_set(drmu_fb_t *const dfb, const int fd)
+{
+    dfb->buf_fd = fd;
+}
+
+void
+drmu_fb_int_mmap_set(drmu_fb_t *const dfb, void * const buf, const size_t size, const size_t pitch)
+{
+    dfb->map_ptr = buf;
+    dfb->map_size = size;
+    dfb->map_pitch = pitch;
 }
 
 void
@@ -1388,6 +1415,7 @@ drmu_fb_int_alloc(drmu_env_t * const du)
 
     dfb->du = du;
     dfb->chroma_siting = DRMU_CHROMA_SITING_UNSPECIFIED;
+    dfb->buf_fd = -1;
     dfb->fence_fd = -1;
     return dfb;
 }
@@ -1411,6 +1439,43 @@ drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane)
     return plane >= 4 ? DRM_FORMAT_MOD_INVALID : dfb->fb.modifier[plane];
 }
 
+static int
+fb_sync(drmu_fb_t * const dfb, unsigned int flags)
+{
+    struct dma_buf_sync sync = {
+        .flags = flags
+    };
+    if (dfb->buf_fd == -1 || dfb->map_ptr == NULL)
+        return 0;
+    while (ioctl(dfb->buf_fd, DMA_BUF_IOCTL_SYNC, &sync) == -1) {
+        const int err = errno;
+        if (errno == EINTR)
+            continue;
+        drmu_debug(dfb->du, "%s: ioctl failed: flags=%#x\n", __func__, flags);
+        return -err;
+    }
+    return 0;
+}
+
+int drmu_fb_write_start(drmu_fb_t * const dfb)
+{
+    return fb_sync(dfb, DMA_BUF_SYNC_START | DMA_BUF_SYNC_WRITE);
+}
+
+int drmu_fb_write_end(drmu_fb_t * const dfb)
+{
+    return fb_sync(dfb, DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE);
+}
+
+int drmu_fb_read_start(drmu_fb_t * const dfb)
+{
+    return fb_sync(dfb, DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ);
+}
+
+int drmu_fb_read_end(drmu_fb_t * const dfb)
+{
+    return fb_sync(dfb, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+}
 
 // Writeback fence
 // Must be unset before set again
@@ -1530,19 +1595,24 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
         struct drm_mode_map_dumb map_dumb = {
             .handle = dfb->bo_list[0]->handle
         };
+        void * map_ptr;
+
         if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb)) != 0)
         {
             drmu_err(du, "%s: map dumb failed: %s", __func__, strerror(-rv));
             goto fail;
         }
 
-        if ((dfb->map_ptr = mmap(NULL, dfb->map_size,
-                                 PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
-                                 drmu_fd(du), map_dumb.offset)) == MAP_FAILED) {
+        // Avoid having to test for MAP_FAILED when testing for mapped/unmapped
+        if ((map_ptr = mmap(NULL, dfb->map_size,
+                            PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
+                            drmu_fd(du), map_dumb.offset)) == MAP_FAILED) {
             drmu_err(du, "%s: mmap failed (size=%zd, fd=%d, off=%#"PRIx64"): %s", __func__,
                      dfb->map_size, drmu_fd(du), map_dumb.offset, strerror(errno));
             goto fail;
         }
+
+        dfb->map_ptr = map_ptr;
     }
 
     fb_pitches_set_mod(dfb, mod);
