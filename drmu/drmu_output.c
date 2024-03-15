@@ -580,6 +580,12 @@ drmu_output_conn(const drmu_output_t * const dout, const unsigned int n)
     return !dout || n >= dout->conn_n ? NULL : dout->dns[n];
 }
 
+drmu_env_t *
+drmu_output_env(const drmu_output_t * const dout)
+{
+    return dout->du;
+}
+
 static void
 output_free(drmu_output_t * const dout)
 {

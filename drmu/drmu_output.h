@@ -66,6 +66,9 @@ int drmu_output_add_writeback(drmu_output_t * const dout);
 drmu_crtc_t * drmu_output_crtc(const drmu_output_t * const dout);
 drmu_conn_t * drmu_output_conn(const drmu_output_t * const dout, const unsigned int n);
 
+// Return the in-use drmu environment
+drmu_env_t * drmu_output_env(const drmu_output_t * const dout);
+
 // Create a new empty output - has no crtc or conn
 drmu_output_t * drmu_output_new(drmu_env_t * const du);
 
