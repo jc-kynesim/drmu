@@ -3168,32 +3168,35 @@ drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_
 }
 
 int
+drmu_atomic_plane_clear_add(drmu_atomic_t * const da, drmu_plane_t * const dp)
+{
+    return plane_set_atomic(da, dp, NULL,
+                            0, 0, 0, 0,
+                            0, 0, 0, 0);
+}
+
+int
 drmu_atomic_plane_add_fb(drmu_atomic_t * const da, drmu_plane_t * const dp,
     drmu_fb_t * const dfb, const drmu_rect_t pos)
 {
     int rv;
     const uint32_t plid = dp->plane.plane_id;
 
-    if (dfb == NULL) {
-        rv = plane_set_atomic(da, dp, NULL,
-                              0, 0, 0, 0,
-                              0, 0, 0, 0);
-    }
-    else {
-        rv = plane_set_atomic(da, dp, dfb,
+    if (dfb == NULL)
+        return drmu_atomic_plane_clear_add(da, dp);
+
+    if ((rv = plane_set_atomic(da, dp, dfb,
                               pos.x, pos.y,
                               pos.w, pos.h,
                               dfb->crop.x + (dfb->active.x << 16), dfb->crop.y + (dfb->active.y << 16),
-                              dfb->crop.w, dfb->crop.h);
-    }
-    if (rv != 0 || dfb == NULL)
+                              dfb->crop.w, dfb->crop.h)) != 0)
         return rv;
 
     drmu_atomic_add_prop_enum(da, plid, dp->pid.pixel_blend_mode, dfb->pixel_blend_mode);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_encoding,   dfb->color_encoding);
     drmu_atomic_add_prop_enum(da, plid, dp->pid.color_range,      dfb->color_range);
     drmu_atomic_plane_add_chroma_siting(da, dp, dfb->chroma_siting);
-    return rv != 0 ? -errno : 0;
+    return 0;
 }
 
 uint32_t

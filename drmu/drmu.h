@@ -489,7 +489,11 @@ int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_p
 
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);
 
+// Set FB to 0 (i.e. clear the plane)
+int drmu_atomic_plane_clear_add(struct drmu_atomic_s * const da, drmu_plane_t * const dp);
+
 // Adds the fb to the plane along with all fb properties that apply to a plane
+// If fb == NULL is equivalent to _plane_clear_add
 // pos is dest rect on the plane in full pixels (not frac)
 int drmu_atomic_plane_add_fb(struct drmu_atomic_s * const da, drmu_plane_t * const dp, drmu_fb_t * const dfb, const drmu_rect_t pos);
 
