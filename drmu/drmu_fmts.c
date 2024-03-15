@@ -39,8 +39,12 @@ typedef struct drmu_fmt_info_s {
 #define P_YUV422    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}}
 #define P_YUV444    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
 
-// Not const 'cos we sort in place when creating the sorted version
-static drmu_fmt_info_t format_info[] = {
+static
+// Not const when creating the sorted version 'cos we sort in place
+#if !BUILD_MK_SORTED_FMTS_H
+const
+#endif
+drmu_fmt_info_t format_info[] = {
     { .fourcc = DRM_FORMAT_XRGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_XBGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
     { .fourcc = DRM_FORMAT_RGBX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
