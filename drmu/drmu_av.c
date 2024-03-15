@@ -1,5 +1,7 @@
-#include "drmu.h"
 #include "drmu_av.h"
+
+#include "drmu.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 
 #include <limits.h>
@@ -8,6 +10,69 @@
 #include <libavutil/hwcontext_drm.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/pixfmt.h>
+
+#include <libdrm/drm_fourcc.h>
+
+static const struct {
+    enum AVPixelFormat pixfmt;
+    uint32_t drm_format;
+    uint64_t mod; // 0 = LINEAR
+} fmt_table[] = {
+    // Monochrome.
+#ifdef DRM_FORMAT_R8
+    { AV_PIX_FMT_GRAY8,    DRM_FORMAT_R8,      DRM_FORMAT_MOD_LINEAR},
+#endif
+#ifdef DRM_FORMAT_R16
+    { AV_PIX_FMT_GRAY16LE, DRM_FORMAT_R16,     DRM_FORMAT_MOD_LINEAR},
+    { AV_PIX_FMT_GRAY16BE, DRM_FORMAT_R16      | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+#endif
+    // <8-bit RGB.
+    { AV_PIX_FMT_BGR8,     DRM_FORMAT_BGR233,  DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGB555LE, DRM_FORMAT_XRGB1555, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGB555BE, DRM_FORMAT_XRGB1555 | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGR555LE, DRM_FORMAT_XBGR1555, DRM_FORMAT_MOD_LINEAR},
+    { AV_PIX_FMT_BGR555BE, DRM_FORMAT_XBGR1555 | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGB565LE, DRM_FORMAT_RGB565,  DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGB565BE, DRM_FORMAT_RGB565   | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGR565LE, DRM_FORMAT_BGR565,  DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGR565BE, DRM_FORMAT_BGR565   | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+    // 8-bit RGB.
+    { AV_PIX_FMT_RGB24,    DRM_FORMAT_RGB888,   DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGR24,    DRM_FORMAT_BGR888,   DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_0RGB,     DRM_FORMAT_BGRX8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_0BGR,     DRM_FORMAT_RGBX8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGB0,     DRM_FORMAT_XBGR8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGR0,     DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_ARGB,     DRM_FORMAT_BGRA8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_ABGR,     DRM_FORMAT_RGBA8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_RGBA,     DRM_FORMAT_ABGR8888, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_BGRA,     DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_LINEAR },
+    // 10-bit RGB.
+    { AV_PIX_FMT_X2RGB10LE, DRM_FORMAT_XRGB2101010, DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_X2RGB10BE, DRM_FORMAT_XRGB2101010 | DRM_FORMAT_BIG_ENDIAN, DRM_FORMAT_MOD_LINEAR },
+    // 8-bit YUV 4:2:0.
+    { AV_PIX_FMT_YUV420P,  DRM_FORMAT_YUV420,  DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_NV12,     DRM_FORMAT_NV12,    DRM_FORMAT_MOD_LINEAR },
+    // 8-bit YUV 4:2:2.
+    { AV_PIX_FMT_YUYV422,  DRM_FORMAT_YUYV,    DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_YVYU422,  DRM_FORMAT_YVYU,    DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_UYVY422,  DRM_FORMAT_UYVY,    DRM_FORMAT_MOD_LINEAR },
+    { AV_PIX_FMT_NONE,     0,                  DRM_FORMAT_MOD_INVALID }
+};
+
+uint32_t
+drmu_av_fmt_to_drm(enum AVPixelFormat pixfmt, uint64_t * pMod)
+{
+    unsigned int i;
+    for (i = 0; fmt_table[i].pixfmt != AV_PIX_FMT_NONE; ++i) {
+        if (fmt_table[i].pixfmt == pixfmt)
+            break;
+    }
+    if (pMod != NULL)
+        *pMod = fmt_table[i].mod;
+    return fmt_table[i].drm_format;
+}
+
 
 typedef struct fb_aux_buf_s {
     AVBufferRef * buf;
