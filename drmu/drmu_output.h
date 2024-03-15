@@ -70,6 +70,7 @@ drmu_conn_t * drmu_output_conn(const drmu_output_t * const dout, const unsigned 
 drmu_env_t * drmu_output_env(const drmu_output_t * const dout);
 
 // Create a new empty output - has no crtc or conn
+// Takes a ref on the env  (released when the output is deleted)
 drmu_output_t * drmu_output_new(drmu_env_t * const du);
 
 // Increment ref count on an output - cannot fail
