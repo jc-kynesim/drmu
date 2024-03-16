@@ -2785,9 +2785,9 @@ drmu_atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
         drmu_err(du, "%s: User data el (%p) != cur (%p)", __func__, da, aq->cur_flip);
     }
 
-    drmu_atomic_unref(&aq->last_flip);
-    aq->last_flip = aq->cur_flip;
-    aq->cur_flip = NULL;
+    // Must merge cur into last rather than just replace last as there may
+    // still be things on screen not updated by the current commit
+    drmu_atomic_move_merge(&aq->last_flip, &aq->cur_flip);
 
     if (aq->next_flip != NULL)
         atomic_q_attempt_commit_next(aq);
