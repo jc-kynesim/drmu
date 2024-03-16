@@ -698,50 +698,68 @@ drmu_atomic_new(drmu_env_t * const du)
     return da;
 }
 
+drmu_atomic_t *
+drmu_atomic_copy(drmu_atomic_t * const b)
+{
+    drmu_atomic_t * a;
+
+    if (b == NULL || (a = drmu_atomic_new(b->du)) == NULL)
+        return NULL;
+
+    if (aprop_hdr_copy(&a->props, &b->props) != 0)
+        goto fail;
+    for (atomic_cb_t * p = b->commit_cb_q; p != NULL; p = p->next)
+        if (drmu_atomic_add_commit_callback(a, p->cb, p->v) != 0)
+            goto fail;
+    return a;
+
+fail:
+    drmu_atomic_free(a);
+    return NULL;
+}
+
+drmu_atomic_t *
+drmu_atomic_move(drmu_atomic_t ** const ppb)
+{
+    drmu_atomic_t * a;
+    drmu_atomic_t * b = *ppb;
+    *ppb = NULL;
+
+    if (b == NULL || atomic_load(&b->ref_count) == 0)
+        return b;
+
+    a = drmu_atomic_copy(b);
+    drmu_atomic_unref(&b);
+    return a;
+}
+
 // Merge b into a. b is unrefed (inc on error)
 // Commit cbs are added
 int
 drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
 {
-    drmu_atomic_t * b = *ppb;
-    aprop_hdr_t bh = {0};
+    drmu_atomic_t * b;
     int rv = -EINVAL;
 
-    if (b == NULL)
+    if (*ppb == NULL)
         return 0;
-    *ppb = NULL;
 
     if (a == NULL) {
-        drmu_atomic_unref(&b);
+        drmu_atomic_unref(ppb);
         return -EINVAL;
     }
-    // We expect this to be the sole ref to a
-    assert(atomic_load(&a->ref_count) == 0);
 
-    // If this is the only copy of b then use it directly otherwise
-    // copy before (probably) making it unusable
-    if (atomic_load(&b->ref_count) == 0) {
-        rv = aprop_hdr_move(&bh, &b->props);
-        if (rv == 0 && b->commit_cb_q != NULL) {
-            *a->commit_cb_last_ptr = b->commit_cb_q;
-            a->commit_cb_last_ptr = b->commit_cb_last_ptr;
-            b->commit_cb_q = NULL;
-        }
+    if ((b = drmu_atomic_move(ppb)) == NULL)
+        return -ENOMEM;
+
+    if (b->commit_cb_q != NULL) {
+        *a->commit_cb_last_ptr = b->commit_cb_q;
+        a->commit_cb_last_ptr = b->commit_cb_last_ptr;
+        b->commit_cb_q = NULL;
     }
-    else {
-        rv = aprop_hdr_copy(&bh, &b->props);
-        for (atomic_cb_t * p = b->commit_cb_q; rv == 0 && p != NULL; p = p->next)
-            rv = drmu_atomic_add_commit_callback(a, p->cb, p->v);
-    }
+
+    rv = aprop_hdr_merge(&a->props, &b->props);
     drmu_atomic_unref(&b);
-
-    if (rv != 0) {
-        drmu_err(a->du, "%s: Copy Failed", __func__);
-        return rv;
-    }
-
-    rv = aprop_hdr_merge(&a->props, &bh);
-    aprop_hdr_uninit(&bh);
 
     if (rv != 0) {
         drmu_err(a->du, "%s: Merge Failed", __func__);

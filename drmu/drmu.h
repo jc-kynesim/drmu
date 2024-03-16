@@ -603,7 +603,28 @@ drmu_env_t * drmu_atomic_env(const drmu_atomic_t * const da);
 void drmu_atomic_unref(drmu_atomic_t ** const ppda);
 drmu_atomic_t * drmu_atomic_ref(drmu_atomic_t * const da);
 drmu_atomic_t * drmu_atomic_new(drmu_env_t * const du);
+
+// Copy (rather than just ref) b
+drmu_atomic_t * drmu_atomic_copy(drmu_atomic_t * const b);
+
+// 'Move' b to the return value
+// If b has a single ref then rv is simply b otherwise it is a copy of b
+drmu_atomic_t * drmu_atomic_move(drmu_atomic_t ** const ppb);
+
+// Merge b into a
+// This reference to b is unrefed (inc. on error); if this was the only
+// reference to b this allows the code to simply move properites from b
+// to a rather than having to copy. If there is >1 ref then the merge
+// will copy safely without breaking the other refs to b.
 int drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb);
+
+static inline int drmu_atomic_move_merge(drmu_atomic_t ** const ppa, drmu_atomic_t ** const ppb)
+{
+    if (*ppa)
+        return drmu_atomic_merge(*ppa, ppb);
+    *ppa = drmu_atomic_move(ppb);
+    return 0;
+}
 
 // Remove all els in a that are also in b
 // b may be sorted (if not already) but is otherwise unchanged
