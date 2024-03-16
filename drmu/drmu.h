@@ -561,7 +561,11 @@ struct drmu_log_env_s;
 // pending     = Commit Qed to be done when the in-progress commit has
 //               completed
 //
-// If there is a pending commit this atomic wiill be merged with it
+// If no in-progress commit then this will be committed immediately
+// otherwise it becomes the pending commit
+// If there is a pending commit this atomic will be merged with it
+// Commits are done with the PAGE_FLIP flag set so we expect the ack
+// on the next page flip.
 int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
 // Wait for there to be no pending commit (there may be a commit in
 // progress)

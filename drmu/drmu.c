@@ -2819,42 +2819,27 @@ atomic_q_flush(drmu_atomic_q_t * const aq)
     return rv;
 }
 
-// 'consumes' da
-static int
-atomic_q_queue(drmu_atomic_q_t * const aq, drmu_atomic_t * da)
-{
-    int rv = 0;
-
-    pthread_mutex_lock(&aq->lock);
-
-    if (aq->next_flip != NULL) {
-        // We already have something pending or retrying - merge the new with it
-        rv = drmu_atomic_merge(aq->next_flip, &da);
-    }
-    else {
-        aq->next_flip = da;
-
-        // No pending commit?
-        if (aq->cur_flip == NULL)
-            rv = atomic_q_attempt_commit_next(aq);
-    }
-
-    pthread_mutex_unlock(&aq->lock);
-    return rv;
-}
-
-// Consumes the passed atomic structure as it isn't copied
-// * arguably should copy & unref if ref count != 0
 int
 drmu_atomic_queue(drmu_atomic_t ** ppda)
 {
-    drmu_atomic_t * da = *ppda;
+    int rv;
+    drmu_atomic_q_t * aq;
 
-    if (da == NULL)
+    if (*ppda == NULL)
         return 0;
-    *ppda = NULL;
 
-    return atomic_q_queue(env_atomic_q(drmu_atomic_env(da)), da);
+    aq = env_atomic_q(drmu_atomic_env(*ppda));
+
+    pthread_mutex_lock(&aq->lock);
+
+    rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
+
+    // No pending commit?
+    if (rv == 0 && aq->cur_flip == NULL)
+        rv = atomic_q_attempt_commit_next(aq);
+
+    pthread_mutex_unlock(&aq->lock);
+    return rv;
 }
 
 int
