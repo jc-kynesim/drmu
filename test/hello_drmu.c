@@ -468,15 +468,15 @@ retry_hw:
     }
     video_stream = ret;
 
+    hw_pix_fmt = AV_PIX_FMT_NONE;
     if (!try_hw) {
-        hw_pix_fmt = AV_PIX_FMT_NONE;
+        /* Nothing */
     }
     else if (decoder->id == AV_CODEC_ID_H264) {
-        if ((decoder = avcodec_find_decoder_by_name("h264_v4l2m2m")) == NULL) {
+        if ((decoder = avcodec_find_decoder_by_name("h264_v4l2m2m")) == NULL)
             fprintf(stderr, "Cannot find the h264 v4l2m2m decoder\n");
-            return -1;
-        }
-        hw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        else
+            hw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
     }
     else {
         for (i = 0;; i++) {
@@ -484,7 +484,7 @@ retry_hw:
             if (!config) {
                 fprintf(stderr, "Decoder %s does not support device type %s.\n",
                         decoder->name, av_hwdevice_get_type_name(type));
-                return -1;
+                break;
             }
             if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
                 config->device_type == type) {
@@ -492,6 +492,11 @@ retry_hw:
                 break;
             }
         }
+    }
+
+    if (hw_pix_fmt == AV_PIX_FMT_NONE && try_hw) {
+        fprintf(stderr, "No h/w format found - trying s/w\n");
+        try_hw = false;
     }
 
     if (!(decoder_ctx = avcodec_alloc_context3(decoder)))
