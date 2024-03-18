@@ -6,10 +6,10 @@ sudo apt install meson\
  libx11-xcb-dev libxcb-dri3-dev
 
 # For ticker demos
-sudo apt install libfreetype-dev
+sudo apt install libfreetype-dev fonts-freefont-ttf
 
-# For kmscube - other required libraries included in Pi desktop distribution
-sudo apt install libgbm-dev
+# For kmscube
+sudo apt install libgbm-dev libgles-dev
 
 meson setup build
 cd build
@@ -38,7 +38,7 @@ freetype/example1
               A simple text scroller example based off the freetype tutorial
 	      example program
 
-cude/kmscube  The kmscube example extended to use drmu
+cube/kmscube  The kmscube example extended to use drmu
 
 
 
