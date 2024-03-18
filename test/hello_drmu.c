@@ -510,15 +510,15 @@ retry_hw:
         decoder_ctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
         decoder_ctx->sw_pix_fmt = AV_PIX_FMT_NONE;
         decoder_ctx->thread_count = 3;
-        decoder_ctx->flags = AV_CODEC_FLAG_LOW_DELAY;
     }
     else {
         decoder_ctx->get_buffer2 = drmprime_out_get_buffer2;
         decoder_ctx->opaque = dpo;
         decoder_ctx->thread_count = 0; // FFmpeg will pick a default
-        decoder_ctx->flags = 0;
     }
-    decoder_ctx->thread_type = FF_THREAD_FRAME;
+    decoder_ctx->flags = 0;
+    // Pick any threading method
+    decoder_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
 #if LIBAVCODEC_VERSION_MAJOR < 60
 #pragma GCC diagnostic push
