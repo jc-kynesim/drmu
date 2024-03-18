@@ -515,7 +515,10 @@ retry_hw:
     else {
         decoder_ctx->get_buffer2 = drmprime_out_get_buffer2;
         decoder_ctx->opaque = dpo;
+        decoder_ctx->thread_count = 0; // FFmpeg will pick a default
+        decoder_ctx->flags = 0;
     }
+    decoder_ctx->thread_type = FF_THREAD_FRAME;
 
 #if LIBAVCODEC_VERSION_MAJOR < 60
 #pragma GCC diagnostic push
