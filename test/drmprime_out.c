@@ -45,6 +45,7 @@
 #include "drmu_fmts.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
+#include "drmu_util.h"
 #include <drm_fourcc.h>
 
 #include "cube/runcube.h"
@@ -170,6 +171,25 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
         drmu_rect_t r = drmu_rect_wh(sp->width, sp->height);
 
         drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
+
+        {
+            drmu_rect_t crop = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
+            drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
+            drmu_ufrac_t mpar = drmu_util_guess_simple_mode_par(sp);
+
+            ppar = ppar.den == 0 || ppar.num == 0 ? drmu_util_guess_par(crop.w, crop.h) : drmu_ufrac_reduce(ppar);
+
+            if (ppar.num * mpar.den < ppar.den * mpar.num) {
+                // Pillarbox
+                r.w = r.h * ppar.num / ppar.den;
+                r.x = (sp->width - r.w) / 2;
+            }
+            else {
+                // Letterbox
+                r.h = r.w * ppar.den / ppar.num;
+                r.y = (sp->height - r.h) / 2;
+            }
+        }
 
         if (!is_prime)
             drmu_av_fb_frame_metadata_set(dfb, src_frame);
