@@ -129,7 +129,7 @@ drmu_util_guess_par(const unsigned int w, const unsigned int h)
     if (((w == 720 || w == 704) && (h == 480 || h == 576)) ||
         ((w == 360 || w == 352) && (h == 240 || h == 288)))
     {
-        return (drmu_ufrac_t){.den = 4, .num = 3};
+        return (drmu_ufrac_t){.num = 4, .den = 3};
     }
     return drmu_ufrac_reduce((drmu_ufrac_t){.num = w, .den = h});
 }

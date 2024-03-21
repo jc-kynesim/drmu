@@ -980,8 +980,6 @@ drmu_bo_env_init(drmu_bo_env_t * boe)
 
 typedef struct drmu_fb_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
-    struct drmu_fb_s * prev;
-    struct drmu_fb_s * next;
 
     struct drmu_env_s * du;
 
@@ -2852,9 +2850,16 @@ atomic_q_init(drmu_atomic_q_t * const aq)
 //
 // Pool fns
 
+typedef struct drmu_fb_slot_s {
+    struct drmu_fb_s * fb;
+    struct drmu_fb_slot_s * next;
+    struct drmu_fb_slot_s * prev;
+} drmu_fb_slot_t;
+
 typedef struct drmu_fb_list_s {
-    drmu_fb_t * head;
-    drmu_fb_t * tail;
+    drmu_fb_slot_t * head;
+    drmu_fb_slot_t * tail;
+    drmu_fb_slot_t * unused; // Single linked list of unsed slots
 } drmu_fb_list_t;
 
 typedef struct drmu_pool_s {
@@ -2875,52 +2880,53 @@ typedef struct drmu_pool_s {
     unsigned int fb_max;
 
     drmu_fb_list_t free_fbs;
+    drmu_fb_slot_t * slots;
 } drmu_pool_t;
 
 static void
 fb_list_add_tail(drmu_fb_list_t * const fbl, drmu_fb_t * const dfb)
 {
-    assert(dfb->prev == NULL && dfb->next == NULL);
+    drmu_fb_slot_t * const slot = fbl->unused;
+
+    assert(slot != NULL);
+    fbl->unused = slot->next;
+    slot->fb = dfb;
+    slot->next = NULL;
 
     if (fbl->tail == NULL)
-        fbl->head = dfb;
+        fbl->head = slot;
     else
-        fbl->tail->next = dfb;
-    dfb->prev = fbl->tail;
-    fbl->tail = dfb;
+        fbl->tail->next = slot;
+    slot->prev = fbl->tail;
+    fbl->tail = slot;
 }
 
 static drmu_fb_t *
-fb_list_extract(drmu_fb_list_t * const fbl, drmu_fb_t * const dfb)
+fb_list_extract(drmu_fb_list_t * const fbl, drmu_fb_slot_t * const slot)
 {
-    if (dfb == NULL)
+    if (slot == NULL)
         return NULL;
 
-    if (dfb->prev == NULL)
-        fbl->head = dfb->next;
+    if (slot->prev == NULL)
+        fbl->head = slot->next;
     else
-        dfb->prev->next = dfb->next;
+        slot->prev->next = slot->next;
 
-    if (dfb->next == NULL)
-        fbl->tail = dfb->prev;
+    if (slot->next == NULL)
+        fbl->tail = slot->prev;
     else
-        dfb->next->prev = dfb->prev;
+        slot->next->prev = slot->prev;
 
-    dfb->next = NULL;
-    dfb->prev = NULL;
-    return dfb;
+    slot->next = fbl->unused;
+    slot->prev = NULL;
+    fbl->unused = slot;
+    return slot->fb;
 }
 
 static drmu_fb_t *
 fb_list_extract_head(drmu_fb_list_t * const fbl)
 {
     return fb_list_extract(fbl, fbl->head);
-}
-
-static drmu_fb_t *
-fb_list_peek_head(drmu_fb_list_t * const fbl)
-{
-    return fbl->head;
 }
 
 static void
@@ -2977,12 +2983,12 @@ drmu_pool_new_alloc(drmu_env_t * const du, const unsigned int total_fbs_max,
                     void * const v)
 {
     drmu_pool_t * const pool = calloc(1, sizeof(*pool));
+    unsigned int i;
 
-    if (pool == NULL) {
-        drmu_err(du, "Failed pool env alloc");
-        on_delete_fn(v);
-        return NULL;
-    }
+    if (pool == NULL)
+        goto fail0;
+    if ((pool->slots = calloc(total_fbs_max, sizeof(*pool->slots))) == NULL)
+        goto fail1;
 
     pool->du = du;
     pool->fb_max = total_fbs_max;
@@ -2990,9 +2996,20 @@ drmu_pool_new_alloc(drmu_env_t * const du, const unsigned int total_fbs_max,
     pool->on_delete_fn = on_delete_fn;
     pool->callback_v = v;
 
+    for (i = 1; i != total_fbs_max; ++i)
+        pool->slots[i - 1].next = pool->slots + i;
+    pool->free_fbs.unused = pool->slots + 0;
+
     pthread_mutex_init(&pool->lock, NULL);
 
     return pool;
+
+fail1:
+    free(pool);
+fail0:
+    on_delete_fn(v);
+    drmu_err(du, "Failed pool env alloc");
+    return NULL;
 }
 
 static drmu_fb_t *
@@ -3044,7 +3061,8 @@ pool_fb_pre_delete_cb(drmu_fb_t * dfb, void * v)
 drmu_fb_t *
 drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod)
 {
-    drmu_fb_t * dfb;
+    drmu_fb_t * dfb = NULL;
+    drmu_fb_slot_t * slot;
 
     pthread_mutex_lock(&pool->lock);
 
@@ -3052,14 +3070,15 @@ drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_
     if (pool->dead)
         goto fail_unlock;
 
-    dfb = fb_list_peek_head(&pool->free_fbs);
-    while (dfb != NULL) {
+    slot = pool->free_fbs.head;
+    while (slot != NULL) {
+        dfb = slot->fb;
         if (fb_try_reuse(dfb, w, h, format, mod)) {
-            fb_list_extract(&pool->free_fbs, dfb);
+            fb_list_extract(&pool->free_fbs, slot);
             pthread_mutex_unlock(&pool->lock);
             goto found;
         }
-        dfb = dfb->next;
+        slot = slot->next;
     }
     // Nothing reusable
 
