@@ -2923,18 +2923,18 @@ fb_list_peek_head(drmu_fb_list_t * const fbl)
     return fbl->head;
 }
 
-static bool
-fb_list_is_empty(drmu_fb_list_t * const fbl)
-{
-    return fbl->head == NULL;
-}
-
 static void
 pool_free_pool(drmu_pool_t * const pool)
 {
     drmu_fb_t * dfb;
-    while ((dfb = fb_list_extract_head(&pool->free_fbs)) != NULL)
+    pthread_mutex_lock(&pool->lock);
+    while ((dfb = fb_list_extract_head(&pool->free_fbs)) != NULL) {
+        --pool->fb_count;
+        pthread_mutex_unlock(&pool->lock);
         drmu_fb_unref(&dfb);
+        pthread_mutex_lock(&pool->lock);
+    }
+    pthread_mutex_unlock(&pool->lock);
 }
 
 static void
@@ -3048,36 +3048,45 @@ drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_
 
     pthread_mutex_lock(&pool->lock);
 
+    // If pool killed then _fb_new must fail
+    if (pool->dead)
+        goto fail_unlock;
+
     dfb = fb_list_peek_head(&pool->free_fbs);
     while (dfb != NULL) {
         if (fb_try_reuse(dfb, w, h, format, mod)) {
             fb_list_extract(&pool->free_fbs, dfb);
-            break;
+            pthread_mutex_unlock(&pool->lock);
+            goto found;
         }
         dfb = dfb->next;
     }
+    // Nothing reusable
 
-    if (dfb == NULL) {
-        if (pool->fb_count >= pool->fb_max && !fb_list_is_empty(&pool->free_fbs)) {
-            --pool->fb_count;
-            dfb = fb_list_extract_head(&pool->free_fbs);
-        }
-        ++pool->fb_count;
-        pthread_mutex_unlock(&pool->lock);
-
-        drmu_fb_unref(&dfb);  // Will free the dfb as pre-delete CB will be unset
-        if ((dfb = pool->alloc_fn(pool->callback_v, w, h, format, mod)) == NULL) {
-            --pool->fb_count;  // ??? lock
-            return NULL;
-        }
+    // Simply allocate new buffers until we hit fb_max then free LRU
+    // first. If nothing to free then fail.
+    if (pool->fb_count++ >= pool->fb_max) {
+        --pool->fb_count;
+        if ((dfb = fb_list_extract_head(&pool->free_fbs)) == NULL)
+            goto fail_unlock;
     }
-    else {
-        pthread_mutex_unlock(&pool->lock);
+    pthread_mutex_unlock(&pool->lock);
+
+    drmu_fb_unref(&dfb);  // Will free the dfb as pre-delete CB will be unset
+
+    if ((dfb = pool->alloc_fn(pool->callback_v, w, h, format, mod)) == NULL) {
+        pthread_mutex_lock(&pool->lock);
+        --pool->fb_count;
+        goto fail_unlock;
     }
 
-    drmu_fb_pre_delete_set(dfb, pool_fb_pre_delete_cb, pool);
-    drmu_pool_ref(pool);
+found:
+    drmu_fb_pre_delete_set(dfb, pool_fb_pre_delete_cb, drmu_pool_ref(pool));
     return dfb;
+
+fail_unlock:
+    pthread_mutex_unlock(&pool->lock);
+    return NULL;
 }
 
 // Mark pool as dead (i.e. no new allocs) and unref it
@@ -3093,9 +3102,7 @@ drmu_pool_kill(drmu_pool_t ** const pppool)
     *pppool = NULL;
 
     pool->dead = true;
-    pthread_mutex_lock(&pool->lock);
     pool_free_pool(pool);
-    pthread_mutex_unlock(&pool->lock);
 
     drmu_pool_unref(&pool);
 }
