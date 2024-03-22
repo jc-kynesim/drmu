@@ -605,6 +605,16 @@ drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da)
     }
 }
 
+void
+drmu_atomic_run_commit_callbacks(const drmu_atomic_t * const da)
+{
+    if (da == NULL)
+        return;
+
+    for (const atomic_cb_t *p = da->commit_cb_q; p != NULL; p = p->next)
+        p->cb(p->v);
+}
+
 int
 drmu_atomic_add_prop_generic(drmu_atomic_t * const da,
                   const uint32_t obj_id, const uint32_t prop_id, const uint64_t value,
@@ -885,8 +895,7 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
 
         rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic);
 
-        for (atomic_cb_t * p = da->commit_cb_q; p != NULL; p = p->next)
-            p->cb(p->v);
+        drmu_atomic_run_commit_callbacks(da);
 
         if (rv  == 0 || !da_fail)
             return rv;

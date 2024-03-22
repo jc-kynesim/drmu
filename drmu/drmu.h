@@ -547,6 +547,8 @@ typedef void drmu_atomic_commit_fn(void * v);
 int drmu_atomic_add_commit_callback(drmu_atomic_t * const da, drmu_atomic_commit_fn * const cb, void * const v);
 // Clear all commit callbacks from this atomic
 void drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da);
+// Run all commit callbacks on this atomic. Callbacks are not cleared.
+void drmu_atomic_run_commit_callbacks(const drmu_atomic_t * const da);
 
 typedef void drmu_prop_unref_fn(void * v);
 typedef void drmu_prop_ref_fn(void * v);
