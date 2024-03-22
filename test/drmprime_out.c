@@ -275,10 +275,11 @@ void drmprime_out_delete(drmprime_out_env_t *de)
     drmprime_out_runticker_stop(de);
     drmprime_out_runcube_stop(de);
 
-    drmu_pool_unref(&de->pic_pool);
+    drmu_pool_kill(&de->pic_pool);
+
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);
-    drmu_env_unref(&de->du);
+    drmu_env_kill(&de->du);
     if (de->prod_fd != -1)
         close(de->prod_fd);
     free(de);
@@ -321,6 +322,7 @@ drmprime_out_env_t* drmprime_out_new()
             (de->du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }
+    drmu_env_restore_enable(de->du);
 
     if ((de->dout = drmu_output_new(de->du)) == NULL)
         goto fail;
