@@ -56,7 +56,7 @@ max_uint(const unsigned int a, const unsigned int b)
     return a < b ? b : a;
 }
 
-atomic_cb_t *
+static atomic_cb_t *
 atomic_cb_new(drmu_atomic_commit_fn * cb, void * v)
 {
     atomic_cb_t * acb = malloc(sizeof(*acb));
