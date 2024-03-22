@@ -142,3 +142,22 @@ drmu_util_guess_simple_mode_par(const drmu_mode_simple_params_t * const p)
     return drmu_util_guess_par(p->width, p->height);
 }
 
+void
+drmu_memcpy_2d(void * const dst_p, const size_t dst_stride,
+               const void * const src_p, const size_t src_stride,
+               const size_t width, const size_t height)
+{
+    if (dst_stride == src_stride && dst_stride == width) {
+        memcpy(dst_p, src_p, width * height);
+    }
+    else {
+        size_t i;
+        char * d = dst_p;
+        const char * s = src_p;
+        for (i = 0; i != height; ++i) {
+            memcpy(d, s, width);
+            d += dst_stride;
+            s += src_stride;
+        }
+    }
+}
