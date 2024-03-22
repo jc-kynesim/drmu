@@ -2654,6 +2654,7 @@ drmu_conn_claim_ref(drmu_conn_t * const dn)
 // Atomic Q fns (internal)
 
 typedef struct drmu_atomic_q_s {
+    bool kill;
     pthread_mutex_t lock;
     pthread_cond_t cond;
     drmu_atomic_t * next_flip;
@@ -2754,17 +2755,21 @@ drmu_atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
 }
 
 static int
-atomic_q_flush(drmu_atomic_q_t * const aq)
+atomic_q_kill(drmu_atomic_q_t * const aq)
 {
     struct timespec ts;
     int rv = 0;
 
     pthread_mutex_lock(&aq->lock);
+    aq->kill = true;
+
     clock_gettime(CLOCK_MONOTONIC, &ts);
     ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
 
-    // Can flush next safely
+    // Can flush next safely - but call commit cbs
+    drmu_atomic_run_commit_callbacks(aq->next_flip);
     drmu_atomic_unref(&aq->next_flip);
+    polltask_delete(&aq->retry_task); // If we've got here then retry would not succeed
 
     // Wait for cur to finish - seems to confuse the world otherwise
     while (aq->cur_flip != NULL) {
@@ -2774,6 +2779,14 @@ atomic_q_flush(drmu_atomic_q_t * const aq)
 
     pthread_mutex_unlock(&aq->lock);
     return rv;
+}
+
+static void
+atomic_q_clear_flips(drmu_atomic_q_t * const aq)
+{
+    drmu_atomic_unref(&aq->next_flip);
+    drmu_atomic_unref(&aq->cur_flip);
+    drmu_atomic_unref(&aq->last_flip);
 }
 
 int
@@ -2789,11 +2802,17 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
 
     pthread_mutex_lock(&aq->lock);
 
-    rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
+    if (aq->kill) {
+        drmu_atomic_unref(ppda);
+        rv = -EBUSY;
+    }
+    else {
+        rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
 
-    // No pending commit?
-    if (rv == 0 && aq->cur_flip == NULL)
-        rv = atomic_q_attempt_commit_next(aq);
+        // No pending commit?
+        if (rv == 0 && aq->cur_flip == NULL)
+            rv = atomic_q_attempt_commit_next(aq);
+    }
 
     pthread_mutex_unlock(&aq->lock);
     return rv;
@@ -2824,10 +2843,9 @@ drmu_env_queue_wait(drmu_env_t * const du)
 static void
 atomic_q_uninit(drmu_atomic_q_t * const aq)
 {
+    aq->kill = true;
     polltask_delete(&aq->retry_task);
-    drmu_atomic_unref(&aq->next_flip);
-    drmu_atomic_unref(&aq->cur_flip);
-    drmu_atomic_unref(&aq->last_flip);
+    atomic_q_clear_flips(aq);
     pthread_cond_destroy(&aq->cond);
     pthread_mutex_destroy(&aq->lock);
 }
@@ -2837,7 +2855,10 @@ atomic_q_init(drmu_atomic_q_t * const aq)
 {
     pthread_condattr_t condattr;
 
+    aq->kill = false;
     aq->next_flip = NULL;
+    aq->cur_flip = NULL;
+    aq->last_flip = NULL;
     pthread_mutex_init(&aq->lock, NULL);
 
     pthread_condattr_init(&condattr);
@@ -3727,6 +3748,24 @@ env_atomic_q(drmu_env_t * const du)
     return &du->aq;
 }
 
+static void
+env_restore(drmu_env_t * const du)
+{
+    int rv;
+    drmu_atomic_t * bad = drmu_atomic_new(du);
+    if ((rv = drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET, bad)) != 0) {
+        drmu_atomic_sub(du->da_restore, bad);
+        if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
+            drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
+        else
+            drmu_err(du, "Failed to completely restore old mode on exit");
+
+        if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG)
+            drmu_atomic_dump(bad);
+    }
+    drmu_atomic_unref(&bad);
+    drmu_atomic_unref(&du->da_restore);
+}
 
 static void
 env_free(drmu_env_t * const du)
@@ -3734,7 +3773,7 @@ env_free(drmu_env_t * const du)
     if (!du)
         return;
 
-    atomic_q_flush(&du->aq);
+    atomic_q_kill(env_atomic_q(du));
 
     polltask_delete(&du->pt);
     pollqueue_finish(&du->pq);
@@ -3745,22 +3784,8 @@ env_free(drmu_env_t * const du)
     // The Q uninit stands a plausible chance of causing BOs or dmabufs that
     // are in use to be reclaimed so restoring the old FBs before that is a
     // good idea (prevents visible artifacts in VLC).
-    if (du->da_restore) {
-        int rv;
-        drmu_atomic_t * bad = drmu_atomic_new(du);
-        if ((rv = drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET, bad)) != 0) {
-            drmu_atomic_sub(du->da_restore, bad);
-            if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
-                drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
-            else
-                drmu_err(du, "Failed to completely restore old mode on exit");
-
-            if (drmu_env_log(du)->max_level >= DRMU_LOG_LEVEL_DEBUG)
-                drmu_atomic_dump(bad);
-        }
-        drmu_atomic_unref(&bad);
-        drmu_atomic_unref(&du->da_restore);
-    }
+    if (du->da_restore)
+        env_restore(du);
 
     atomic_q_uninit(&du->aq);
 
@@ -3777,14 +3802,49 @@ void
 drmu_env_unref(drmu_env_t ** const ppdu)
 {
     drmu_env_t * const du = *ppdu;
+    int n;
+
     if (!du)
         return;
     *ppdu = NULL;
 
-    if (atomic_fetch_sub(&du->ref_count, 1) != 0)
-        return;
+    n = atomic_fetch_sub(&du->ref_count, 1);
+    assert(n >= 0);
+    if (n == 0)
+        env_free(du);
+}
 
-    env_free(du);
+// Kill the Q
+// Ordering goes:
+//   Shutdown Q events
+//   Restore old state
+//   Clear previous atomics
+// Must be done in that order or we end up destroying buffers that are
+// still in use
+void
+drmu_env_kill(drmu_env_t ** const ppdu)
+{
+    drmu_env_t * du = *ppdu;
+
+    if (!du)
+        return;
+    *ppdu = NULL;
+
+    atomic_q_kill(&du->aq);
+
+    polltask_delete(&du->pt);
+    pollqueue_finish(&du->pq);
+
+    if (du->da_restore)
+        env_restore(du);
+
+    atomic_q_clear_flips(&du->aq);
+
+    // Q is now mostly shutdown. The mutex and cond are still valid so
+    // it is still possible to abtain teh lock and then note that it is
+    // dead. Remaining environment will be freed when drmu_env is freed.
+
+    drmu_env_unref(&du);
 }
 
 drmu_env_t *

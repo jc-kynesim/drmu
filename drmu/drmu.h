@@ -477,6 +477,11 @@ int drmu_fd(const drmu_env_t * const du);
 const struct drmu_log_env_s * drmu_env_log(const drmu_env_t * const du);
 void drmu_env_unref(drmu_env_t ** const ppdu);
 drmu_env_t * drmu_env_ref(drmu_env_t * const du);
+// Disable queue, restore saved state and unref
+// Doesn't guarantee that the env will be freed by exit as there may still be
+// buffers that hold a ref for logging or DRM fd but it should resolve circular
+// reference problems where buffers on the screen hold refs to the env.
+void drmu_env_kill(drmu_env_t ** const ppdu);
 // Restore state on env close
 int drmu_env_restore_enable(drmu_env_t * const du);
 bool drmu_env_restore_is_enabled(const drmu_env_t * const du);
