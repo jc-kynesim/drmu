@@ -109,6 +109,17 @@ drmu_rect_shr16_rnd(const drmu_rect_t a)
     return drmu_rect_shr_rnd(a, 16);
 }
 
+static inline drmu_rect_t
+drmu_rect_div_xy(const drmu_rect_t a, const unsigned int dx, const unsigned int dy)
+{
+    return (drmu_rect_t) {
+        .x = a.x / (int)dx,
+        .y = a.y / (int)dy,
+        .w = a.w / dx,
+        .h = a.h / dy
+    };
+}
+
 #ifdef __cplusplus
 }
 #endif
