@@ -45,6 +45,7 @@
 #include "drmu_fmts.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
+#include "drmu_pool.h"
 #include "drmu_util.h"
 #include <drm_fourcc.h>
 

@@ -17,6 +17,7 @@
 #include "drmu.h"
 #include "drmu_fmts.h"
 #include "drmu_log.h"
+#include "drmu_pool.h"
 
 struct drmu_dmabuf_env_s {
     atomic_int ref_count;
@@ -192,9 +193,14 @@ pool_dmabuf_on_delete_cb(void * const v)
 drmu_pool_t *
 drmu_pool_new_dmabuf(drmu_dmabuf_env_t * dde, unsigned int total_fbs_max)
 {
+    static const drmu_pool_callback_fns_t fns = {
+        .alloc_fn = pool_dmabuf_alloc_cb,
+        .on_delete_fn = pool_dmabuf_on_delete_cb,
+        .try_reuse_fn = drmu_fb_try_reuse,
+    };
     if (dde == NULL)
         return NULL;
     return drmu_pool_new_alloc(dde->du, total_fbs_max,
-                               pool_dmabuf_alloc_cb, pool_dmabuf_on_delete_cb, drmu_dmabuf_env_ref(dde));
+                               &fns, drmu_dmabuf_env_ref(dde));
 }
 
