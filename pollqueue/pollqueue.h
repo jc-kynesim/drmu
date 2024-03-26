@@ -60,7 +60,9 @@ struct pollqueue * pollqueue_new(void);
 void pollqueue_unref(struct pollqueue **const ppq);
 
 // Unrefs a pollqueue and then waits for the polltask thread to terminate
-// before returning.
+// before returning. *ppq is not set to NULL until after the polltask thread
+// has terminated so it is safe for use by any remaining polltasks (e.g. for
+// creating other tasks that need to complete before finishing.)
 void pollqueue_finish(struct pollqueue **const ppq);
 
 // Add a reference to a pollqueue

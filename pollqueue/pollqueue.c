@@ -481,7 +481,7 @@ void pollqueue_unref(struct pollqueue **const ppq)
 
 void pollqueue_finish(struct pollqueue **const ppq)
 {
-    struct pollqueue * const pq = *ppq;
+    struct pollqueue * pq = *ppq;
     pthread_t worker;
 
     if (!pq)
@@ -490,9 +490,13 @@ void pollqueue_finish(struct pollqueue **const ppq)
     pq->join_req = true;
     worker = pq->worker;
 
-    pollqueue_unref(ppq);
+    pollqueue_unref(&pq);
 
     pthread_join(worker, NULL);
+
+    // Delay zapping the ref until after the join as it is legit for the
+    // remaining active polltasks to use it.
+    *ppq = NULL;
 }
 
 void pollqueue_set_pre_post(struct pollqueue *const pq,
