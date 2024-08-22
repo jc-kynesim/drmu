@@ -1510,7 +1510,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
     }
 
     if (mod != DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0))
-        w2 = (w + 15) & ~15;
+        w2 = w;
     else if (format == DRM_FORMAT_NV12)
         w2 = (w + 127) & ~127;
     else if (format == DRM_FORMAT_P030)
@@ -1521,7 +1521,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
         goto fail;
     }
 
-    drmu_fb_int_fmt_size_set(dfb, format, w2, (h + 15) & ~15, drmu_rect_wh(w, h));
+    drmu_fb_int_fmt_size_set(dfb, format, w2, h, drmu_rect_wh(w, h));
 
     if ((bpp = drmu_fb_pixel_bits(dfb)) == 0) {
         drmu_err(du, "%s: Unexpected format %#x", __func__, format);
@@ -1530,8 +1530,8 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
 
     {
         struct drm_mode_create_dumb dumb = {
-            .height = fb_total_height(dfb, dfb->fb.height),
-            .width = dfb->fb.width / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
+            .height = fb_total_height(dfb, (h + 1) & ~1),
+            .width = ((w2 + 31) & ~31) / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
             .bpp = bpp
         };
 
