@@ -3,6 +3,18 @@
 #include <vlc_picture.h>
 #include <libdrm/drm_fourcc.h>
 
+// These macros not in bullseye
+
+#ifndef fourcc_mod_get_vendor
+#define fourcc_mod_get_vendor(modifier) \
+	(((modifier) >> 56) & 0xff)
+#endif
+
+#ifndef fourcc_mod_is_vendor
+#define fourcc_mod_is_vendor(modifier, vendor) \
+	(fourcc_mod_get_vendor(modifier) == DRM_FORMAT_MOD_VENDOR_## vendor)
+#endif
+
 #ifndef DRM_FORMAT_P030
 #define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
 #endif
