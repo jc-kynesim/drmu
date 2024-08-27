@@ -497,6 +497,8 @@ drmu_atomic_t * drmu_atomic_move(drmu_atomic_t ** const ppb);
 // will copy safely without breaking the other refs to b.
 int drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb);
 
+// Merge b into a, b is unrefed; if a == NULL then simply move
+// Move and copy work as their descriptions above
 static inline int drmu_atomic_move_merge(drmu_atomic_t ** const ppa, drmu_atomic_t ** const ppb)
 {
     if (*ppa)
