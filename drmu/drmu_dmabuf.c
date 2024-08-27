@@ -34,7 +34,7 @@ drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const ui
     unsigned int i;
     unsigned int layers;
     unsigned int bypp;
-    uint32_t w2 = (w + 15) & ~15;
+    uint32_t w2 = (w + 31) & ~31;
     uint32_t h2 = (h + 15) & ~15;
     drmu_fb_t * fb;
     uint32_t offset = 0;
@@ -47,7 +47,7 @@ drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const ui
     if ((fb = drmu_fb_int_alloc(du)) == NULL)
         return NULL;
 
-    drmu_fb_int_fmt_size_set(fb, format, w2, h2, drmu_rect_wh(w, h));
+    drmu_fb_int_fmt_size_set(fb, format, w, h, drmu_rect_wh(w, h));
 
     layers = drmu_fmt_info_plane_count(fmti);
     bypp = (drmu_fmt_info_pixel_bits(fmti) + 7) / 8;

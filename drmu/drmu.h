@@ -9,6 +9,9 @@
 #include "drmu_chroma.h"
 #include "drmu_math.h"
 
+// Maybe this shoudl not be included?
+#include "drmu_poll.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -425,21 +428,22 @@ drmu_plane_t * drmu_env_plane_find_n(drmu_env_t * const du, const unsigned int n
 // Env
 struct drmu_log_env_s;
 
-// Q the atomic on its associated env
-//
-// in-progress = The commit has been done but no ack yet
-// pending     = Commit Qed to be done when the in-progress commit has
-//               completed
-//
-// If no in-progress commit then this will be committed immediately
-// otherwise it becomes the pending commit
-// If there is a pending commit this atomic will be merged with it
-// Commits are done with the PAGE_FLIP flag set so we expect the ack
-// on the next page flip.
-int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
-// Wait for there to be no pending commit (there may be a commit in
-// progress)
-int drmu_env_queue_wait(drmu_env_t * const du);
+// Poll environment maintenance functions used by drmu_poll.c
+// Could be use to set up custom polling functions. struct drmu_poll_env_s is
+// opaque to drmu.c
+struct drmu_poll_env_s;
+typedef struct drmu_poll_env_s * (* drmu_poll_new_fn)(drmu_env_t * du);
+typedef void (* drmu_poll_destroy_fn)(struct drmu_poll_env_s ** ppPoll_env, drmu_env_t * du);
+// Get/set poll environment. Value returned in *ppPe
+// If du killed then *ppPe = NULL and rv = -EBUSY
+// If already set then value returned and rv == 0
+// If unset then new_fn called and its value stored. If null then rv == -ENOMEM
+// destroy_fn called when du killed
+int drmu_env_int_poll_set(drmu_env_t * const du,
+                  const drmu_poll_new_fn new_fn, const drmu_poll_destroy_fn destroy_fn,
+                  struct drmu_poll_env_s ** const ppPe);
+// Return poll env. NULL if unset
+struct drmu_poll_env_s * drmu_env_int_poll_get(drmu_env_t * const du);
 
 // Do ioctl - returns -errno on error, 0 on success
 // deals with recalling the ioctl when required
@@ -459,6 +463,9 @@ bool drmu_env_restore_is_enabled(const drmu_env_t * const du);
 // Add an object snapshot to the restore state
 // Tests for commitability and removes any props that won't commit
 int drmu_atomic_env_restore_add_snapshot(struct drmu_atomic_s ** const ppda);
+// Do the restore - semi-internal function - only use externally as part of
+// a poll shutdown function. Leaves restore disabled.
+void drmu_env_int_restore(drmu_env_t * const du);
 
 // Open a drmu environment with the drm fd
 // Takes a logging structure so early errors can be reported. The logging

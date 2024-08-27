@@ -8,12 +8,11 @@
 
 #include <pthread.h>
 
-#include "pollqueue.h"
-
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <poll.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,10 +39,7 @@
 #endif
 
 struct drmu_bo_env_s;
-struct drmu_atomic_q_s;
 static struct drmu_bo_env_s * env_boe(drmu_env_t * const du);
-static struct pollqueue * env_pollqueue(const drmu_env_t * const du);
-static struct drmu_atomic_q_s * env_atomic_q(drmu_env_t * const du);
 static int env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32_t obj_type);
 
 // Update return value with a new one for cases where we don't stop on error
@@ -1514,7 +1510,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
     }
 
     if (mod != DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0))
-        w2 = (w + 15) & ~15;
+        w2 = w;
     else if (format == DRM_FORMAT_NV12)
         w2 = (w + 127) & ~127;
     else if (format == DRM_FORMAT_P030)
@@ -1525,7 +1521,7 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
         goto fail;
     }
 
-    drmu_fb_int_fmt_size_set(dfb, format, w2, (h + 15) & ~15, drmu_rect_wh(w, h));
+    drmu_fb_int_fmt_size_set(dfb, format, w2, h, drmu_rect_wh(w, h));
 
     if ((bpp = drmu_fb_pixel_bits(dfb)) == 0) {
         drmu_err(du, "%s: Unexpected format %#x", __func__, format);
@@ -1534,8 +1530,8 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
 
     {
         struct drm_mode_create_dumb dumb = {
-            .height = fb_total_height(dfb, dfb->fb.height),
-            .width = dfb->fb.width / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
+            .height = fb_total_height(dfb, (h + 1) & ~1),
+            .width = ((w2 + 31) & ~31) / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
             .bpp = bpp
         };
 
@@ -2651,224 +2647,6 @@ drmu_conn_claim_ref(drmu_conn_t * const dn)
 
 //----------------------------------------------------------------------------
 //
-// Atomic Q fns (internal)
-
-typedef struct drmu_atomic_q_s {
-    bool kill;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-    drmu_atomic_t * next_flip;
-    drmu_atomic_t * cur_flip;
-    drmu_atomic_t * last_flip;
-    unsigned int retry_count;
-    struct polltask * retry_task;
-} drmu_atomic_q_t;
-
-static void atomic_q_retry(drmu_atomic_q_t * const aq, drmu_env_t * const du);
-
-// Needs locked
-static int
-atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
-{
-    drmu_env_t * const du = drmu_atomic_env(aq->next_flip);
-    uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET;
-    int rv;
-
-    if ((rv = drmu_atomic_commit(aq->next_flip, flags)) == 0) {
-        if (aq->retry_count != 0)
-            drmu_warn(du, "%s: Atomic commit OK", __func__);
-        aq->cur_flip = aq->next_flip;
-        aq->next_flip = NULL;
-        aq->retry_count = 0;
-    }
-    else if (rv == -EBUSY && ++aq->retry_count < 16) {
-        // This really shouldn't happen but we observe that the 1st commit after
-        // a modeset often fails with BUSY.  It seems to be fine on a 10ms retry
-        // but allow some more in case ww need a bit longer in some cases
-        drmu_warn(du, "%s: Atomic commit BUSY", __func__);
-        atomic_q_retry(aq, du);
-        rv = 0;
-    }
-    else {
-        drmu_err(du, "%s: Atomic commit failed: %s", __func__, strerror(-rv));
-        drmu_atomic_dump(aq->next_flip);
-        drmu_atomic_unref(&aq->next_flip);
-        aq->retry_count = 0;
-    }
-
-    return rv;
-}
-
-static void
-atomic_q_retry_cb(void * v, short revents)
-{
-    drmu_atomic_q_t * const aq = v;
-    (void)revents;
-
-    pthread_mutex_lock(&aq->lock);
-
-    // If we need a retry then next != NULL && cur == NULL
-    // if not that then we've fixed ourselves elsewhere
-
-    if (aq->next_flip != NULL && aq->cur_flip == NULL)
-        atomic_q_attempt_commit_next(aq);
-
-    pthread_mutex_unlock(&aq->lock);
-}
-
-static void
-atomic_q_retry(drmu_atomic_q_t * const aq, drmu_env_t * const du)
-{
-    if (aq->retry_task == NULL)
-        aq->retry_task = polltask_new_timer(env_pollqueue(du), atomic_q_retry_cb, aq);
-    pollqueue_add_task(aq->retry_task, 20);
-}
-
-// Called after an atomic commit has completed
-// not called on every vsync, so if we haven't committed anything this won't be called
-static void
-drmu_atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
-{
-    drmu_atomic_t * const da = user_data;
-    drmu_atomic_q_t * const aq = env_atomic_q(du);
-
-    // At this point:
-    //  next   The atomic we are about to commit
-    //  cur    The last atomic we committed, now in use (must be != NULL)
-    //  last   The atomic that has just become obsolete
-
-    pthread_mutex_lock(&aq->lock);
-
-    if (da != aq->cur_flip) {
-        drmu_err(du, "%s: User data el (%p) != cur (%p)", __func__, da, aq->cur_flip);
-    }
-
-    // Must merge cur into last rather than just replace last as there may
-    // still be things on screen not updated by the current commit
-    drmu_atomic_move_merge(&aq->last_flip, &aq->cur_flip);
-
-    if (aq->next_flip != NULL)
-        atomic_q_attempt_commit_next(aq);
-
-    pthread_cond_broadcast(&aq->cond);
-    pthread_mutex_unlock(&aq->lock);
-}
-
-static int
-atomic_q_kill(drmu_atomic_q_t * const aq)
-{
-    struct timespec ts;
-    int rv = 0;
-
-    pthread_mutex_lock(&aq->lock);
-    aq->kill = true;
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
-
-    // Can flush next safely - but call commit cbs
-    drmu_atomic_run_commit_callbacks(aq->next_flip);
-    drmu_atomic_unref(&aq->next_flip);
-    polltask_delete(&aq->retry_task); // If we've got here then retry would not succeed
-
-    // Wait for cur to finish - seems to confuse the world otherwise
-    while (aq->cur_flip != NULL) {
-        if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
-            break;
-    }
-
-    pthread_mutex_unlock(&aq->lock);
-    return rv;
-}
-
-static void
-atomic_q_clear_flips(drmu_atomic_q_t * const aq)
-{
-    drmu_atomic_unref(&aq->next_flip);
-    drmu_atomic_unref(&aq->cur_flip);
-    drmu_atomic_unref(&aq->last_flip);
-}
-
-int
-drmu_atomic_queue(drmu_atomic_t ** ppda)
-{
-    int rv;
-    drmu_atomic_q_t * aq;
-
-    if (*ppda == NULL)
-        return 0;
-
-    aq = env_atomic_q(drmu_atomic_env(*ppda));
-
-    pthread_mutex_lock(&aq->lock);
-
-    if (aq->kill) {
-        drmu_atomic_unref(ppda);
-        rv = -EBUSY;
-    }
-    else {
-        rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
-
-        // No pending commit?
-        if (rv == 0 && aq->cur_flip == NULL)
-            rv = atomic_q_attempt_commit_next(aq);
-    }
-
-    pthread_mutex_unlock(&aq->lock);
-    return rv;
-}
-
-int
-drmu_env_queue_wait(drmu_env_t * const du)
-{
-
-    drmu_atomic_q_t *const aq = env_atomic_q(du);
-    struct timespec ts;
-    int rv = 0;
-
-    pthread_mutex_lock(&aq->lock);
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
-
-    // Next should clear quickly
-    while (aq->next_flip != NULL) {
-        if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
-            break;
-    }
-
-    pthread_mutex_unlock(&aq->lock);
-    return rv;
-}
-
-static void
-atomic_q_uninit(drmu_atomic_q_t * const aq)
-{
-    aq->kill = true;
-    polltask_delete(&aq->retry_task);
-    atomic_q_clear_flips(aq);
-    pthread_cond_destroy(&aq->cond);
-    pthread_mutex_destroy(&aq->lock);
-}
-
-static void
-atomic_q_init(drmu_atomic_q_t * const aq)
-{
-    pthread_condattr_t condattr;
-
-    aq->kill = false;
-    aq->next_flip = NULL;
-    aq->cur_flip = NULL;
-    aq->last_flip = NULL;
-    pthread_mutex_init(&aq->lock, NULL);
-
-    pthread_condattr_init(&condattr);
-    pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
-    pthread_cond_init(&aq->cond, &condattr);
-    pthread_condattr_destroy(&condattr);
-}
-
-//----------------------------------------------------------------------------
-//
 // Plane fns
 
 typedef struct drmu_plane_s {
@@ -3269,6 +3047,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
 
 typedef struct drmu_env_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
+    bool kill;
     int fd;
     uint32_t plane_count;
     uint32_t conn_count;
@@ -3279,15 +3058,16 @@ typedef struct drmu_env_s {
 
     drmu_log_env_t log;
 
-    // global env for atomic flip
-    drmu_atomic_q_t aq;
+    pthread_mutex_t lock;
+
     // global env for bo tracking
     drmu_bo_env_t boe;
     // global atomic for restore op
     drmu_atomic_t * da_restore;
 
-    struct pollqueue * pq;
-    struct polltask * pt;
+    struct drmu_poll_env_s * poll_env;
+    drmu_poll_destroy_fn poll_destroy;
+
 } drmu_env_t;
 
 // Retrieve the the n-th conn
@@ -3456,18 +3236,6 @@ env_boe(drmu_env_t * const du)
     return &du->boe;
 }
 
-static struct pollqueue *
-env_pollqueue(const drmu_env_t * const du)
-{
-    return du->pq;
-}
-
-static struct drmu_atomic_q_s *
-env_atomic_q(drmu_env_t * const du)
-{
-    return &du->aq;
-}
-
 static void
 env_restore(drmu_env_t * const du)
 {
@@ -3487,32 +3255,28 @@ env_restore(drmu_env_t * const du)
     drmu_atomic_unref(&du->da_restore);
 }
 
+void
+drmu_env_int_restore(drmu_env_t * const du)
+{
+    if (du->da_restore != NULL)
+        env_restore(du);
+}
+
 static void
 env_free(drmu_env_t * const du)
 {
     if (!du)
         return;
 
-    atomic_q_kill(env_atomic_q(du));
-
-    polltask_delete(&du->pt);
-    pollqueue_finish(&du->pq);
-
-    // Restore previous values after shutting down the polltask but
-    // before uniniting the Q commits
-    //
-    // The Q uninit stands a plausible chance of causing BOs or dmabufs that
-    // are in use to be reclaimed so restoring the old FBs before that is a
-    // good idea (prevents visible artifacts in VLC).
-    if (du->da_restore)
-        env_restore(du);
-
-    atomic_q_uninit(&du->aq);
+    if (du->poll_env)
+        du->poll_destroy(&du->poll_env, du);
+    drmu_env_int_restore(du);
 
     env_free_planes(du);
     env_free_conns(du);
     env_free_crtcs(du);
     drmu_bo_env_uninit(&du->boe);
+    pthread_mutex_destroy(&du->lock);
 
     close(du->fd);
     free(du);
@@ -3535,12 +3299,6 @@ drmu_env_unref(drmu_env_t ** const ppdu)
 }
 
 // Kill the Q
-// Ordering goes:
-//   Shutdown Q events
-//   Restore old state
-//   Clear previous atomics
-// Must be done in that order or we end up destroying buffers that are
-// still in use
 void
 drmu_env_kill(drmu_env_t ** const ppdu)
 {
@@ -3550,19 +3308,15 @@ drmu_env_kill(drmu_env_t ** const ppdu)
         return;
     *ppdu = NULL;
 
-    atomic_q_kill(&du->aq);
+    pthread_mutex_lock(&du->lock);
+    du->kill = true;
+    if (du->poll_env)
+        du->poll_destroy(&du->poll_env, du);
+    pthread_mutex_unlock(&du->lock);
 
-    polltask_delete(&du->pt);
-    pollqueue_finish(&du->pq);
-
-    if (du->da_restore)
-        env_restore(du);
-
-    atomic_q_clear_flips(&du->aq);
-
-    // Q is now mostly shutdown. The mutex and cond are still valid so
-    // it is still possible to abtain teh lock and then note that it is
-    // dead. Remaining environment will be freed when drmu_env is freed.
+    // If we had a poll env this should have already been done, if it has
+    // already been done this is a noop
+    drmu_env_int_restore(du);
 
     drmu_env_unref(&du);
 }
@@ -3660,61 +3414,6 @@ drmu_atomic_env_restore_add_snapshot(drmu_atomic_t ** const ppda)
     return drmu_atomic_merge(du->da_restore, &da);
 }
 
-#define EVT(p) ((const struct drm_event *)(p))
-static int
-evt_read(drmu_env_t * const du)
-{
-    uint8_t buf[256] __attribute__((aligned(__BIGGEST_ALIGNMENT__)));
-    const ssize_t rlen = read(drmu_fd(du), buf, sizeof(buf));
-    size_t i;
-
-    if (rlen < 0) {
-        const int err = errno;
-        drmu_err(du, "Event read failure: %s", strerror(err));
-        return -err;
-    }
-
-    for (i = 0;
-         i + sizeof(struct drm_event) <= (size_t)rlen && EVT(buf + i)->length <= (size_t)rlen - i;
-         i += EVT(buf + i)->length) {
-        switch (EVT(buf + i)->type) {
-            case DRM_EVENT_FLIP_COMPLETE:
-            {
-                const struct drm_event_vblank * const vb = (struct drm_event_vblank*)(buf + i);
-                if (EVT(buf + i)->length < sizeof(*vb))
-                    break;
-
-                drmu_atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
-                break;
-            }
-            default:
-                drmu_warn(du, "Unexpected DRM event #%x", EVT(buf + i)->type);
-                break;
-        }
-    }
-
-    if (i != (size_t)rlen)
-        drmu_warn(du, "Partial event received: len=%zd, processed=%zd", rlen, i);
-
-    return 0;
-}
-#undef EVT
-
-static void
-drmu_env_polltask_cb(void * v, short revents)
-{
-    drmu_env_t * const du = v;
-
-    if (revents == 0) {
-        drmu_debug(du, "%s: Timeout", __func__);
-    }
-    else {
-        evt_read(du);
-    }
-
-    pollqueue_add_task(du->pt, 1000);
-}
-
 static int
 env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
 {
@@ -3723,6 +3422,41 @@ env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
         .value = cap_val
     };
     return drmu_ioctl(du, DRM_IOCTL_SET_CLIENT_CAP, &cap);
+}
+
+int
+drmu_env_int_poll_set(drmu_env_t * const du,
+                  const drmu_poll_new_fn new_fn, const drmu_poll_destroy_fn destroy_fn,
+                  struct drmu_poll_env_s ** const ppPe)
+{
+    int rv = 0;
+
+    pthread_mutex_lock(&du->lock);
+    if (du->kill) {
+        rv = -EBUSY;
+    }
+    else if (du->poll_env == NULL) {
+        du->poll_destroy = destroy_fn;
+        if ((du->poll_env = new_fn(du)) == NULL)
+            rv = -ENOMEM;
+    }
+    *ppPe = du->poll_env;
+    pthread_mutex_unlock(&du->lock);
+
+    if (rv == -ENOMEM)
+        drmu_err(du, "Failed to create poll env");
+
+    return rv;
+}
+
+struct drmu_poll_env_s *
+drmu_env_int_poll_get(drmu_env_t * const du)
+{
+    struct drmu_poll_env_s * pe;
+    pthread_mutex_lock(&du->lock);
+    pe = du->poll_env;
+    pthread_mutex_unlock(&du->lock);
+    return pe;
 }
 
 // Closes fd on failure
@@ -3744,8 +3478,8 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
     du->log = (log == NULL) ? drmu_log_env_none : *log;
     du->fd = fd;
 
+    pthread_mutex_init(&du->lock, NULL);
     drmu_bo_env_init(&du->boe);
-    atomic_q_init(&du->aq);
 
     // We need atomic for almost everything we do
     if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1)) != 0) {
@@ -3821,17 +3555,6 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
         conn_ids = NULL;
         crtc_ids = NULL;
     }
-
-    if ((du->pq = pollqueue_new()) == NULL) {
-        drmu_err(du, "Failed to create pollqueue");
-        goto fail1;
-    }
-    if ((du->pt = polltask_new(du->pq, du->fd, POLLIN | POLLPRI, drmu_env_polltask_cb, du)) == NULL) {
-        drmu_err(du, "Failed to create polltask");
-        goto fail1;
-    }
-
-    pollqueue_add_task(du->pt, 1000);
 
     free(plane_ids);
     return du;
