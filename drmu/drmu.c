@@ -2884,7 +2884,7 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
 {
     drmu_env_t * const du = dp->du;
 
-    static const int ref0 = 0;
+    int ref0 = 0;
     if (!atomic_compare_exchange_strong(&dp->ref_count, &ref0, 2))
         return -EBUSY;
     dp->dc = dc;
