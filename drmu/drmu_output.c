@@ -43,23 +43,13 @@ struct drmu_output_s {
 drmu_plane_t *
 drmu_output_plane_ref_primary(drmu_output_t * const dout)
 {
-    drmu_plane_t * const dp = drmu_plane_new_find_type(dout->dc, DRMU_PLANE_TYPE_PRIMARY);
-
-    if (dp == NULL || drmu_plane_ref_crtc(dp, dout->dc) != 0)
-        return NULL;
-
-    return dp;
+    return drmu_plane_new_find_ref_type(dout->dc, DRMU_PLANE_TYPE_PRIMARY);
 }
 
 drmu_plane_t *
 drmu_output_plane_ref_other(drmu_output_t * const dout)
 {
-    drmu_plane_t *const dp = drmu_plane_new_find_type(dout->dc, DRMU_PLANE_TYPE_CURSOR | DRMU_PLANE_TYPE_OVERLAY);
-
-    if (dp == NULL || drmu_plane_ref_crtc(dp, dout->dc) != 0)
-        return NULL;
-
-    return dp;
+    return drmu_plane_new_find_ref_type(dout->dc, DRMU_PLANE_TYPE_CURSOR | DRMU_PLANE_TYPE_OVERLAY);
 }
 
 struct plane_format_s {
@@ -84,12 +74,7 @@ drmu_output_plane_ref_format(drmu_output_t * const dout, const unsigned int type
         .mod = mod
     };
 
-    drmu_plane_t *const dp = drmu_plane_new_find(dout->dc, plane_find_format_cb, &fm);
-
-    if (dp == NULL || drmu_plane_ref_crtc(dp, dout->dc) != 0)
-        return NULL;
-
-    return dp;
+    return drmu_plane_new_find_ref(dout->dc, plane_find_format_cb, &fm);
 }
 
 

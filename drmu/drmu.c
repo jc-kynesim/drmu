@@ -2896,7 +2896,7 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
 }
 
 drmu_plane_t *
-drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v)
+drmu_plane_new_find_ref(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v)
 {
     uint32_t i;
     drmu_env_t * const du = drmu_crtc_env(dc);
@@ -2911,7 +2911,7 @@ drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, 
             (dp_t->plane.possible_crtcs & crtc_mask) == 0)
             continue;
 
-        if (cb(dp_t, v)) {
+        if (cb(dp_t, v) && drmu_plane_ref_crtc(dp_t, dc) == 0) {
             dp = dp_t;
             break;
         }
@@ -2926,10 +2926,10 @@ static bool plane_find_type_cb(const drmu_plane_t * dp, void * v)
 }
 
 drmu_plane_t *
-drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
+drmu_plane_new_find_ref_type(drmu_crtc_t * const dc, const unsigned int req_type)
 {
     drmu_env_t * const du = drmu_crtc_env(dc);
-    drmu_plane_t * const dp = drmu_plane_new_find(dc, plane_find_type_cb, (void*)&req_type);
+    drmu_plane_t * const dp = drmu_plane_new_find_ref(dc, plane_find_type_cb, (void*)&req_type);
     if (dp == NULL) {
         drmu_err(du, "%s: No plane found for types %#x", __func__, req_type);
         return NULL;
