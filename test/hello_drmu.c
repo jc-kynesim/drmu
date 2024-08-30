@@ -32,324 +32,281 @@
  * frames from the HW video surfaces.
  */
 
-#include <stdio.h>
+#include <pthread.h>
+
+#include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/opt.h>
-#include <libavutil/avassert.h>
-#include <libavutil/imgutils.h>
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
-
 #include "drmprime_out.h"
+#include "player.h"
 
-static enum AVPixelFormat hw_pix_fmt;
-static FILE *output_file = NULL;
-static long frames = 0;
-static bool wants_modeset = false;
+#include <libavcodec/packet.h>
 
-static AVFilterContext *buffersink_ctx = NULL;
-static AVFilterContext *buffersrc_ctx = NULL;
-static AVFilterGraph *filter_graph = NULL;
+// ---------------------------------------------------------------------------
 
-static int hw_decoder_init(AVCodecContext *ctx, const enum AVHWDeviceType type)
+typedef struct playlist_s {
+    // Cmd line vars
+    int zpos;
+    int x, y;
+    unsigned int w, h;
+    const char * out_name;
+
+    unsigned int in_count;
+    const char * const * in_filelist;
+
+    uint64_t seek_start;
+    long loop_count;
+    long frame_count;
+    long pace_input_hz;
+    bool wants_deinterlace;
+    bool wants_modeset;
+    const char * hwdev;
+
+    // run vars
+    FILE *output_file;
+    player_env_t * pe;
+    pthread_t thread_id;
+
+} playlist_t;
+
+typedef struct playlist_env_s {
+    playlist_t ** pla;
+    size_t n;
+    size_t alloc;
+} playlist_env_t;
+
+static playlist_t *
+playlist_new(playlist_env_t * ple)
 {
-    int err = 0;
+    playlist_t * pl;
 
-    ctx->hw_frames_ctx = NULL;
-    // ctx->hw_device_ctx gets freed when we call avcodec_free_context
-    if ((err = av_hwdevice_ctx_create(&ctx->hw_device_ctx, type,
-                                      NULL, NULL, 0)) < 0) {
-        fprintf(stderr, "Failed to create specified HW device.\n");
-        return err;
+    if (ple->n >= ple->alloc) {
+        size_t n = ple->alloc == 0 ? 4 : ple->alloc * 2;
+        playlist_t **pla = realloc(ple->pla, sizeof(*ple->pla) * n);
+        if (pla == NULL)
+            return NULL;
+        ple->alloc = n;
+        ple->pla = pla;
     }
+    if ((pl = calloc(1, sizeof(*pl))) == NULL)
+        return NULL;
 
-    return err;
+    pl->loop_count = 1;
+    pl->frame_count = -1;
+    pl->hwdev = "drm";
+    pl->zpos = ple->n;
+
+    ple->pla[ple->n++] = pl;
+    return pl;
 }
 
-static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
-                                        const enum AVPixelFormat *pix_fmts)
+static void
+playlist_env_init(playlist_env_t * ple)
 {
-    const enum AVPixelFormat *p;
-
-    (void)ctx;
-
-    for (p = pix_fmts; *p != -1; p++) {
-        if (*p == hw_pix_fmt)
-            return *p;
-    }
-
-    fprintf(stderr, "Failed to get HW surface format.\n");
-    return AV_PIX_FMT_NONE;
+    memset(ple, 0, sizeof(*ple));
 }
 
-static int decode_write(AVCodecContext * const avctx,
-                        drmprime_out_env_t * const dpo,
-                        AVPacket *packet)
+static void
+playlist_env_uninit(playlist_env_t * ple)
 {
-    AVFrame *frame = NULL, *sw_frame = NULL;
-    uint8_t *buffer = NULL;
-    int size;
-    int ret = 0;
+    size_t i;
+    for (i = 0; i != ple->n; ++i)
+        free(ple->pla[i]);
+    free(ple->pla);
+    playlist_env_init(ple);
+}
 
-    ret = avcodec_send_packet(avctx, packet);
-    if (ret < 0) {
-        fprintf(stderr, "Error during decoding\n");
-        return ret;
+static int
+playlist_set_win(playlist_t * const pl, const char * arg)
+{
+    char * p = (char *)arg;
+
+    pl->w = strtoul(p, &p, 0);
+    if (*p++ != 'x' || pl->w == 0)
+        return -1;
+    pl->h = strtoul(p, &p, 0);
+    if (*p++ != '@' || pl->h == 0)
+        return -1;
+    pl->x = strtoul(p, &p, 0);
+    if (*p++ != ',')
+        return -1;
+    pl->y = strtoul(p, &p, 0);
+    if (*p++ != '\0')
+        return -1;
+    return 0;
+}
+
+static void *
+playlist_thread(void *v)
+{
+    playlist_t * const pl = v;
+    player_env_t * const pe = pl->pe;
+    unsigned int in_n = 0;
+    const char * in_file;
+    bool play0;
+
+loopy:
+    in_file = pl->in_filelist[in_n];
+    if (++in_n >= pl->in_count)
+        in_n = 0;
+
+    player_open_file(pe, in_file);
+
+    if (pl->wants_deinterlace) {
+        if (player_filter_add_deinterlace(pe)) {
+            fprintf(stderr, "Failed to init deinterlace\n");
+            return NULL;
+        }
     }
 
-    for (;;) {
-        if (!(frame = av_frame_alloc()) || !(sw_frame = av_frame_alloc())) {
-            fprintf(stderr, "Can not alloc frame\n");
-            ret = AVERROR(ENOMEM);
-            goto fail;
-        }
+    play0 = true;
+reseek:
+    if (!play0 || pl->seek_start != 0) {
+        if (player_seek(pe, pl->seek_start) != 0)
+            fprintf(stderr, "Seek failed to %d.%06d\n", (int)(pl->seek_start / 1000000), (int)(pl->seek_start % 1000000));
+    }
+    play0 = false;
 
-        ret = avcodec_receive_frame(avctx, frame);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            av_frame_free(&frame);
-            av_frame_free(&sw_frame);
-            return 0;
-        } else if (ret < 0) {
-            fprintf(stderr, "Error while decoding\n");
-            goto fail;
-        }
+    /* actual decoding and dump the raw data */
+    player_set_write_frame_count(pe, pl->frame_count);
+    player_set_input_pace_hz(pe, pl->pace_input_hz);
 
-        // push the decoded frame into the filtergraph if it exists
-        if (filter_graph != NULL &&
-            (ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF)) < 0) {
-            fprintf(stderr, "Error while feeding the filtergraph\n");
-            goto fail;
-        }
+    while (player_run_one_packet(pe) >= 0)
+        /* loop */;
 
-        do {
-            if (filter_graph != NULL) {
-                av_frame_unref(frame);
-                ret = av_buffersink_get_frame(buffersink_ctx, frame);
-                if (ret == AVERROR(EAGAIN)) {
-                    ret = 0;
-                    break;
-                }
-                if (ret < 0) {
-                    if (ret != AVERROR_EOF)
-                        fprintf(stderr, "Failed to get frame: %s", av_err2str(ret));
-                    goto fail;
-                }
-                if (wants_modeset)
-                    drmprime_out_modeset(dpo, av_buffersink_get_w(buffersink_ctx), av_buffersink_get_h(buffersink_ctx), av_buffersink_get_time_base(buffersink_ctx));
-            }
-            else if (wants_modeset) {
-                drmprime_out_modeset(dpo, avctx->coded_width, avctx->coded_height, avctx->framerate);
-            }
+    // Do not close & reopen if looping within a single file
+    if (pl->in_count == 1 &&
+        (pl->loop_count == -1 ||
+         (pl->loop_count != 0 && --pl->loop_count > 0)))
+        goto reseek;
 
-            drmprime_out_display(dpo, frame);
+    player_run_eos(pe);
 
-            if (output_file != NULL) {
-                AVFrame *tmp_frame;
+    player_close_file(pe);
 
-                if (frame->format == hw_pix_fmt) {
-                    /* retrieve data from GPU to CPU */
-                    if ((ret = av_hwframe_transfer_data(sw_frame, frame, 0)) < 0) {
-                        fprintf(stderr, "Error transferring the data to system memory\n");
-                        goto fail;
-                    }
-                    tmp_frame = sw_frame;
-                } else
-                    tmp_frame = frame;
+    if (pl->loop_count == -1 ||
+        (pl->loop_count != 0 && --pl->loop_count > 0))
+        goto loopy;
 
-                size = av_image_get_buffer_size(tmp_frame->format, tmp_frame->width,
-                                                tmp_frame->height, 1);
-                buffer = av_malloc(size);
-                if (!buffer) {
-                    fprintf(stderr, "Can not alloc buffer\n");
-                    ret = AVERROR(ENOMEM);
-                    goto fail;
-                }
-                ret = av_image_copy_to_buffer(buffer, size,
-                                              (const uint8_t * const *)tmp_frame->data,
-                                              (const int *)tmp_frame->linesize, tmp_frame->format,
-                                              tmp_frame->width, tmp_frame->height, 1);
-                if (ret < 0) {
-                    fprintf(stderr, "Can not copy image to buffer\n");
-                    goto fail;
-                }
+    return NULL;
+}
 
-                if ((ret = fwrite(buffer, 1, size, output_file)) < 0) {
-                    fprintf(stderr, "Failed to dump raw data.\n");
-                    goto fail;
-                }
-            }
-        } while (buffersink_ctx != NULL);  // Loop if we have a filter to drain
-
-        if (frames == 0 || --frames == 0)
-            ret = -1;
-
-    fail:
-        av_frame_free(&frame);
-        av_frame_free(&sw_frame);
-        av_freep(&buffer);
-        if (ret < 0)
-            return ret;
+static int
+playlist_run(playlist_t * const pl)
+{
+    if (pthread_create(&pl->thread_id, NULL, playlist_thread, pl) != 0) {
+        int rv = -errno;
+        fprintf(stderr, "%s: Failed to create player thread", __func__);
+        return rv;
     }
     return 0;
 }
 
-// Copied almost directly from ffmpeg filtering_video.c example
-static int init_filters(const AVStream * const stream,
-                        const AVCodecContext * const dec_ctx,
-                        const char * const filters_descr)
+static int
+playlist_wait(playlist_t * const pl)
 {
-    char args[512];
-    int ret = 0;
-    const AVFilter *buffersrc  = avfilter_get_by_name("buffer");
-    const AVFilter *buffersink = avfilter_get_by_name("buffersink");
-    AVFilterInOut *outputs = avfilter_inout_alloc();
-    AVFilterInOut *inputs  = avfilter_inout_alloc();
-    AVRational time_base = stream->time_base;
-    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_NONE };
-
-    filter_graph = avfilter_graph_alloc();
-    if (!outputs || !inputs || !filter_graph) {
-        ret = AVERROR(ENOMEM);
-        goto end;
-    }
-
-    /* buffer video source: the decoded frames from the decoder will be inserted here. */
-    snprintf(args, sizeof(args),
-            "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-            dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
-            time_base.num, time_base.den,
-            dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
-
-    ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in",
-                                       args, NULL, filter_graph);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot create buffer source\n");
-        goto end;
-    }
-
-    /* buffer video sink: to terminate the filter chain. */
-    ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",
-                                       NULL, NULL, filter_graph);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot create buffer sink\n");
-        goto end;
-    }
-
-    ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
-                              AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format\n");
-        goto end;
-    }
-
-    /*
-     * Set the endpoints for the filter graph. The filter_graph will
-     * be linked to the graph described by filters_descr.
-     */
-
-    /*
-     * The buffer source output must be connected to the input pad of
-     * the first filter described by filters_descr; since the first
-     * filter input label is not specified, it is set to "in" by
-     * default.
-     */
-    outputs->name       = av_strdup("in");
-    outputs->filter_ctx = buffersrc_ctx;
-    outputs->pad_idx    = 0;
-    outputs->next       = NULL;
-
-    /*
-     * The buffer sink input must be connected to the output pad of
-     * the last filter described by filters_descr; since the last
-     * filter output label is not specified, it is set to "out" by
-     * default.
-     */
-    inputs->name       = av_strdup("out");
-    inputs->filter_ctx = buffersink_ctx;
-    inputs->pad_idx    = 0;
-    inputs->next       = NULL;
-
-    if ((ret = avfilter_graph_parse_ptr(filter_graph, filters_descr,
-                                    &inputs, &outputs, NULL)) < 0)
-        goto end;
-
-    if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0)
-        goto end;
-
-end:
-    avfilter_inout_free(&inputs);
-    avfilter_inout_free(&outputs);
-
-    return ret;
+    pthread_join(pl->thread_id, NULL);
+    return 0;
 }
 
-static uint64_t
-us_time()
+static int get_time_arg(const char * const arg, uint64_t * pTime)
 {
-    struct timespec ts = {0};
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+    char * p = (char*)arg;
+    uint64_t t = strtoul(p, &p, 0) * (uint64_t)1000000;
+    if (*p == '.')
+        t += strtoul(p + 1, &p, 0);
+    if (*p != '\0')
+        return -1;
+    *pTime = t;
+    return 0;
 }
 
 void usage()
 {
     fprintf(stderr,
-            "Usage: hello_drmprime [-l loop_count] [-f <frames>] [-o yuv_output_file]\n"
-            "                      [--deinterlace] [--pace-input <hz>]\n"
-            "                      [--modeset]\n"
-            "                      [--ticker <text>]\n"
-            "                      [--cube]\n"
-            "                      <input file> [<input_file> ...]\n");
+"Usage: hello_drmprime [--ticker <text>]\n"
+"                      [--cube]\n"
+"                      <playlist0> [: <playlist1> [: ...]]\n"
+" <playlist> = [--win <w>x<h>@<x>,<y>]"
+"              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
+"              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
+"              <input file> [<input_file> ...]\n"
+"\n"
+"playlist1 and later must have the --win option\n"
+"N.B. loop_counts and similar options are currently global to a playlist\n"
+"so do not work well with multiple input files in a playlist.\n"
+            );
     exit(1);
 }
 
 int main(int argc, char *argv[])
 {
-    AVFormatContext *input_ctx = NULL;
-    int video_stream, ret;
-    AVStream *video = NULL;
-    AVCodecContext *decoder_ctx = NULL;
-#if LIBAVFORMAT_VERSION_MAJOR >= 59
-    const AVCodec *decoder = NULL;
-#else
-    AVCodec *decoder = NULL;
-#endif
-    AVPacket packet;
-    enum AVHWDeviceType type;
-    const char * in_file;
-    char * const * in_filelist;
-    unsigned int in_count;
-    unsigned int in_n = 0;
-    const char * hwdev = "drm";
-    int i;
     drmprime_out_env_t * dpo;
-    long loop_count = 1;
-    long frame_count = -1;
-    const char * out_name = NULL;
-    bool wants_deinterlace = false;
-    long pace_input_hz = 0;
-    bool try_hw = true;
     bool wants_cube = false;
     const char * ticker_text = NULL;
 
-    {
-        char * const * a = argv + 1;
-        int n = argc - 1;
+    playlist_env_t ple;
+    playlist_t * pl = NULL;
 
-        while (n-- > 0 && a[0][0] == '-') {
+    playlist_env_init(&ple);
+
+    {
+        const char * const * a = (const char * const *)argv + 1;
+        int n = argc - 1;
+        bool is_file = false;
+
+        while (n-- > 0) {
             const char *arg = *a++;
             char *e;
 
-            if (strcmp(arg, "-l") == 0 || strcmp(arg, "--loop") == 0) {
+            if (pl == NULL &&
+                (pl = playlist_new(&ple)) == NULL) {
+                fprintf(stderr, "Unable to allocate playlist %zd\n", ple.n);
+                return -1;
+            }
+
+            if (arg[0] != '-')
+                is_file = true;
+
+            if (is_file) {
+                if (strcmp(arg, ":") == 0) {
+                    is_file = false;
+                    pl = NULL;
+                }
+                else {
+                    if (pl->in_filelist == NULL)
+                        pl->in_filelist = a - 1;
+                    ++pl->in_count;
+                }
+                continue;
+            }
+
+            if (strcmp(arg, "--win") == 0) {
                 if (n == 0)
                     usage();
-                loop_count = strtol(*a, &e, 0);
+                if (playlist_set_win(pl, *a) != 0) {
+                    fprintf(stderr, "Bad window <w>x<h>@<x>,<y>: '%s'", *a);
+                    return -1;
+                }
+                --n;
+                ++a;
+            }
+            else if (strcmp(arg, "--seek") == 0) {
+                if (n == 0)
+                    usage();
+                if (get_time_arg(*a, &pl->seek_start) != 0)
+                    usage();
+                --n;
+                ++a;
+            }
+            else if (strcmp(arg, "-l") == 0 || strcmp(arg, "--loop") == 0) {
+                if (n == 0)
+                    usage();
+                pl->loop_count = strtol(*a, &e, 0);
                 if (*e != 0)
                     usage();
                 --n;
@@ -358,7 +315,7 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "-f") == 0 || strcmp(arg, "--frames") == 0) {
                 if (n == 0)
                     usage();
-                frame_count = strtol(*a, &e, 0);
+                pl->frame_count = strtol(*a, &e, 0);
                 if (*e != 0)
                     usage();
                 --n;
@@ -367,27 +324,27 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "-o") == 0) {
                 if (n == 0)
                     usage();
-                out_name = *a;
+                pl->out_name = *a;
                 --n;
                 ++a;
             }
             else if (strcmp(arg, "--pace-input") == 0) {
                 if (n == 0)
                     usage();
-                pace_input_hz = strtol(*a, &e, 0);
+                pl->pace_input_hz = strtol(*a, &e, 0);
                 if (*e != 0)
                     usage();
                 --n;
                 ++a;
             }
             else if (strcmp(arg, "--deinterlace") == 0) {
-                wants_deinterlace = true;
+                pl->wants_deinterlace = true;
             }
             else if (strcmp(arg, "--cube") == 0) {
                 wants_cube = true;
             }
             else if (strcmp(arg, "--modeset") == 0) {
-                wants_modeset = true;
+                pl->wants_modeset = true;
             }
             else if (strcmp(arg, "--ticker") == 0) {
                 if (n == 0)
@@ -397,30 +354,35 @@ int main(int argc, char *argv[])
                 ++a;
             }
             else if (strcmp(arg, "--") == 0) {
-                --n;  // If we are going to break out then need to dec count like in the while
-                break;
+                is_file = true;
             }
             else
                 usage();
         }
 
-        // Last args are input files
-        if (n < 0)
+        if (ple.n == 0)
             usage();
-
-        in_filelist = a;
-        in_count = n + 1;
-        loop_count *= in_count;
     }
 
-    type = av_hwdevice_find_type_by_name(hwdev);
-    if (type == AV_HWDEVICE_TYPE_NONE) {
-        fprintf(stderr, "Device type %s is not supported.\n", hwdev);
-        fprintf(stderr, "Available device types:");
-        while((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE)
-            fprintf(stderr, " %s", av_hwdevice_get_type_name(type));
-        fprintf(stderr, "\n");
-        return -1;
+    // Finalize arguments in playlists
+    for (size_t i = 0; i != ple.n; ++i) {
+        pl = ple.pla[i];
+        if (pl->in_count == 0)
+            usage();
+        if (pl->loop_count > 0)
+            pl->loop_count *= pl->in_count;
+        if (i != 0 && pl->w == 0) {
+            fprintf(stderr, "Playlist %zd needs a window", i);
+            return -1;
+        }
+
+        /* open the file to dump raw data */
+        if (pl->out_name != NULL) {
+            if ((pl->output_file = fopen(pl->out_name, "w+")) == NULL) {
+                fprintf(stderr, "Failed to open output file %s: %s\n", pl->out_name, strerror(errno));
+                return -1;
+            }
+        }
     }
 
     dpo = drmprime_out_new();
@@ -429,12 +391,28 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* open the file to dump raw data */
-    if (out_name != NULL) {
-        if ((output_file = fopen(out_name, "w+")) == NULL) {
-            fprintf(stderr, "Failed to open output file %s: %s\n", out_name, strerror(errno));
+    for (size_t i = 0; i != ple.n; ++i) {
+        pl = ple.pla[i];
+
+        /* open the file to dump raw data */
+        if (pl->out_name != NULL) {
+            if ((pl->output_file = fopen(pl->out_name, "w+")) == NULL) {
+                fprintf(stderr, "Failed to open output file %s: %s\n", pl->out_name, strerror(errno));
+                return -1;
+            }
+        }
+
+        if ((pl->pe = player_new(dpo)) == NULL) {
+            fprintf(stderr, "Failed to create player");
             return -1;
         }
+        if (player_set_hwdevice_by_name(pl->pe, pl->hwdev) != 0)
+            return -1;
+        player_set_modeset(pl->pe, pl->wants_modeset);
+        player_set_output_file(pl->pe, pl->output_file);
+        player_set_window(pl->pe, pl->x, pl->y, pl->w, pl->h, pl->zpos);
+
+        playlist_run(pl);
     }
 
     if (wants_cube)
@@ -443,170 +421,18 @@ int main(int argc, char *argv[])
     if (ticker_text != NULL)
         drmprime_out_runticker_start(dpo, ticker_text);
 
-loopy:
-    in_file = in_filelist[in_n];
-    if (++in_n >= in_count)
-        in_n = 0;
 
-    /* open the input file */
-    if (avformat_open_input(&input_ctx, in_file, NULL, NULL) != 0) {
-        fprintf(stderr, "Cannot open input file '%s'\n", in_file);
-        return -1;
+    for (size_t i = 0; i != ple.n; ++i) {
+        pl = ple.pla[i];
+
+        playlist_wait(pl);
+        if (pl->output_file)
+            fclose(pl->output_file);
+        player_delete(&pl->pe);
     }
-
-    if (avformat_find_stream_info(input_ctx, NULL) < 0) {
-        fprintf(stderr, "Cannot find input stream information.\n");
-        return -1;
-    }
-
-retry_hw:
-    /* find the video stream information */
-    ret = av_find_best_stream(input_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, &decoder, 0);
-    if (ret < 0) {
-        fprintf(stderr, "Cannot find a video stream in the input file\n");
-        return -1;
-    }
-    video_stream = ret;
-
-    hw_pix_fmt = AV_PIX_FMT_NONE;
-    if (!try_hw) {
-        /* Nothing */
-    }
-    else if (decoder->id == AV_CODEC_ID_H264) {
-        if ((decoder = avcodec_find_decoder_by_name("h264_v4l2m2m")) == NULL)
-            fprintf(stderr, "Cannot find the h264 v4l2m2m decoder\n");
-        else
-            hw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
-    }
-    else {
-        for (i = 0;; i++) {
-            const AVCodecHWConfig *config = avcodec_get_hw_config(decoder, i);
-            if (!config) {
-                fprintf(stderr, "Decoder %s does not support device type %s.\n",
-                        decoder->name, av_hwdevice_get_type_name(type));
-                break;
-            }
-            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
-                config->device_type == type) {
-                hw_pix_fmt = config->pix_fmt;
-                break;
-            }
-        }
-    }
-
-    if (hw_pix_fmt == AV_PIX_FMT_NONE && try_hw) {
-        fprintf(stderr, "No h/w format found - trying s/w\n");
-        try_hw = false;
-    }
-
-    if (!(decoder_ctx = avcodec_alloc_context3(decoder)))
-        return AVERROR(ENOMEM);
-
-    video = input_ctx->streams[video_stream];
-    if (avcodec_parameters_to_context(decoder_ctx, video->codecpar) < 0)
-        return -1;
-
-    if (try_hw) {
-        decoder_ctx->get_format  = get_hw_format;
-
-        if (hw_decoder_init(decoder_ctx, type) < 0)
-            return -1;
-
-        decoder_ctx->pix_fmt = AV_PIX_FMT_DRM_PRIME;
-        decoder_ctx->sw_pix_fmt = AV_PIX_FMT_NONE;
-        decoder_ctx->thread_count = 3;
-    }
-    else {
-        decoder_ctx->get_buffer2 = drmprime_out_get_buffer2;
-        decoder_ctx->opaque = dpo;
-        decoder_ctx->thread_count = 0; // FFmpeg will pick a default
-    }
-    decoder_ctx->flags = 0;
-    // Pick any threading method
-    decoder_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
-
-#if LIBAVCODEC_VERSION_MAJOR < 60
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    decoder_ctx->thread_safe_callbacks = 1;
-#pragma GCC diagnostic pop
-#endif
-
-    if ((ret = avcodec_open2(decoder_ctx, decoder, NULL)) < 0) {
-        if (try_hw) {
-            try_hw = false;
-            avcodec_free_context(&decoder_ctx);
-
-            printf("H/w init failed - trying s/w\n");
-            goto retry_hw;
-        }
-        fprintf(stderr, "Failed to open codec for stream #%u\n", video_stream);
-        return -1;
-    }
-
-    printf("Pixfmt after init: %s / %s\n", av_get_pix_fmt_name(decoder_ctx->pix_fmt), av_get_pix_fmt_name(decoder_ctx->sw_pix_fmt));
-
-    if (wants_deinterlace) {
-        if (init_filters(video, decoder_ctx, "deinterlace_v4l2m2m") < 0) {
-            fprintf(stderr, "Failed to init deinterlace\n");
-            return -1;
-        }
-    }
-
-    /* actual decoding and dump the raw data */
-    {
-        uint64_t t0 = us_time() + 3000; // Allow a few ms so we aren't behind at startup
-        int pts_seen = 0;
-        uint64_t fake_ts = 0;
-
-        frames = frame_count;
-        while (ret >= 0) {
-            if ((ret = av_read_frame(input_ctx, &packet)) < 0)
-                break;
-
-            if (video_stream == packet.stream_index) {
-                if (pace_input_hz > 0) {
-                    const uint64_t now = us_time();
-                    if (now < t0)
-                        usleep(t0 - now);
-                    else
-                        fprintf(stderr, "input pace failure by %"PRId64"us\n", now - t0);
-
-                    t0 += 1000000 / pace_input_hz;
-
-                    if (packet.pts != AV_NOPTS_VALUE) {
-                        pts_seen = 1;
-                    }
-                    else if (!pts_seen) {
-                        packet.dts = fake_ts;
-                        packet.pts = fake_ts;
-                        fake_ts += 90000 / pace_input_hz;
-                    }
-                }
-
-                ret = decode_write(decoder_ctx, dpo, &packet);
-            }
-
-            av_packet_unref(&packet);
-        }
-    }
-
-    /* flush the decoder */
-    packet.data = NULL;
-    packet.size = 0;
-    ret = decode_write(decoder_ctx, dpo, &packet);
-    av_packet_unref(&packet);
-
-    if (output_file)
-        fclose(output_file);
-    avfilter_graph_free(&filter_graph);
-    avcodec_free_context(&decoder_ctx);
-    avformat_close_input(&input_ctx);
-
-    if (--loop_count > 0)
-        goto loopy;
-
     drmprime_out_delete(dpo);
+
+    playlist_env_uninit(&ple);
 
     return 0;
 }
