@@ -249,6 +249,11 @@ int drmprime_video_get_buffer2(drmprime_video_env_t * const dpo, struct AVCodecC
     gb2 = calloc(1, sizeof(*gb2));
     if ((gb2->fb = drmu_pool_fb_new(dpo->pic_pool, w, h, fmt, mod)) == NULL)
         return AVERROR(ENOMEM);
+    drmu_fb_crop_frac_set(gb2->fb, drmu_rect_shl16((drmu_rect_t){
+        .x = frame->crop_left,
+        .y = frame->crop_top,
+        .w = w - (frame->crop_left + frame->crop_right),
+        .h = h - (frame->crop_top + frame->crop_bottom)}));
 
     frame->buf[0] = av_buffer_create((uint8_t*)gb2, sizeof(*gb2), gb2_free, gb2, 0);
 
