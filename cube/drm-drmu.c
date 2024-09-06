@@ -132,8 +132,10 @@ init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t fo
     drm->mode->hdisplay = sparam->width;
     drm->mode->vdisplay = sparam->height;
 
-    // This doesn't really want to be the primary
-    if ((drm->dp = drmu_output_plane_ref_format(drm->dout, DRMU_PLANE_TYPE_OVERLAY, format, 0)) == NULL)
+    // This doesn't really want to be the primary unless zpos == 0
+    if ((drm->dp = drmu_output_plane_ref_format(drm->dout,
+                                                zpos == 0 ? DRMU_PLANE_TYPE_PRIMARY : DRMU_PLANE_TYPE_OVERLAY,
+                                                format, 0)) == NULL)
         goto fail;
 
     sem_init(&drm->commit_sem, 0, 0);
@@ -166,7 +168,7 @@ init_drmu(const char *device, const char *mode_str, unsigned int count, const ui
     }
     drmu_env_restore_enable(du);
 
-    return init_drmu_dout(dout, count, format, 20);
+    return init_drmu_dout(dout, count, format, 0);
 }
 
 const struct gbm * init_gbm_drmu(drmu_env_t * du, int w, int h, uint32_t format, uint64_t modifier)
