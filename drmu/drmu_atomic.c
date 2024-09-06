@@ -290,25 +290,30 @@ aprop_obj_atomic_fill(const aprop_obj_t * const po, uint32_t * prop_ids, uint64_
 }
 
 static void
-aprop_obj_dump(drmu_env_t * const du, const aprop_obj_t * const po)
+aprop_obj_dump(drmu_env_t * const du,
+               const drmu_log_env_t * const log, const enum drmu_log_level_e lvl,
+               const aprop_obj_t * const po)
 {
     unsigned int i;
-    drmu_info(du, "Obj: %02x: size %d n %d", po->id, po->size, po->n);
+    drmu_log_lvl(log, lvl, "Obj: id %#02x size %d n %d", po->id, po->size, po->n);
     for (i = 0; i != po->n; ++i) {
         struct drm_mode_get_property pattr = {.prop_id = po->props[i].id};
         drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPERTY, &pattr);
 
-        drmu_info(du, "Obj %02x: Prop %02x (%s) Value %"PRIx64" v %p", po->id, po->props[i].id, pattr.name, po->props[i].value, po->props[i].v);
+        drmu_log_lvl(log, lvl, "Obj %#04x: Prop %#04x (%s) Value %#"PRIx64" v %p",
+                     po->id, po->props[i].id, pattr.name, po->props[i].value, po->props[i].v);
     }
 }
 
 static void
-aprop_hdr_dump(drmu_env_t * const du, const aprop_hdr_t * const ph)
+aprop_hdr_dump(drmu_env_t * const du,
+               const drmu_log_env_t * const log, const enum drmu_log_level_e lvl,
+               const aprop_hdr_t * const ph)
 {
     unsigned int i;
-    drmu_info(du, "Header: size %d n %d", ph->size, ph->n);
+    drmu_log_lvl(log, lvl, "Header: size %d n %d", ph->size, ph->n);
     for (i = 0; i != ph->n; ++i)
-        aprop_obj_dump(du, ph->objs + i);
+        aprop_obj_dump(du, log, lvl, ph->objs + i);
 }
 
 static aprop_obj_t *
@@ -653,10 +658,22 @@ drmu_atomic_add_prop_value(drmu_atomic_t * const da, const uint32_t obj_id, cons
 }
 
 void
+drmu_atomic_dump_lvl(const drmu_atomic_t * const da, const int lvl)
+{
+    drmu_env_t * const du = da->du;
+    const drmu_log_env_t * const log = drmu_env_log(du);
+
+    if (!drmu_log_lvl_test(log, lvl))
+        return;
+
+    drmu_log_lvl(log, lvl, "Atomic %p: refs %d", da, atomic_load(&da->ref_count)+1);
+    aprop_hdr_dump(du, log, lvl, &da->props);
+}
+
+void
 drmu_atomic_dump(const drmu_atomic_t * const da)
 {
-    drmu_info(da->du, "Atomic %p: refs %d", da, atomic_load(&da->ref_count)+1);
-    aprop_hdr_dump(da->du, &da->props);
+    drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_INFO);
 }
 
 drmu_env_t *

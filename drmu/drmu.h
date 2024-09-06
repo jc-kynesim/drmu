@@ -485,6 +485,7 @@ extern const struct drmu_log_env_s drmu_log_env_none;   // pre-built do-nothing 
 struct drmu_atomic_s;
 typedef struct drmu_atomic_s drmu_atomic_t;
 
+void drmu_atomic_dump_lvl(const drmu_atomic_t * const da, const int lvl);
 void drmu_atomic_dump(const drmu_atomic_t * const da);
 drmu_env_t * drmu_atomic_env(const drmu_atomic_t * const da);
 void drmu_atomic_unref(drmu_atomic_t ** const ppda);
