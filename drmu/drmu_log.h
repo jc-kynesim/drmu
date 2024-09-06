@@ -2,6 +2,7 @@
 #define _DRMU_DRMU_LOG_H
 
 #include <stdarg.h>
+#include <stdbool.h>
 
 struct drmu_env_s;
 
@@ -26,16 +27,25 @@ typedef struct drmu_log_env_s {
 void drmu_log_generic(const struct drmu_log_env_s * const log, const enum drmu_log_level_e level,
                       const char * const fmt, ...);
 
-#define drmu_log_macro(_log, _level, _fmt, ...) do {\
-        const drmu_log_env_t * const _log2 = (_log);\
-        if ((_level) <= _log2->max_level)\
-                drmu_log_generic(_log2, (_level), "%s:%u:%s: " _fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__);\
-} while (0)
-
 // Char offset if file, line extracted - func still in format
 #define DRMU_LOG_FMT_OFFSET_FUNC        6
 // Char offset if file, line & fn extracted
 #define DRMU_LOG_FMT_OFFSET_FMT         10
+
+#define drmu_log_lvl(_log, _level, _fmt, ...) \
+    drmu_log_generic(_log, (_level), "%s:%u:%s: " _fmt, __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+
+static inline bool
+drmu_log_lvl_test(const drmu_log_env_t * const log, const enum drmu_log_level_e lvl)
+{
+    return lvl <= log->max_level;
+}
+
+#define drmu_log_macro(_log, _level, _fmt, ...) do {\
+    const drmu_log_env_t * const _log2 = (_log);\
+    if (drmu_log_lvl_test(_log2, (_level)))\
+        drmu_log_lvl(_log2, (_level), _fmt, ##__VA_ARGS__);\
+} while (0)
 
 #define drmu_err_log(_log, ...)      drmu_log_macro((_log), DRMU_LOG_LEVEL_ERROR,   __VA_ARGS__)
 #define drmu_warn_log(_log, ...)     drmu_log_macro((_log), DRMU_LOG_LEVEL_WARNING, __VA_ARGS__)
