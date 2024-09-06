@@ -123,7 +123,7 @@ init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t fo
     drm->du = drmu_output_env(dout);
     drm->dout = dout;
     drm->zpos = zpos;
-    if ((drm->mode = calloc(1, sizeof(drm->mode))) == NULL) {
+    if ((drm->mode = calloc(1, sizeof(*drm->mode))) == NULL) {
         fprintf(stderr, "Failed drm mode alloc\n");
         goto fail;
     }
