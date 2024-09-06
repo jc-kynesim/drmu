@@ -641,8 +641,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed hi bpc set\n");
 
     if (try_writeback) {
-        if (drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET) != 0) {
-            fprintf(stderr, "Failed to commit writeback\n");
+        if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
+            fprintf(stderr, "Failed to commit writeback: %d (%s)\n", rv, strerror(-rv));
+            drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
             goto fail;
         }
         rv = drmu_fb_out_fence_wait(fb_out, 1000);
