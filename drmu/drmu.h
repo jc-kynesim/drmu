@@ -473,7 +473,14 @@ void drmu_env_int_restore(drmu_env_t * const du);
 // environment is copied so does not have to be valid for greater than the
 // duration of the call.
 // If log = NULL logging is disabled (set to drmu_log_env_none).
+// post_delete_fn is called after the env is deleted - this includes failures
+// in _new_fd2 itself
+typedef void (*drmu_env_post_delete_fn)(void * v, int fd);
+drmu_env_t * drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
+                              drmu_env_post_delete_fn post_delete_fn, void * v);
+// Same as _new_fd2 but post_delete_fn is set to simply close the fd
 drmu_env_t * drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log);
+// open with device name
 drmu_env_t * drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log);
 
 // Logging

@@ -3071,6 +3071,8 @@ typedef struct drmu_env_s {
     struct drmu_poll_env_s * poll_env;
     drmu_poll_destroy_fn poll_destroy;
 
+    drmu_env_post_delete_fn post_delete_fn;
+    void * post_delete_v;
 } drmu_env_t;
 
 // Retrieve the the n-th conn
@@ -3281,8 +3283,13 @@ env_free(drmu_env_t * const du)
     drmu_bo_env_uninit(&du->boe);
     pthread_mutex_destroy(&du->lock);
 
-    close(du->fd);
-    free(du);
+    {
+        void * const post_delete_v = du->post_delete_v;
+        const drmu_env_post_delete_fn post_delete_fn = du->post_delete_fn;
+        const int fd = du->fd;
+        free(du);
+        post_delete_fn(post_delete_v, fd);
+    }
 }
 
 void
@@ -3464,7 +3471,8 @@ drmu_env_int_poll_get(drmu_env_t * const du)
 
 // Closes fd on failure
 drmu_env_t *
-drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
+drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
+                 drmu_env_post_delete_fn post_delete_fn, void * post_delete_v)
 {
     drmu_env_t * const du = calloc(1, sizeof(*du));
     int rv;
@@ -3474,12 +3482,14 @@ drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
 
     if (!du) {
         drmu_err_log(log, "Failed to create du: No memory");
-        close(fd);
+        post_delete_fn(post_delete_v, fd);
         return NULL;
     }
 
     du->log = (log == NULL) ? drmu_log_env_none : *log;
     du->fd = fd;
+    du->post_delete_fn = post_delete_fn;
+    du->post_delete_v = post_delete_v;
 
     pthread_mutex_init(&du->lock, NULL);
     drmu_bo_env_init(&du->boe);
@@ -3570,6 +3580,21 @@ fail1:
     return NULL;
 }
 
+static void
+env_post_delete_close_cb(void * v, int fd)
+{
+    (void)v;
+    close(fd);
+}
+
+drmu_env_t *
+drmu_env_new_fd(const int fd, const struct drmu_log_env_s * const log)
+{
+    return drmu_env_new_fd2(fd, log, env_post_delete_close_cb, NULL);
+}
+
+// * As the only remaining libdrm code dependency this should maybe be evicted
+// * to its own file
 drmu_env_t *
 drmu_env_new_open(const char * name, const struct drmu_log_env_s * const log2)
 {
