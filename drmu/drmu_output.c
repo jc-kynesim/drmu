@@ -341,8 +341,55 @@ retry:
         return -ENOENT;
 
     if (!dc_t) {
+#if 0
         drmu_warn(du, "Adding unattached conns NIF");
         return -EINVAL;
+#else
+        uint32_t possible_crtcs = drmu_conn_possible_crtcs(dn);
+        drmu_warn(du, "Adding unattached conn: CRTCs=%#x", possible_crtcs);
+
+        for (unsigned int i = 0; possible_crtcs != 0; ++i, possible_crtcs >>= 1) {
+            if ((possible_crtcs & 1) == 0)
+                continue;
+
+            drmu_info(du, "try Crtc %d", i);
+
+            if ((dc_t = drmu_env_crtc_find_n(du, i)) == NULL)
+                break; // Can only happen if i is too big
+
+            {
+                drmu_atomic_t * da = drmu_atomic_new(du);
+                if ((rv = drmu_atomic_conn_add_crtc(da, dn, dc_t)) != 0) {
+                    drmu_warn(du, "Failed to add writeback connector to crtc: %s", strerror(-rv));
+                    goto fail;
+                }
+                if ((rv = drmu_atomic_crtc_add_active(da, dc_t, 1)) != 0) {
+                    drmu_warn(du, "Failed to add active to crtc: %s", strerror(-rv));
+                    goto fail;
+                }
+
+                for (unsigned int j = 0;; ++j) {
+                    drmu_mode_simple_params_t sp = drmu_conn_mode_simple_params(dn, j);
+                    drmu_debug(du, "Mode %d: %s", j, &sp);
+                    if (sp.width == 0)
+                        break;
+                }
+
+                drmu_atomic_crtc_add_modeinfo(da, dc_t, drmu_conn_modeinfo(dn, 0));
+                dout->mode_id = 0;
+                dout->mode_params = drmu_conn_mode_simple_params(dn, dout->mode_id);
+
+                if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
+                    drmu_warn(du, "Failed commit of connector to crtc: %s", strerror(-rv));
+                    goto fail;
+                }
+
+fail:
+                drmu_atomic_unref(&da);
+            }
+
+        }
+#endif
     }
 
     if ((rv = check_conns_size(dout)) != 0)
