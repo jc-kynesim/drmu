@@ -416,12 +416,13 @@ int drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc);
 typedef bool (*drmu_plane_new_find_ok_fn)(const drmu_plane_t * dp, void * v);
 
 // Find a "free" plane that satisfies (returns true) the ok callback
-// Does not ref
-drmu_plane_t * drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v);
+// Binds to the crtc & takes a reference
+drmu_plane_t * drmu_plane_new_find_ref(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v);
 // Find a "free" plane of the given type. Types can be ORed
-// Does not ref
-drmu_plane_t * drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type);
+// Binds to the crtc & takes a reference
+drmu_plane_t * drmu_plane_new_find_ref_type(drmu_crtc_t * const dc, const unsigned int req_type);
 
+// Find plane n. Does not ref.
 drmu_plane_t * drmu_env_plane_find_n(drmu_env_t * const du, const unsigned int n);
 
 
@@ -484,6 +485,7 @@ extern const struct drmu_log_env_s drmu_log_env_none;   // pre-built do-nothing 
 struct drmu_atomic_s;
 typedef struct drmu_atomic_s drmu_atomic_t;
 
+void drmu_atomic_dump_lvl(const drmu_atomic_t * const da, const int lvl);
 void drmu_atomic_dump(const drmu_atomic_t * const da);
 drmu_env_t * drmu_atomic_env(const drmu_atomic_t * const da);
 void drmu_atomic_unref(drmu_atomic_t ** const ppda);

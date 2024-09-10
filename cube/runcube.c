@@ -29,7 +29,7 @@ cube_thread(void * v)
     const struct gbm *gbm;
     struct drm *drm;
 
-    drm = init_drmu_dout(dout, 1000, format);
+    drm = init_drmu_dout(dout, 1000, format, 15);
     gbm = init_gbm_drmu(drm->du, drm->mode->hdisplay, drm->mode->vdisplay, format, modifier);
     egl = init_cube_smooth(gbm, 0);
 

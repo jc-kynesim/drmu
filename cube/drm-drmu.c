@@ -55,6 +55,7 @@ void cube_run_drmu(struct drm * const drm, const struct gbm * const gbm, const s
     {
         drmu_atomic_t * da = drmu_atomic_new(drm->du);
         drmu_atomic_plane_add_fb(da, drm->dp, gbm->dfbs[drm->buf_no], drmu_rect_wh(drm->mode->hdisplay / 2, drm->mode->vdisplay / 2));
+        drmu_atomic_plane_add_zpos(da, drm->dp, drm->zpos);
         drmu_atomic_add_commit_callback(da, commit_cb, drm);
         drmu_atomic_queue(&da);
     }
@@ -111,7 +112,7 @@ static int run_drmu(const struct gbm *gbm, const struct egl *egl)
 
 
 struct drm *
-init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t format)
+init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t format, const int zpos)
 {
     struct drm * drm = &drm_static;
     const drmu_mode_simple_params_t * sparam;
@@ -121,7 +122,8 @@ init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t fo
     drm->run = run_drmu;
     drm->du = drmu_output_env(dout);
     drm->dout = dout;
-    if ((drm->mode = calloc(1, sizeof(drm->mode))) == NULL) {
+    drm->zpos = zpos;
+    if ((drm->mode = calloc(1, sizeof(*drm->mode))) == NULL) {
         fprintf(stderr, "Failed drm mode alloc\n");
         goto fail;
     }
@@ -130,8 +132,10 @@ init_drmu_dout(drmu_output_t * const dout, unsigned int count, const uint32_t fo
     drm->mode->hdisplay = sparam->width;
     drm->mode->vdisplay = sparam->height;
 
-    // This doesn't really want to be the primary
-    if ((drm->dp = drmu_output_plane_ref_format(drm->dout, DRMU_PLANE_TYPE_OVERLAY, format, 0)) == NULL)
+    // This doesn't really want to be the primary unless zpos == 0
+    if ((drm->dp = drmu_output_plane_ref_format(drm->dout,
+                                                zpos == 0 ? DRMU_PLANE_TYPE_PRIMARY : DRMU_PLANE_TYPE_OVERLAY,
+                                                format, 0)) == NULL)
         goto fail;
 
     sem_init(&drm->commit_sem, 0, 0);
@@ -164,7 +168,7 @@ init_drmu(const char *device, const char *mode_str, unsigned int count, const ui
     }
     drmu_env_restore_enable(du);
 
-    return init_drmu_dout(dout, count, format);
+    return init_drmu_dout(dout, count, format, 0);
 }
 
 const struct gbm * init_gbm_drmu(drmu_env_t * du, int w, int h, uint32_t format, uint64_t modifier)

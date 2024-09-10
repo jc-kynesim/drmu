@@ -76,6 +76,7 @@ struct drm {
 	struct drmu_output_s * dout;
 	struct drmu_plane_s * dp;
 	sem_t commit_sem;
+	int zpos;
 
 	unsigned int buf_no;
 	unsigned int run_no;
@@ -99,7 +100,7 @@ const struct drm * init_drm_atomic(const char *device, const char *mode_str, int
 const struct drm * init_drm_offscreen(const char *device, const char *mode_str, unsigned int count);
 
 const struct drm * init_drmu(const char *device, const char *mode_str, unsigned int count, const uint32_t format);
-struct drm * init_drmu_dout(struct drmu_output_s * const dout, unsigned int count, const uint32_t format);
+struct drm * init_drmu_dout(struct drmu_output_s * const dout, unsigned int count, const uint32_t format, const int zpos);
 
 const struct gbm * init_gbm_drmu(struct drmu_env_s * du, int w, int h, uint32_t format, uint64_t modifier);
 

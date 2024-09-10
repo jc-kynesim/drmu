@@ -623,11 +623,14 @@ drmu_atomic_add_prop_range(drmu_atomic_t * const da, const uint32_t obj_id, cons
         drmu_prop_range_immutable(pra) ? -EPERM :
         drmu_atomic_add_prop_generic(da, obj_id, drmu_prop_range_id(pra), x, NULL, NULL);
 
-    if (rv != 0)
+    if (rv != 0) {
+        if (rv == -EPERM && x == drmu_prop_range_min(pra) && x == drmu_prop_range_max(pra))
+            return 0;
         drmu_warn(drmu_atomic_env(da),
                   "%s: Failed to add range %s obj_id=%#x, prop_id=%#x, val=%"PRId64", range=%"PRId64"->%"PRId64": %s",
                   __func__, drmu_prop_range_name(pra),
                   obj_id, drmu_prop_range_id(pra), x, drmu_prop_range_min(pra), drmu_prop_range_max(pra), strerror(-rv));
+    }
 
     return rv;
 }
@@ -2884,7 +2887,7 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
 {
     drmu_env_t * const du = dp->du;
 
-    static const int ref0 = 0;
+    int ref0 = 0;
     if (!atomic_compare_exchange_strong(&dp->ref_count, &ref0, 2))
         return -EBUSY;
     dp->dc = dc;
@@ -2896,7 +2899,7 @@ drmu_plane_ref_crtc(drmu_plane_t * const dp, drmu_crtc_t * const dc)
 }
 
 drmu_plane_t *
-drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v)
+drmu_plane_new_find_ref(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, void * const v)
 {
     uint32_t i;
     drmu_env_t * const du = drmu_crtc_env(dc);
@@ -2911,7 +2914,7 @@ drmu_plane_new_find(drmu_crtc_t * const dc, const drmu_plane_new_find_ok_fn cb, 
             (dp_t->plane.possible_crtcs & crtc_mask) == 0)
             continue;
 
-        if (cb(dp_t, v)) {
+        if (cb(dp_t, v) && drmu_plane_ref_crtc(dp_t, dc) == 0) {
             dp = dp_t;
             break;
         }
@@ -2926,10 +2929,10 @@ static bool plane_find_type_cb(const drmu_plane_t * dp, void * v)
 }
 
 drmu_plane_t *
-drmu_plane_new_find_type(drmu_crtc_t * const dc, const unsigned int req_type)
+drmu_plane_new_find_ref_type(drmu_crtc_t * const dc, const unsigned int req_type)
 {
     drmu_env_t * const du = drmu_crtc_env(dc);
-    drmu_plane_t * const dp = drmu_plane_new_find(dc, plane_find_type_cb, (void*)&req_type);
+    drmu_plane_t * const dp = drmu_plane_new_find_ref(dc, plane_find_type_cb, (void*)&req_type);
     if (dp == NULL) {
         drmu_err(du, "%s: No plane found for types %#x", __func__, req_type);
         return NULL;
