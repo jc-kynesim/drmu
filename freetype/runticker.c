@@ -41,7 +41,12 @@ do_prod(void *v)
 {
     static const uint64_t one = 1;
     runticker_env_t *const dfte = v;
-    write(dfte->prod_fd, &one, sizeof(one));
+    int rv;
+    while ((rv = write(dfte->prod_fd, &one, sizeof(one))) != sizeof(one)) {
+        if (!(rv == -1 && errno == EINTR))
+            break;
+    }
+    (void)rv;
 }
 
 static void *
@@ -51,7 +56,11 @@ runticker_thread(void * v)
 
     while (!atomic_load(&dfte->kill) && ticker_run(dfte->te) >= 0) {
         char evt_buf[8];
-        read(dfte->prod_fd, evt_buf, 8);
+        int rv;
+        while ((rv = read(dfte->prod_fd, evt_buf, 8)) != 8) {
+            if (!(rv == -1 && errno == EINTR))
+                break;
+        }
     }
 
     return NULL;
