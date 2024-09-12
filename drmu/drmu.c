@@ -2275,7 +2275,7 @@ int
 drmu_crtc_claim_ref(drmu_crtc_t * const dc)
 {
     drmu_env_t * const du = dc->du;
-    static const int ref0 = 0;
+    int ref0 = 0;
     if (!atomic_compare_exchange_strong(&dc->ref_count, &ref0, 2))
         return -EBUSY;
 
@@ -2638,7 +2638,7 @@ int
 drmu_conn_claim_ref(drmu_conn_t * const dn)
 {
     drmu_env_t * const du = dn->du;
-    static const int ref0 = 0;
+    int ref0 = 0;
     if (!atomic_compare_exchange_strong(&dn->ref_count, &ref0, 2))
         return -EBUSY;
 
