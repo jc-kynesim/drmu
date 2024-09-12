@@ -214,7 +214,11 @@ do_prod(void *v)
 {
     static const uint64_t one = 1;
     drmprime_video_env_t *const dpo = v;
-    write(dpo->prod_fd, &one, sizeof(one));
+    int rv;
+    while ((rv = write(dpo->prod_fd, &one, sizeof(one))) != sizeof(one)) {
+        if (!(rv == -1 && errno == EINTR))
+            break;
+    }
 }
 
 static void gb2_free(void * v, uint8_t * data)
@@ -292,8 +296,14 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 
     if (de->prod_wait) {
         uint64_t buf[1];
+        int rv;
         de->prod_wait = false;
-        read(de->prod_fd, buf, 8);
+        while ((rv = read(de->prod_fd, buf, 8)) != 8) {
+            if (rv == -1 && errno == EINTR)
+                continue;
+            fprintf(stderr, "Unexpected return value from reading prod: rv=%d, err=%d", rv, errno);
+            break;
+        }
     }
 
     {
