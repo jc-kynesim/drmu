@@ -162,10 +162,14 @@ static void polltask_dead(struct polltask * const pt)
     pthread_cond_broadcast(&pt->q->cond);
 }
 
-static int pollqueue_prod(const struct pollqueue *const pq)
+static void pollqueue_prod(const struct pollqueue *const pq)
 {
     static const uint64_t one = 1;
-    return write(pq->prod_fd, &one, sizeof(one));
+    int rv;
+    while ((rv = write(pq->prod_fd, &one, sizeof(one))) != sizeof(one)) {
+        if (!(rv == -1 && errno == EINTR))
+            break;
+    }
 }
 
 void polltask_delete(struct polltask **const ppt)
@@ -395,8 +399,13 @@ static void prod_fn(void *v, short revents)
 {
     struct pollqueue *const pq = v;
     char buf[8];
-    if (revents)
-        read(pq->prod_fd, buf, 8);
+    if (revents) {
+        int rv;
+        while ((rv = read(pq->prod_fd, buf, 8)) != 8) {
+            if (!(rv == -1 && errno == EINTR))
+                break;
+        }
+    }
     if (!pq->kill)
         pollqueue_add_task(pq->prod_pt, -1);
 }
