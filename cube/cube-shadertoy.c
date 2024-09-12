@@ -247,7 +247,8 @@ static int load_shader(const char *file)
 	const char *text =
 		mmap(NULL, statbuf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 
-	asprintf(&frag, shadertoy_fs_tmpl, text);
+       if (asprintf(&frag, shadertoy_fs_tmpl, text) <= 0)
+	       return -1;
 
 	return create_program(shadertoy_vs, frag);
 }
