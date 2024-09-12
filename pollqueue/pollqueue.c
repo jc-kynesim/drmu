@@ -278,13 +278,10 @@ static void *poll_thread(void *v)
         struct polltask *pt;
         struct polltask *pt_next;
         struct prepost_ss prepost;
-        uint64_t now = pollqueue_now(0);
-        int timeout = -1;
+        uint64_t timeout0 = 0;
         int rv;
 
         for (pt = pq->head; pt; pt = pt_next) {
-            int64_t t;
-
             pt_next = pt->next;
 
             if (pt->state == POLLTASK_Q_KILL) {
@@ -306,10 +303,11 @@ static void *poll_thread(void *v)
                 };
             }
 
-            t = (int64_t)(pt->timeout - now);
-            if (pt->timeout && t < INT_MAX &&
-                (timeout < 0 || (int)t < timeout))
-                timeout = (t < 0) ? 0 : (int)t;
+            // Get earliest timeout
+            if (pt->timeout != 0 &&
+                (timeout0 == 0 || (int64_t)(pt->timeout - timeout0) < 0))
+                timeout0 = pt->timeout;
+
             ++nall;
         }
         prepost = pq->prepost;
@@ -319,11 +317,14 @@ static void *poll_thread(void *v)
         if (prepost.pre)
             prepost.pre(prepost.v, a + npoll);
 
-        while ((rv = poll(a, npoll + (a[npoll].fd != -1), timeout)) == -1)
-        {
-            if (errno != EINTR)
-                break;
-        }
+        do {
+            const int64_t diff = (int64_t)(timeout0 - pollqueue_now(0));
+            const int timeout = timeout0 == 0 ? -1 :
+                                diff <= 0 ? 0 :
+                                diff >= INT_MAX ? INT_MAX : (int)diff;
+
+            rv = poll(a, npoll + (a[npoll].fd != -1), timeout);
+        } while (rv == -1 && errno == EINTR);
 
         if (prepost.post)
             prepost.post(prepost.v, a[npoll].revents);
@@ -332,8 +333,6 @@ static void *poll_thread(void *v)
             request_log("Poll error: %s\n", strerror(errno));
             goto fail_unlocked;
         }
-
-        now = pollqueue_now(0);
 
         pthread_mutex_lock(&pq->lock);
         /* Prodding in this loop is pointless and might lead to
@@ -355,8 +354,12 @@ static void *poll_thread(void *v)
             if (pt->state != POLLTASK_QUEUED)
                 continue;
 
-            /* Pending? */
-            if (r || (pt->timeout && (int64_t)(now - pt->timeout) >= 0)) {
+            /* Pending?
+             * Take time as intended time rather than actual time.
+             * probably makes no actual difference and saves us a call
+             */
+            if (r || (pt->timeout != 0 && timeout0 != 0 &&
+                      (int64_t)(timeout0 - pt->timeout) >= 0)) {
                 pollqueue_rem_task(pq, pt);
                 pt->state = POLLTASK_RUNNING;
                 pthread_mutex_unlock(&pq->lock);
