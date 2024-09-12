@@ -676,7 +676,7 @@ fail:
     drmu_fb_unref(&fb1);
     drmu_plane_unref(&p1);
     drmu_output_unref(&dout);
-    drmu_env_unref(&du);
+    drmu_env_kill(&du);
     free(p16);
     return 0;
 }
