@@ -2370,10 +2370,17 @@ drmu_atomic_conn_add_hdr_metadata(drmu_atomic_t * const da, drmu_conn_t * const 
     return rv;
 }
 
+bool
+drmu_conn_has_hi_bpc(const drmu_conn_t * const dn)
+{
+    return drmu_prop_range_max(dn->pid.max_bpc) > 8;
+}
+
 int
 drmu_atomic_conn_add_hi_bpc(drmu_atomic_t * const da, drmu_conn_t * const dn, bool hi_bpc)
 {
-    return drmu_atomic_add_prop_range(da, dn->conn.connector_id, dn->pid.max_bpc, !hi_bpc ? 8 :
+    return !hi_bpc && dn->pid.max_bpc == NULL ? 0 :
+        drmu_atomic_add_prop_range(da, dn->conn.connector_id, dn->pid.max_bpc, !hi_bpc ? 8 :
                                       drmu_prop_range_max(dn->pid.max_bpc));
 }
 

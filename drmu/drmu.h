@@ -317,6 +317,8 @@ int drmu_crtc_claim_ref(drmu_crtc_t * const dc);
 // Set none if m=NULL
 int drmu_atomic_conn_add_hdr_metadata(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const struct hdr_output_metadata * const m);
 
+// Does this connector have > 8 bit support?
+bool drmu_conn_has_hi_bpc(const drmu_conn_t * const dn);
 // False set max_bpc to 8, true max value
 int drmu_atomic_conn_add_hi_bpc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, bool hi_bpc);
 

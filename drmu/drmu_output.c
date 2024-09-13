@@ -359,13 +359,7 @@ retry:
     }
 
     // Test features
-    {
-        drmu_atomic_t * da = drmu_atomic_new(du);
-        if (!da)
-            return -ENOMEM;
-        dout->has_max_bpc = (drmu_atomic_conn_add_hi_bpc(da, dn, true) == 0);
-        drmu_atomic_unref(&da);
-    }
+    dout->has_max_bpc = drmu_conn_has_hi_bpc(dn);
 
     dout->dns[dout->conn_n++] = dn;
     dout->dc = dc_t;
