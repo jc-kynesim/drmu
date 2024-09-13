@@ -55,6 +55,9 @@ int drmu_output_modeset_allow(drmu_output_t * const dout, const bool allow);
 // If != NULL then 1st conn with prefix-matching name is used
 int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name);
 
+// Set writeback fb on output with user specified mode
+int drmu_atomic_output_add_writeback_fb_mode(drmu_atomic_t * const da_req, drmu_output_t * const dout,
+                                    drmu_fb_t * const dfb, const struct drm_mode_modeinfo *mode);
 // Set writeback fb on output
 int drmu_atomic_output_add_writeback_fb(drmu_atomic_t * const da_req, drmu_output_t * const dout,
                                     drmu_fb_t * const dfb);

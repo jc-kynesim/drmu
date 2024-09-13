@@ -301,6 +301,7 @@ usage()
            "-M  drm module name, default: " DRM_MODULE "\n"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
+           "-t  transpose writeback output\n"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -309,6 +310,25 @@ usage()
            "Pinstripes iterate through the 7 easy colours and then get 1 pixel\n"
            "wider on repeat\n");
     exit(1);
+}
+
+static void create_drm_mode(struct drm_mode_modeinfo * mode, int width, int height)
+{
+    mode->clock = width * height * 60;
+    mode->hdisplay = width;
+    mode->hsync_start = width;
+    mode->hsync_end = width;
+    mode->htotal = width;
+    mode->hskew = 0;
+    mode->vdisplay = height;
+    mode->vsync_start = height;
+    mode->vsync_end = height;
+    mode->vtotal = height;
+    mode->vscan = 0;
+    mode->vrefresh = 60;
+    mode->type = DRM_MODE_TYPE_USERDEF;
+    mode->flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
+    strcpy(mode->name, "fake");
 }
 
 int main(int argc, char *argv[])
@@ -338,7 +358,7 @@ int main(int argc, char *argv[])
     bool mode_req = false;
     bool hi_bpc = true;
     bool dofrac = false;
-    bool try_writeback = false;
+    bool try_writeback = false, try_transpose = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -346,7 +366,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:svwy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:stvwy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -431,6 +451,9 @@ int main(int argc, char *argv[])
             case 'w':
                 try_writeback = true;
                 break;
+            case 't':
+                try_transpose = true;
+                break;
             case 'v':
                 ++verbose;
                 break;
@@ -498,17 +521,22 @@ int main(int argc, char *argv[])
     drmu_output_max_bpc_allow(dout, hi_bpc);
 
     if (try_writeback) {
+        struct drm_mode_modeinfo mode = { 0 };
+
         if (!mp.width || !mp.height) {
             mp.width = 1920;
             mp.height = 1080;
         }
+
         printf("Try writeback %dx%d\n", mp.width, mp.height);
 
-        if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
+        if ((fb_out = drmu_fb_new_dumb(du, try_transpose ? mp.height : mp.width,
+                                       try_transpose ? mp.width : mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
             printf("Failed to create fb-out\n");
             goto fail;
         }
-        if (drmu_atomic_output_add_writeback_fb(da, dout, fb_out) != 0) {
+        create_drm_mode(&mode , mp.width, (mp.height + 15) & ~15);
+        if (drmu_atomic_output_add_writeback_fb_mode(da, dout, fb_out, &mode) != 0) {
             printf("Failed to add writeback fb\n");
             goto fail;
         }
