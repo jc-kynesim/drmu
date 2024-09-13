@@ -79,6 +79,22 @@ drmu_output_plane_ref_format(drmu_output_t * const dout, const unsigned int type
 
 
 int
+drmu_atomic_output_add_connect(drmu_atomic_t * const da, drmu_output_t * const dout)
+{
+    int rv;
+
+    if ((rv = drmu_atomic_crtc_add_active(da, dout->dc, 1)) != 0)
+        return rv;
+
+    for (unsigned int i = 0; i != dout->conn_n; ++i) {
+        if ((rv = drmu_atomic_conn_add_crtc(da, dout->dns[i], dout->dc)) != 0)
+            return rv;
+    }
+
+    return 0;
+}
+
+int
 drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout)
 {
     int rv = 0;
@@ -301,8 +317,9 @@ check_conns_size(drmu_output_t * const dout)
     return 0;
 }
 
+// Experimental, more flexible version of _add_output
 int
-drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
+drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags)
 {
     const size_t nlen = !conn_name ? 0 : strlen(conn_name);
     unsigned int i;
@@ -348,9 +365,32 @@ retry:
     if (!dn)
         return -ENOENT;
 
-    if (!dc_t) {
+    if (!dc_t && (flags & DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) == 0) {
         drmu_warn(du, "Adding unattached conns NIF");
         return -EINVAL;
+    }
+
+    if (!dc_t) {
+        uint32_t possible_crtcs = drmu_conn_possible_crtcs(dn);
+        drmu_warn(du, "Adding unattached conn: CRTCs=%#x", possible_crtcs);
+
+        for (unsigned int i = 0; possible_crtcs != 0; ++i, possible_crtcs >>= 1) {
+            if ((possible_crtcs & 1) == 0)
+                continue;
+
+            drmu_info(du, "try Crtc %d", i);
+
+            if ((dc_t = drmu_env_crtc_find_n(du, i)) == NULL) {
+                break; // Can only happen if i is too big
+            }
+
+            // ** Maybe some more tests for viability here
+        }
+    }
+
+    if (!dc_t) {
+        drmu_warn(du, "No CRTC found for Conn");
+        return -ENOENT;
     }
 
     if ((rv = check_conns_size(dout)) != 0)
@@ -375,6 +415,12 @@ retry:
     dout->mode_params = drmu_crtc_mode_simple_params(dout->dc);
 
     return 0;
+}
+
+int
+drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
+{
+    return drmu_output_add_output2(dout, conn_name, 0);
 }
 
 static struct drm_mode_modeinfo

@@ -20,6 +20,8 @@ drmu_plane_t * drmu_output_plane_ref_format(drmu_output_t * const dout, const un
 
 // Add all props accumulated on the output to the atomic
 int drmu_atomic_output_add_props(drmu_atomic_t * const da, drmu_output_t * const dout);
+// Add activate & CRTC connect props - only needed if output started off disconnected
+int drmu_atomic_output_add_connect(drmu_atomic_t * const da, drmu_output_t * const dout);
 
 // Set FB info (bit-depth, HDR metadata etc.)
 // Only sets properties that are set in the fb - retains previous value otherwise
@@ -56,6 +58,13 @@ int drmu_output_modeset_allow(drmu_output_t * const dout, const bool allow);
 // If conn_name == NULL then 1st connected connector is used
 // If != NULL then 1st conn with prefix-matching name is used
 int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name);
+
+// Allow _add_output2 to add a disconnected connect & asign a compatible CRTC
+// Mode select and active will have to happen later
+#define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED 1
+
+// Experimental, more flexible version of _add_output
+int drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags);
 
 // Set writeback fb on output
 int drmu_atomic_output_add_writeback_fb(drmu_atomic_t * const da_req, drmu_output_t * const dout,
