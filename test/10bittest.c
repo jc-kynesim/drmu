@@ -515,8 +515,16 @@ int main(int argc, char *argv[])
     }
     else if (!mode_req) {
         mp = *drmu_output_mode_simple_params(dout);
-        printf("Mode %s\n",
-               drmu_util_simple_mode(&mp));
+        if (mp.width == 0) {
+            // Mode unset - pick preferred
+            int mode = drmu_output_mode_pick_simple(dout, drmu_mode_pick_simple_preferred_cb, NULL);
+            mp = drmu_conn_mode_simple_params(dn, mode);
+            printf("No current mode using preferred; %s\n", drmu_util_simple_mode(&mp));
+            drmu_atomic_crtc_add_modeinfo(da, dc, drmu_conn_modeinfo(dn, mode));
+        }
+        else {
+            printf("Mode %s\n", drmu_util_simple_mode(&mp));
+        }
     }
     else
     {
