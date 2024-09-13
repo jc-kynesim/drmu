@@ -215,6 +215,14 @@ drmu_mode_pick_simple_cb(void * v, const drmu_mode_simple_params_t * mode)
     return score;
 }
 
+// Pick the preferred mode or the 1st one if nothing preferred
+int
+drmu_mode_pick_simple_preferred_cb(void * v, const drmu_mode_simple_params_t * mode)
+{
+    (void)v;
+    return (mode->type & DRM_MODE_TYPE_PREFERRED) != 0 ? 1 : 0;
+}
+
 // Try to match interlace as well as everything else
 int
 drmu_mode_pick_simple_interlace_cb(void * v, const drmu_mode_simple_params_t * mode)

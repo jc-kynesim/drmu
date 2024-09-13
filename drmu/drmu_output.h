@@ -43,6 +43,8 @@ int drmu_output_mode_pick_simple(drmu_output_t * const dout, drmu_mode_score_fn 
 drmu_mode_score_fn drmu_mode_pick_simple_cb;
 // As above but may choose an interlaced mode
 drmu_mode_score_fn drmu_mode_pick_simple_interlace_cb;
+// Just pick a preferred mode
+drmu_mode_score_fn drmu_mode_pick_simple_preferred_cb;
 
 // Allow fb max_bpc info to set the output mode (default false)
 int drmu_output_max_bpc_allow(drmu_output_t * const dout, const bool allow);
