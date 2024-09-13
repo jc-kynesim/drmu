@@ -489,7 +489,7 @@ int main(int argc, char *argv[])
         }
     }
     else {
-        if (drmu_output_add_output(dout, NULL) != 0)
+        if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
             goto fail;
     }
     dc = drmu_output_crtc(dout);
@@ -647,6 +647,8 @@ int main(int argc, char *argv[])
     }
     if (!try_writeback && drmu_atomic_conn_add_hi_bpc(da, dn, hi_bpc) != 0)
         fprintf(stderr, "Failed hi bpc set\n");
+    if (!try_writeback && drmu_atomic_output_add_connect(da, dout) != 0)
+        fprintf(stderr, "Failed connection\n");
 
     if (try_writeback) {
         if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
