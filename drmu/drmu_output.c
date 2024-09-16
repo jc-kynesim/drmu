@@ -322,7 +322,6 @@ int
 drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags)
 {
     const size_t nlen = !conn_name ? 0 : strlen(conn_name);
-    unsigned int i;
     unsigned int retries = 0;
     drmu_env_t * const du = dout->du;
     drmu_conn_t * dn;
@@ -343,7 +342,7 @@ retry:
     dn = NULL;
     dc_t = NULL;
 
-    for (i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
+    for (unsigned int i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         if (!drmu_conn_is_output(dn_t) || drmu_conn_is_claimed(dn_t))
             continue;
         if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0)
