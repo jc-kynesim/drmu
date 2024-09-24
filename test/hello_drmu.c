@@ -232,15 +232,17 @@ void usage()
 "                      [--cube]\n"
 "                      [--tile]\n"
 "                      <playlist0> [: <playlist1> [: ...]]\n"
-" <playlist> = [--win <w>x<h>@<x>,<y>]"
+" <playlist> = [--win <w>x<h>@<x>,<y>]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
 "The --tile option will tile the video windows, if unset then playlist1 and\n"
 "later must have the --win option\n"
-"N.B. loop_counts and similar options are currently global to a playlist\n"
-"so do not work well with multiple input files in a playlist.\n"
+"If loop count is set then the playlist will be repeated that many times, a\n"
+"loop count of -1 means forever\n"
+"N.B. frame counts and similar options are currently global to a playlist\n"
+"so generally do not work well with multiple input files in a playlist.\n"
             );
     exit(1);
 }
