@@ -33,7 +33,7 @@ void drmu_output_fb_info_unset(drmu_output_t * const dout);
 // Set output mode
 int drmu_output_mode_id_set(drmu_output_t * const dout, const int mode_id);
 
-// Width/height of the currebnt mode
+// Width/height of the current mode
 const drmu_mode_simple_params_t * drmu_output_mode_simple_params(const drmu_output_t * const dout);
 
 typedef int drmu_mode_score_fn(void * v, const drmu_mode_simple_params_t * mode);
