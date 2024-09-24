@@ -85,6 +85,14 @@ drmu_output_t * drmprime_out_drmu_output(drmprime_out_env_t* const dpo)
     return dpo->dout;
 }
 
+void
+drmprime_out_size(drmprime_out_env_t * const dpo, unsigned int *pW, unsigned int *pH)
+{
+    const drmu_mode_simple_params_t * sp = drmu_output_mode_simple_params(dpo->dout);
+    *pW = sp == NULL ? 0 : sp->width;
+    *pH = sp == NULL ? 0 : sp->height;
+}
+
 void drmprime_out_delete(drmprime_out_env_t *dpo)
 {
     drmprime_out_runticker_stop(dpo);

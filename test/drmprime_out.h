@@ -17,6 +17,8 @@ void drmprime_video_set_window_pos(drmprime_video_env_t *de, const unsigned int 
 void drmprime_video_set_window_size(drmprime_video_env_t *de, const unsigned int w, const unsigned int h);
 void drmprime_video_set_window_zpos(drmprime_video_env_t *de, const unsigned int z);
 
+void drmprime_out_size(drmprime_out_env_t * const dpo, unsigned int *pW, unsigned int *pH);
+
 void drmprime_video_delete(drmprime_video_env_t * dve);
 drmprime_video_env_t * drmprime_video_new(struct drmprime_out_env_s * dpo);
 

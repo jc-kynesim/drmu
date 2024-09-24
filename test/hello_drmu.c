@@ -230,13 +230,15 @@ void usage()
     fprintf(stderr,
 "Usage: hello_drmprime [--ticker <text>]\n"
 "                      [--cube]\n"
+"                      [--tile]\n"
 "                      <playlist0> [: <playlist1> [: ...]]\n"
 " <playlist> = [--win <w>x<h>@<x>,<y>]"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
-"playlist1 and later must have the --win option\n"
+"The --tile option will tile the video windows, if unset then playlist1 and\n"
+"later must have the --win option\n"
 "N.B. loop_counts and similar options are currently global to a playlist\n"
 "so do not work well with multiple input files in a playlist.\n"
             );
@@ -247,7 +249,10 @@ int main(int argc, char *argv[])
 {
     drmprime_out_env_t * dpo;
     bool wants_cube = false;
+    bool tile_video = false;
     const char * ticker_text = NULL;
+    unsigned int screen_width, screen_height;
+    unsigned int tiles_w = 1, tiles_h = 1;
 
     playlist_env_t ple;
     playlist_t * pl = NULL;
@@ -353,6 +358,9 @@ int main(int argc, char *argv[])
                 --n;
                 ++a;
             }
+            else if (strcmp(arg, "--tile") == 0) {
+                tile_video = true;
+            }
             else if (strcmp(arg, "--") == 0) {
                 is_file = true;
             }
@@ -364,6 +372,19 @@ int main(int argc, char *argv[])
             usage();
     }
 
+    dpo = drmprime_out_new();
+    if (dpo == NULL) {
+        fprintf(stderr, "Failed to open drmprime output\n");
+        return 1;
+    }
+
+    drmprime_out_size(dpo, &screen_width, &screen_height);
+    if (tile_video) {
+        while (ple.n > tiles_w * tiles_w)
+            ++tiles_w;
+        tiles_h = (ple.n + tiles_w - 1) / tiles_w;
+    }
+
     // Finalize arguments in playlists
     for (size_t i = 0; i != ple.n; ++i) {
         pl = ple.pla[i];
@@ -371,9 +392,15 @@ int main(int argc, char *argv[])
             usage();
         if (pl->loop_count > 0)
             pl->loop_count *= pl->in_count;
-        if (i != 0 && pl->w == 0) {
-            fprintf(stderr, "Playlist %zd needs a window", i);
-            return -1;
+        if (pl->w == 0) {
+            if (!tile_video && i != 0) {
+                fprintf(stderr, "Playlist %zd needs a window", i);
+                return -1;
+            }
+            pl->w = screen_width / tiles_w;
+            pl->h = screen_height / tiles_h;
+            pl->x = pl->w * (i % tiles_w);
+            pl->y = pl->h * (i / tiles_w);
         }
 
         /* open the file to dump raw data */
@@ -383,12 +410,6 @@ int main(int argc, char *argv[])
                 return -1;
             }
         }
-    }
-
-    dpo = drmprime_out_new();
-    if (dpo == NULL) {
-        fprintf(stderr, "Failed to open drmprime output\n");
-        return 1;
     }
 
     for (size_t i = 0; i != ple.n; ++i) {
