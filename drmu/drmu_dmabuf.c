@@ -168,7 +168,7 @@ drmu_dmabuf_env_new_video(struct drmu_env_s * const du)
     };
     const char * const * pfname;
 
-    for (pfname = names; pfname != NULL; ++pfname) {
+    for (pfname = names; *pfname != NULL; ++pfname) {
         const int fd = open(*pfname, O_RDWR | O_CLOEXEC);
         drmu_dmabuf_env_t * const dde = drmu_dmabuf_env_new_fd(du, fd);
         if (dde != NULL)
