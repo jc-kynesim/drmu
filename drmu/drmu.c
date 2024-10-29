@@ -1987,20 +1987,20 @@ rotation_make_array(drmu_prop_bitmask_t * const pid, uint64_t values[8])
     if (pid == NULL)
         return;
 
-    values[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(pid, "rotate-0");
-    if (values[DRMU_PLANE_ROTATION_0]) {
+    values[DRMU_ROTATION_0] = drmu_prop_bitmask_value(pid, "rotate-0");
+    if (values[DRMU_ROTATION_0]) {
         // Flips MUST be combined with a rotate
-        if ((values[DRMU_PLANE_ROTATION_X_FLIP] = drmu_prop_bitmask_value(pid, "reflect-x")) != 0)
-            values[DRMU_PLANE_ROTATION_X_FLIP] |= values[DRMU_PLANE_ROTATION_0];
-        if ((values[DRMU_PLANE_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(pid, "reflect-y")) != 0)
-            values[DRMU_PLANE_ROTATION_Y_FLIP] |= values[DRMU_PLANE_ROTATION_0];
+        if ((values[DRMU_ROTATION_X_FLIP] = drmu_prop_bitmask_value(pid, "reflect-x")) != 0)
+            values[DRMU_ROTATION_X_FLIP] |= values[DRMU_ROTATION_0];
+        if ((values[DRMU_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(pid, "reflect-y")) != 0)
+            values[DRMU_ROTATION_Y_FLIP] |= values[DRMU_ROTATION_0];
     }
-    values[DRMU_PLANE_ROTATION_180] = drmu_prop_bitmask_value(pid, "rotate-180");
-    if (!values[DRMU_PLANE_ROTATION_180] && values[DRMU_PLANE_ROTATION_X_FLIP] && values[DRMU_PLANE_ROTATION_Y_FLIP])
-        values[DRMU_PLANE_ROTATION_180] = values[DRMU_PLANE_ROTATION_X_FLIP] | values[DRMU_PLANE_ROTATION_Y_FLIP];
-    values[DRMU_PLANE_ROTATION_TRANSPOSE] = drmu_prop_bitmask_value(pid, "transpose");
-    values[DRMU_PLANE_ROTATION_90] = drmu_prop_bitmask_value(pid, "rotate-90");
-    values[DRMU_PLANE_ROTATION_270] = drmu_prop_bitmask_value(pid, "rotate-270");
+    values[DRMU_ROTATION_180] = drmu_prop_bitmask_value(pid, "rotate-180");
+    if (!values[DRMU_ROTATION_180] && values[DRMU_ROTATION_X_FLIP] && values[DRMU_ROTATION_Y_FLIP])
+        values[DRMU_ROTATION_180] = values[DRMU_ROTATION_X_FLIP] | values[DRMU_ROTATION_Y_FLIP];
+    values[DRMU_ROTATION_TRANSPOSE] = drmu_prop_bitmask_value(pid, "transpose");
+    values[DRMU_ROTATION_90] = drmu_prop_bitmask_value(pid, "rotate-90");
+    values[DRMU_ROTATION_270] = drmu_prop_bitmask_value(pid, "rotate-270");
 }
 
 //----------------------------------------------------------------------------
@@ -2784,7 +2784,7 @@ int
 drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot)
 {
     if (!dp->pid.rotation)
-        return rot == DRMU_PLANE_ROTATION_0 ? 0 : -EINVAL;
+        return rot == DRMU_ROTATION_0 ? 0 : -EINVAL;
     if (rot < 0 || rot >= 8 || !dp->rot_vals[rot])
         return -EINVAL;
     return drmu_atomic_add_prop_bitmask(da, dp->plane.plane_id, dp->pid.rotation, dp->rot_vals[rot]);

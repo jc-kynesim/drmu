@@ -522,13 +522,13 @@ int main(int argc, char *argv[])
         }
         // Clear rotation by default to avoid unexpected effects
         // Does nothing silently if not supported
-        drmu_atomic_conn_add_rotation(da, dn, DRMU_PLANE_ROTATION_0);
+        drmu_atomic_conn_add_rotation(da, dn, DRMU_ROTATION_0);
 
         if (transpose) {
             unsigned int t;
 
-            if (drmu_conn_has_rotation(dn, DRMU_PLANE_ROTATION_TRANSPOSE)) {
-                if (drmu_atomic_conn_add_rotation(da, dn, DRMU_PLANE_ROTATION_TRANSPOSE) != 0) {
+            if (drmu_conn_has_rotation(dn, DRMU_ROTATION_TRANSPOSE)) {
+                if (drmu_atomic_conn_add_rotation(da, dn, DRMU_ROTATION_TRANSPOSE) != 0) {
                     printf("Failed to add rotation\n");
                     goto fail;
                 }
