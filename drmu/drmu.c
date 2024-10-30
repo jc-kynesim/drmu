@@ -2440,14 +2440,17 @@ drmu_atomic_conn_add_crtc(drmu_atomic_t * const da, drmu_conn_t * const dn, drmu
 bool
 drmu_conn_has_rotation(drmu_conn_t * const dn, const unsigned int rotation)
 {
-    return rotation < 8 && dn != NULL && dn->rot_vals[rotation] != 0;
+    return rotation < 8 && dn != NULL &&
+        (dn->rot_vals[rotation] != 0 ||
+            (!dn->pid.rotation && rotation == DRMU_ROTATION_0));
 }
 
 int
 drmu_atomic_conn_add_rotation(drmu_atomic_t * const da, drmu_conn_t * const dn, const unsigned int rotation)
 {
     return !drmu_conn_has_rotation(dn, rotation) ? -EINVAL :
-           drmu_atomic_add_prop_bitmask(da, dn->conn.connector_id, dn->pid.rotation, dn->rot_vals[rotation]);
+        !dn->pid.rotation ? 0 : // Must be rotation_0 here
+            drmu_atomic_add_prop_bitmask(da, dn->conn.connector_id, dn->pid.rotation, dn->rot_vals[rotation]);
 }
 
 int
