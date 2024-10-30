@@ -506,43 +506,33 @@ int main(int argc, char *argv[])
     drmu_output_max_bpc_allow(dout, hi_bpc);
 
     if (try_writeback) {
+        unsigned int rot = transpose ? DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
+
         if (!mp.width || !mp.height) {
             mp.width = 1920;
             mp.height = 1080;
         }
         printf("Try writeback %dx%d%s\n", mp.width, mp.height, !transpose ? "" : " transposed");
 
+        if (!drmu_conn_has_rotation(dn, rot)) {
+            printf("Rotation not supported by connector\n");
+            goto fail;
+        }
+
         if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
             printf("Failed to create fb-out\n");
             goto fail;
         }
-        if (drmu_atomic_output_add_writeback_fb(da, dout, fb_out) != 0) {
+        if (drmu_atomic_output_add_writeback_fb_rotate(da, dout, fb_out, rot) != 0) {
             printf("Failed to add writeback fb\n");
             goto fail;
         }
-        // Clear rotation by default to avoid unexpected effects
-        // Does nothing silently if not supported
-        drmu_atomic_conn_add_rotation(da, dn, DRMU_ROTATION_0);
 
         if (transpose) {
-            unsigned int t;
-
-            if (drmu_conn_has_rotation(dn, DRMU_ROTATION_TRANSPOSE)) {
-                if (drmu_atomic_conn_add_rotation(da, dn, DRMU_ROTATION_TRANSPOSE) != 0) {
-                    printf("Failed to add rotation\n");
-                    goto fail;
-                }
-            }
-            else {
-                printf("Transpose not supported by connector\n");
-                goto fail;
-            }
-
-            t = mp.width;
+            unsigned int t = mp.width;
             mp.width = mp.height;
             mp.height = t;
         }
-
     }
     else if (!mode_req) {
         mp = *drmu_output_mode_simple_params(dout);
