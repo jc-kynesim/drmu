@@ -66,9 +66,13 @@ int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_n
 // Experimental, more flexible version of _add_output
 int drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags);
 
-// Set writeback fb on output
+// Set writeback fb on output - rotation 0
 int drmu_atomic_output_add_writeback_fb(drmu_atomic_t * const da_req, drmu_output_t * const dout,
                                     drmu_fb_t * const dfb);
+
+// Set writeback fb on output - also set rotation on conn
+int drmu_atomic_output_add_writeback_fb_rotate(drmu_atomic_t * const da_out, drmu_output_t * const dout,
+                                    drmu_fb_t * const dfb, const unsigned int rot);
 
 // Add a writeback connector & find a crtc for it
 int drmu_output_add_writeback(drmu_output_t * const dout);
