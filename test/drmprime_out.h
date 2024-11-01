@@ -6,6 +6,9 @@ typedef struct drmprime_video_env_s drmprime_video_env_t;
 struct drmprime_out_env_s;
 typedef struct drmprime_out_env_s drmprime_out_env_t;
 
+struct drmu_output_s;
+typedef struct drmu_output_s drmu_output_t;
+
 struct AVFrame;
 struct AVCodecContext;
 
@@ -24,6 +27,8 @@ drmprime_video_env_t * drmprime_video_new(struct drmprime_out_env_s * dpo);
 
 void drmprime_out_delete(drmprime_out_env_t * dpo);
 drmprime_out_env_t * drmprime_out_new();
+drmprime_out_env_t * drmprime_out_new_fd(int fd);
+drmu_output_t * drmprime_out_drmu_output(drmprime_out_env_t * const dpo);
 
 void drmprime_out_runticker_start(drmprime_out_env_t * const dpo, const char * const ticker_text);
 void drmprime_out_runticker_stop(drmprime_out_env_t * const dpo);

@@ -140,6 +140,38 @@ fail:
     return NULL;
 }
 
+drmprime_out_env_t* drmprime_out_new_fd(int fd)
+{
+    drmprime_out_env_t* const dpo = calloc(1, sizeof(*dpo));
+    if (dpo == NULL)
+        return NULL;
+
+    {
+        const drmu_log_env_t log = {
+            .fn = drmu_log_stderr_cb,
+            .v = NULL,
+            .max_level = DRMU_LOG_LEVEL_ALL
+        };
+        if ((dpo->du = drmu_env_new_fd(fd, &log)) == NULL)
+            goto fail;
+    }
+    drmu_env_restore_enable(dpo->du);
+
+    if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
+        goto fail;
+
+    if (drmu_output_add_output(dpo->dout, NULL) != 0)
+        goto fail;
+
+    drmu_output_max_bpc_allow(dpo->dout, true);
+
+    return dpo;
+
+fail:
+    drmprime_out_delete(dpo);
+    fprintf(stderr, ">>> %s: FAIL\n", __func__);
+    return NULL;
+}
 
 
 
