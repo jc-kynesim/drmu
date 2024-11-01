@@ -1,6 +1,10 @@
 #ifndef _DRMU_DRMU_POLL_H
 #define _DRMU_DRMU_POLL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct drmu_env_s;
 struct drmu_atomic_s;
 
