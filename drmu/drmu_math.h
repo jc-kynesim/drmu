@@ -40,10 +40,10 @@ static inline drmu_rect_t
 drmu_rect_rescale(const drmu_rect_t s, const drmu_rect_t mul, const drmu_rect_t div)
 {
     return (drmu_rect_t){
-        .x = drmu_rect_rescale_1s(s.x - div.x, mul.w, div.w) + mul.x,
-        .y = drmu_rect_rescale_1s(s.y - div.y, mul.h, div.h) + mul.y,
-        .w = drmu_rect_rescale_1u(s.w,         mul.w, div.w),
-        .h = drmu_rect_rescale_1u(s.h,         mul.h, div.h)
+        .x = (int32_t) drmu_rect_rescale_1s(s.x - div.x, mul.w, div.w) + mul.x,
+        .y = (int32_t) drmu_rect_rescale_1s(s.y - div.y, mul.h, div.h) + mul.y,
+        .w = (uint32_t)drmu_rect_rescale_1u(s.w,         mul.w, div.w),
+        .h = (uint32_t)drmu_rect_rescale_1u(s.h,         mul.h, div.h)
     };
 }
 
