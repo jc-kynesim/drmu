@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/jc-kynesim/pollqueue.git
+revision = main
+depth = 1

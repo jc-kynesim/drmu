@@ -11,6 +11,7 @@ conf_data = configuration_data()
 libavutil_dep = dependency('libavutil')
 threads_dep = dependency('threads')
 libdrm_dep = dependency('libdrm')
+pollqueue_dep = dependency('pollqueue')
 
 xdri3_dep = dependency('xcb-dri3', required : get_option('xdri3'))
 #mesondefine HAS_XDRI3
@@ -58,11 +59,12 @@ drmu_base = library('drmu_base',
 	'drmu/drmu_atomic.c',
 	'drmu/drmu_util.c',
 	'drmu/drmu_math.c',
-	'pollqueue/pollqueue.c',
+#	'pollqueue/pollqueue.c',
 	c_args : args_sorted_fmts + args_io_calloc,
 	sources : h_sorted_fmts,
-	include_directories : ['pollqueue'],
+#	include_directories : ['pollqueue'],
 	dependencies : [
+		pollqueue_dep,
 		threads_dep,
 		libdrm_dep
 	],
@@ -167,7 +169,7 @@ if gbm_dep.found()
 	)
 endif
 
-drmu_incs = include_directories('drmu', 'pollqueue')
+drmu_incs = include_directories('drmu')
 
 subdir('cube')
 subdir('freetype')
