@@ -69,6 +69,7 @@ display_wait(display_wait_t * const dw, const AVFrame * const frame, const AVRat
     if (delta < 0 || delta > 6000000) {
         dw->base_pts = pts;
         dw->base_now = now;
+        dw->last_conv = 0;
         return;
     }
 
