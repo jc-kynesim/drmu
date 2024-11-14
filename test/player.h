@@ -15,6 +15,13 @@ typedef struct player_env_s player_env_t;
 struct drmprime_out_env_s;
 struct AVPacket;
 
+typedef enum player_output_pace_mode_e {
+    PLAYER_PACE_INVALID = -1,
+    PLAYER_PACE_PTS = 0,
+    PLAYER_PACE_FREE,
+    PLAYER_PACE_VSYNC
+} player_output_pace_mode_t;
+
 int player_decode_video_packet(player_env_t * const pe, struct AVPacket * const packet);
 int player_read_video_packet(player_env_t * const pe, struct AVPacket * const packet);
 
@@ -26,6 +33,8 @@ int player_run_eos(player_env_t * const pe);
 
 void player_set_write_frame_count(player_env_t * const pe, long frame_count);
 void player_set_input_pace_hz(player_env_t * const pe, long hz);
+player_output_pace_mode_t player_str_to_output_pace_mode(const char * const str);
+void player_set_output_pace_mode(player_env_t * const pe, const player_output_pace_mode_t mode);
 void player_set_modeset(player_env_t * const pe, bool modeset);
 void player_set_output_file(player_env_t * const pe, FILE * output_file);
 int player_filter_add_deinterlace(player_env_t * const pe);

@@ -62,6 +62,7 @@ typedef struct playlist_s {
     long loop_count;
     long frame_count;
     long pace_input_hz;
+    player_output_pace_mode_t pace_output_mode;
     bool wants_deinterlace;
     bool wants_modeset;
     const char * hwdev;
@@ -99,6 +100,7 @@ playlist_new(playlist_env_t * ple)
     pl->frame_count = -1;
     pl->hwdev = "drm";
     pl->zpos = ple->n;
+    pl->pace_output_mode = PLAYER_PACE_PTS;
 
     ple->pla[ple->n++] = pl;
     return pl;
@@ -344,6 +346,15 @@ int main(int argc, char *argv[])
                 --n;
                 ++a;
             }
+            else if (strcmp(arg, "--pace-output") == 0) {
+                if (n == 0)
+                    usage();
+                pl->pace_output_mode = player_str_to_output_pace_mode(*a);
+                if (pl->pace_output_mode == PLAYER_PACE_INVALID)
+                    usage();
+                --n;
+                ++a;
+            }
             else if (strcmp(arg, "--deinterlace") == 0) {
                 pl->wants_deinterlace = true;
             }
@@ -434,6 +445,7 @@ int main(int argc, char *argv[])
         player_set_modeset(pl->pe, pl->wants_modeset);
         player_set_output_file(pl->pe, pl->output_file);
         player_set_window(pl->pe, pl->x, pl->y, pl->w, pl->h, pl->zpos);
+        player_set_output_pace_mode(pl->pe, pl->pace_output_mode);
 
         playlist_run(pl);
     }

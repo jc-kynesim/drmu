@@ -97,6 +97,8 @@ typedef struct player_env_s {
 
     long frames;
     long pace_input_hz;
+    player_output_pace_mode_t pace_output;
+
     uint64_t input_t0;
     display_wait_t dw;
 
@@ -196,7 +198,8 @@ player_decode_video_packet(player_env_t * const pe, AVPacket * const packet)
                 drmprime_video_modeset(dpo, avctx->coded_width, avctx->coded_height, avctx->framerate);
             }
 
-            display_wait(&pe->dw, frame, time_base);
+            if (pe->pace_output == PLAYER_PACE_PTS)
+                display_wait(&pe->dw, frame, time_base);
             drmprime_video_display(dpo, frame);
 
             if (pe->output_file != NULL) {
@@ -314,6 +317,35 @@ void
 player_set_input_pace_hz(player_env_t * const pe, long hz)
 {
     pe->pace_input_hz = hz;
+}
+
+player_output_pace_mode_t
+player_str_to_output_pace_mode(const char * const str)
+{
+    static const struct {
+        player_output_pace_mode_t mode;
+        const char * name;
+    } xlat[] = {
+        { PLAYER_PACE_INVALID, "" },
+        { PLAYER_PACE_PTS, "pts" },
+        { PLAYER_PACE_FREE, "free" },
+        { PLAYER_PACE_VSYNC, "vsync" },
+        { PLAYER_PACE_INVALID, NULL }
+    };
+    const size_t slen = strlen(str);
+    unsigned int i;
+    for (i = 0; xlat[i].name != NULL; ++i) {
+        if (strncasecmp(xlat[i].name, str, slen) == 0)
+            break;
+    }
+    return xlat[i].mode;
+}
+
+void
+player_set_output_pace_mode(player_env_t * const pe, const player_output_pace_mode_t mode)
+{
+    pe->pace_output = mode;
+    drmprime_video_set_sync(pe->dve, mode == PLAYER_PACE_VSYNC);
 }
 
 void
