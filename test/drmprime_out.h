@@ -1,4 +1,12 @@
+#ifndef _DRMU_DRMPRIME_OUT_H
+#define _DRMU_DRMPRIME_OUT_H
+
 #include <libavutil/rational.h>
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct drmprime_video_env_s;
 typedef struct drmprime_video_env_s drmprime_video_env_t;
@@ -36,3 +44,8 @@ void drmprime_out_runticker_stop(drmprime_out_env_t * const dpo);
 void drmprime_out_runcube_start(drmprime_out_env_t * const dpo);
 void drmprime_out_runcube_stop(drmprime_out_env_t * const dpo);
 
+#ifdef __cplusplus
+}
+#endif
+
+#endif
