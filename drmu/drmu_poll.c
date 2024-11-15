@@ -20,6 +20,10 @@
 
 #include <libdrm/drm_mode.h>
 
+#ifndef MIN
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#endif
+
 //----------------------------------------------------------------------------
 //
 // Atomic Q fns (internal)
@@ -32,6 +36,8 @@ typedef struct drmu_atomic_q_s {
     drmu_atomic_t * last_flip;
     unsigned int retry_count;
     struct polltask * retry_task;
+
+    drmu_env_queue_stats_t stats;
 } drmu_atomic_q_t;
 
 // Needs locked
@@ -87,9 +93,9 @@ atomic_q_retry_cb(void * v, short revents)
 // Called after an atomic commit has completed
 // not called on every vsync, so if we haven't committed anything this won't be called
 static void
-drmu_atomic_page_flip_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, void *user_data)
+page_flip_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, const struct drm_event_vblank * const vb)
 {
-    drmu_atomic_t * const da = user_data;
+    drmu_atomic_t * const da = (void *)(uintptr_t)vb->user_data;
 
     // At this point:
     //  next   The atomic we are about to commit
@@ -97,6 +103,14 @@ drmu_atomic_page_flip_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, void
     //  last   The atomic that has just become obsolete
 
     pthread_mutex_lock(&aq->lock);
+
+    aq->stats.crtc_id = vb->crtc_id;
+    aq->stats.sequence_last = vb->sequence;
+    aq->stats.time_us_last = (uint64_t)vb->tv_sec * 1000000 + vb->tv_usec;
+    if (aq->stats.flip_count++ == 0) {
+        aq->stats.sequence_first = aq->stats.sequence_last;
+        aq->stats.time_us_first = aq->stats.time_us_last;
+    }
 
     if (da != aq->cur_flip) {
         drmu_err(du, "%s: User data el (%p) != cur (%p)", __func__, da, aq->cur_flip);
@@ -219,7 +233,7 @@ evt_read(drmu_poll_env_t * const pe)
                 if (EVT(buf + i)->length < sizeof(*vb))
                     break;
 
-                drmu_atomic_page_flip_cb(du, &pe->aq, (void *)(uintptr_t)vb->user_data);
+                page_flip_cb(du, &pe->aq, vb);
                 break;
             }
             default:
@@ -349,6 +363,10 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
 
     pthread_mutex_lock(&aq->lock);
 
+    ++aq->stats.queue_count;
+    if (aq->next_flip)
+        ++aq->stats.merge_count;
+
     rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
 
     // No pending commit?
@@ -384,4 +402,27 @@ drmu_env_queue_wait(drmu_env_t * const du)
     return rv;
 }
 
+// Retrieve stats
+void
+drmu_env_queue_stats_get(struct drmu_env_s * const du,
+                         drmu_env_queue_stats_t * const stats_buf,
+                         const size_t stats_buf_len, const bool reset)
+{
+    drmu_poll_env_t *const pe = drmu_env_int_poll_get(du);
+    const size_t stats_size = sizeof(pe->aq.stats);
+
+    if (stats_buf != NULL && (pe == NULL || stats_buf_len > stats_size))
+        memset(stats_buf, 0, stats_buf_len);
+
+    if (pe != NULL) {
+        drmu_atomic_q_t *const aq = &pe->aq;
+
+        pthread_mutex_lock(&aq->lock);
+        if (stats_buf != NULL)
+            memcpy(stats_buf, &aq->stats, MIN(sizeof(aq->stats), stats_buf_len));
+        if (reset)
+            memset(&aq->stats, 0, stats_size);
+        pthread_mutex_unlock(&aq->lock);
+    }
+}
 

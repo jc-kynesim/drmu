@@ -1,6 +1,10 @@
 #ifndef _DRMU_DRMU_POLL_H
 #define _DRMU_DRMU_POLL_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +27,35 @@ int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
 // Wait for there to be no pending commit (there may be a commit in
 // progress)
 int drmu_env_queue_wait(struct drmu_env_s * const du);
+
+// Possibly useful stats for debugging jerky video
+
+typedef struct drmu_env_queue_stats_s {
+    uint32_t crtc_id;
+    // Sequence numbers increment on every vsync
+    uint32_t sequence_first;
+    uint32_t sequence_last;
+    // Commit flips seen - beware that you need (flip_count - 1) for
+    // calculating frame rates and missed vsyncs
+    unsigned int flip_count;
+    // atomic_queue ops done- beware that this is a simple count of
+    // drmu_atomic_queue on this env so may not be useful if multiple
+    // threads queue stuff
+    unsigned int queue_count;
+    // count of times a queue request is merged with an existing one
+    unsigned int merge_count;
+    // Times using CLOCK_MONOTONIC in micro seconds
+    uint64_t time_us_first;
+    uint64_t time_us_last;
+} drmu_env_queue_stats_t;
+
+// Retrieve stats
+// If stats_buf == NULL then nothing written - stats may still be reset
+// stats_buf_len should be sizeof(*stats_buf)
+// If (reset) then stats are reset after retrieval
+void drmu_env_queue_stats_get(struct drmu_env_s * const du,
+                              drmu_env_queue_stats_t * const stats_buf,
+                              const size_t stats_buf_len, const bool reset);
 
 #ifdef __cplusplus
 }
