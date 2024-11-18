@@ -66,13 +66,21 @@ struct drmprime_out_env_s {
 };
 
 static void
-drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl)
+log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl)
 {
     char buf[256];
-    int n = vsnprintf(buf, 255, fmt, vl);
+    int n;
+    const uint64_t now = drmu_time_us();
+    static uint64_t t0 = 0;
 
     (void)v;
     (void)level;
+
+    if (t0 == 0)
+        t0 = now;
+
+    n = snprintf(buf, 255, "%4u.%03u: ", (unsigned int)((now - t0) / 1000000), (unsigned int)((now - t0) % 1000000) / 1000);
+    n += vsnprintf(buf + n, 255 - n, fmt, vl);
 
     if (n >= 255)
         n = 255;
@@ -111,7 +119,7 @@ drmprime_out_env_t* drmprime_out_new()
 
     {
         const drmu_log_env_t log = {
-            .fn = drmu_log_stderr_cb,
+            .fn = log_stderr_cb,
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
@@ -148,7 +156,7 @@ drmprime_out_env_t* drmprime_out_new_fd(int fd)
 
     {
         const drmu_log_env_t log = {
-            .fn = drmu_log_stderr_cb,
+            .fn = log_stderr_cb,
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
