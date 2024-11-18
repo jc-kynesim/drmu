@@ -95,6 +95,15 @@ propinfo_prop_id(const drmu_propinfo_t * const pi)
     return pi == NULL ? 0 : pi->prop.prop_id;
 }
 
+//----------------------------------------------------------------------------
+
+uint64_t
+drmu_time_us()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
 
 //----------------------------------------------------------------------------
 //

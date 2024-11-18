@@ -565,6 +565,10 @@ int drmu_atomic_add_prop_generic(drmu_atomic_t * const da,
         const drmu_atomic_prop_fns_t * const fns, void * const v);
 int drmu_atomic_add_prop_value(drmu_atomic_t * const da, const uint32_t obj_id, const uint32_t prop_id, const uint64_t value);
 
+// helper time function - shoudl use the same clock as other timestamps in drmu
+
+uint64_t drmu_time_us(void);
+
 // drmu_xlease
 
 drmu_env_t * drmu_env_new_xlease(const struct drmu_log_env_s * const log);
