@@ -505,6 +505,13 @@ drmprime_video_set_sync(drmprime_video_env_t *de, const bool wants_prod)
 
 void drmprime_video_delete(drmprime_video_env_t *de)
 {
+    {
+        drmu_env_queue_stats_t stats;
+        drmu_env_queue_stats_get(de->du, &stats, sizeof(stats), false);
+        printf("Vid stats: Flipped=%u, Queued=%d, Merged=%d, seq diff=%d\n", stats.flip_count, stats.queue_count, stats.merge_count,
+               (int)(stats.sequence_last - stats.sequence_first));
+    }
+
     drmu_pool_kill(&de->pic_pool);
 
     drmu_plane_unref(&de->dp);
