@@ -29,6 +29,9 @@
 // Atomic Q fns (internal)
 
 typedef struct drmu_atomic_q_s {
+    drmu_env_queue_mode_t mode;
+    unsigned int mode_crtc_idx;
+
     pthread_mutex_t lock;
     pthread_cond_t cond;
     drmu_atomic_t * next_flip;
@@ -124,6 +127,27 @@ page_flip_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, const struct drm
         atomic_q_attempt_commit_next(aq);
 
     pthread_cond_broadcast(&aq->cond);
+    pthread_mutex_unlock(&aq->lock);
+}
+
+// In vsync queue mode we should get here with
+//  next   The atomic we are about to commit
+//  cur    NULL
+//  last   The atomic on display - still wanted till this commit finishes
+static void
+vsync_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, const struct drm_event_vblank * const vb)
+{
+    (void)vb;
+
+    pthread_mutex_lock(&aq->lock);
+
+    if (aq->cur_flip != NULL)
+        drmu_err(du, "Vsync cb but cur already set");
+    else if (aq->next_flip == NULL)
+        drmu_err(du, "Vsync cb but next unset");
+    else
+        atomic_q_attempt_commit_next(aq);
+
     pthread_mutex_unlock(&aq->lock);
 }
 
@@ -227,6 +251,15 @@ evt_read(drmu_poll_env_t * const pe)
          i + sizeof(struct drm_event) <= (size_t)rlen && EVT(buf + i)->length <= (size_t)rlen - i;
          i += EVT(buf + i)->length) {
         switch (EVT(buf + i)->type) {
+            case DRM_EVENT_VBLANK:
+            {
+                const struct drm_event_vblank * const vb = (struct drm_event_vblank*)(buf + i);
+                if (EVT(buf + i)->length < sizeof(*vb))
+                    break;
+
+                vsync_cb(du, &pe->aq, vb);
+                break;
+            }
             case DRM_EVENT_FLIP_COMPLETE:
             {
                 const struct drm_event_vblank * const vb = (struct drm_event_vblank*)(buf + i);
@@ -350,6 +383,7 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
     drmu_env_t * const du = drmu_atomic_env(*ppda);
     drmu_poll_env_t * pe;
     drmu_atomic_q_t * aq;
+    bool merged = false;
 
     if (du == NULL)
         return 0;
@@ -364,14 +398,33 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
     pthread_mutex_lock(&aq->lock);
 
     ++aq->stats.queue_count;
-    if (aq->next_flip)
+    if (aq->next_flip) {
+        merged = true;
         ++aq->stats.merge_count;
+    }
 
     rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
 
     // No pending commit?
-    if (rv == 0 && aq->cur_flip == NULL)
-        rv = atomic_q_attempt_commit_next(aq);
+    if (rv == 0 && aq->cur_flip == NULL) {
+        if (aq->mode == DRMU_ENV_QUEUE_MODE_VSYNC) {
+            if (!merged) {
+                union drm_wait_vblank wv = {
+                    .request = {
+                        .type = _DRM_VBLANK_RELATIVE | _DRM_VBLANK_EVENT | (aq->mode_crtc_idx << _DRM_VBLANK_HIGH_CRTC_SHIFT),
+                        .sequence = 1,
+                    }
+                };
+                rv = drmu_ioctl(du, DRM_IOCTL_WAIT_VBLANK, &wv);
+                if (rv != 0) {
+                    drmu_err(du, "Wait vblank failed: rv=%d", rv);
+                }
+            }
+        }
+        else {
+            rv = atomic_q_attempt_commit_next(aq);
+        }
+    }
 
     pthread_mutex_unlock(&aq->lock);
     return rv;
@@ -400,6 +453,26 @@ drmu_env_queue_wait(drmu_env_t * const du)
         pthread_mutex_unlock(&aq->lock);
     }
     return rv;
+}
+
+int
+drmu_env_queue_mode_set(drmu_env_t * const du, const drmu_env_queue_mode_t mode,
+                        const struct drmu_crtc_s * const dc, const int offset_us)
+{
+    drmu_poll_env_t * pe;
+    int rv;
+    (void)dc;
+    (void)offset_us;
+
+    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
+        return rv;
+
+    drmu_info(du, "%s: mode=%d", __func__, mode);
+
+    pe->aq.mode = mode;
+    pe->aq.mode_crtc_idx = drmu_crtc_idx(dc);
+
+    return 0;
 }
 
 // Retrieve stats

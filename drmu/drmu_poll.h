@@ -9,8 +9,9 @@
 extern "C" {
 #endif
 
-struct drmu_env_s;
 struct drmu_atomic_s;
+struct drmu_crtc_s;
+struct drmu_env_s;
 
 // Q the atomic on its associated env
 //
@@ -27,6 +28,18 @@ int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
 // Wait for there to be no pending commit (there may be a commit in
 // progress)
 int drmu_env_queue_wait(struct drmu_env_s * const du);
+
+// Queueing mode
+
+typedef enum drmu_env_queue_mode_s {
+        DRMU_ENV_QUEUE_MODE_INVALID = -1,
+        DRMU_ENV_QUEUE_MODE_ASAP = 0,
+        DRMU_ENV_QUEUE_MODE_VSYNC,
+        DRMU_ENV_QUEUE_MODE_OFFSET_VSYNC,
+} drmu_env_queue_mode_t;
+
+int drmu_env_queue_mode_set(struct drmu_env_s * const du, const drmu_env_queue_mode_t mode,
+                        const struct drmu_crtc_s * const dc, const int offset_us);
 
 // Possibly useful stats for debugging jerky video
 
