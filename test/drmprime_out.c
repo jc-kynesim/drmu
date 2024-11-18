@@ -88,6 +88,29 @@ log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list v
     fwrite(buf, n + 1, 1, stderr);
 }
 
+int
+drmprime_out_set_commit_sync(drmprime_out_env_t * const dpo, const char * sync_mode)
+{
+    static const struct {
+        const char * name;
+        drmu_env_queue_mode_t mode;
+    } xlat[] = {
+        {"asap", DRMU_ENV_QUEUE_MODE_ASAP},
+        {"vsync", DRMU_ENV_QUEUE_MODE_VSYNC},
+        {NULL, DRMU_ENV_QUEUE_MODE_INVALID}
+    };
+    unsigned int i;
+
+    for (i = 0; xlat[i].name != NULL; ++i) {
+        if (strcmp(xlat[i].name, sync_mode) == 0)
+            break;
+    }
+    if (xlat[i].name == NULL)
+        return -EINVAL;
+
+    return drmu_env_queue_mode_set(dpo->du, xlat[i].mode, drmu_output_crtc(dpo->dout), 0);
+}
+
 drmu_output_t * drmprime_out_drmu_output(drmprime_out_env_t* const dpo)
 {
     return dpo->dout;
