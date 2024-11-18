@@ -227,6 +227,8 @@ static int get_time_arg(const char * const arg, uint64_t * pTime)
     return 0;
 }
 
+static
+
 void usage()
 {
     fprintf(stderr,
@@ -237,6 +239,7 @@ void usage()
 " <playlist> = [--win <w>x<h>@<x>,<y>]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
+"              [--sync-mode <mode>]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
 "The --tile option will tile the video windows, if unset then playlist1 and\n"
@@ -257,6 +260,7 @@ int main(int argc, char *argv[])
     const char * ticker_text = NULL;
     unsigned int screen_width, screen_height;
     unsigned int tiles_w = 1, tiles_h = 1;
+    const char * sync_mode = NULL;
 
     playlist_env_t ple;
     playlist_t * pl = NULL;
@@ -355,6 +359,13 @@ int main(int argc, char *argv[])
                 --n;
                 ++a;
             }
+            else if (strcmp(arg, "--sync-mode") == 0) {
+                if (n == 0)
+                    usage();
+                sync_mode = *a;
+                --n;
+                ++a;
+            }
             else if (strcmp(arg, "--deinterlace") == 0) {
                 pl->wants_deinterlace = true;
             }
@@ -396,6 +407,13 @@ int main(int argc, char *argv[])
         while (ple.n > tiles_w * tiles_w)
             ++tiles_w;
         tiles_h = (ple.n + tiles_w - 1) / tiles_w;
+    }
+
+    if (sync_mode != NULL) {
+        if (drmprime_out_set_commit_sync(dpo, sync_mode) != 0) {
+            fprintf(stderr, "Failed to set sync mode\n");
+            return 1;
+        }
     }
 
     // Finalize arguments in playlists

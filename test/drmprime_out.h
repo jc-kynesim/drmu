@@ -37,6 +37,7 @@ drmprime_video_env_t * drmprime_video_new(struct drmprime_out_env_s * dpo);
 void drmprime_out_delete(drmprime_out_env_t * dpo);
 drmprime_out_env_t * drmprime_out_new();
 drmprime_out_env_t * drmprime_out_new_fd(int fd);
+int drmprime_out_set_commit_sync(drmprime_out_env_t * const dpo, const char * sync_mode);
 drmu_output_t * drmprime_out_drmu_output(drmprime_out_env_t * const dpo);
 
 void drmprime_out_runticker_start(drmprime_out_env_t * const dpo, const char * const ticker_text);
