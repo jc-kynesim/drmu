@@ -3479,6 +3479,9 @@ struct drmu_poll_env_s *
 drmu_env_int_poll_get(drmu_env_t * const du)
 {
     struct drmu_poll_env_s * pe;
+    if (du == NULL)
+        return NULL;
+
     pthread_mutex_lock(&du->lock);
     pe = du->poll_env;
     pthread_mutex_unlock(&du->lock);
