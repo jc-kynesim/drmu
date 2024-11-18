@@ -111,6 +111,22 @@ void drmprime_out_delete(drmprime_out_env_t *dpo)
     free(dpo);
 }
 
+static int
+dpo_init(drmprime_out_env_t* const dpo)
+{
+    drmu_env_restore_enable(dpo->du);
+
+    if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
+        return -1;
+
+    if (drmu_output_add_output(dpo->dout, NULL) != 0)
+        return -1;
+
+    drmu_output_max_bpc_allow(dpo->dout, true);
+
+    return 0;
+}
+
 drmprime_out_env_t* drmprime_out_new()
 {
     drmprime_out_env_t* const dpo = calloc(1, sizeof(*dpo));
@@ -130,16 +146,9 @@ drmprime_out_env_t* drmprime_out_new()
             (dpo->du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
             goto fail;
     }
-    drmu_env_restore_enable(dpo->du);
 
-    if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
+    if (dpo_init(dpo) != 0)
         goto fail;
-
-    if (drmu_output_add_output(dpo->dout, NULL) != 0)
-        goto fail;
-
-    drmu_output_max_bpc_allow(dpo->dout, true);
-
     return dpo;
 
 fail:
@@ -163,16 +172,9 @@ drmprime_out_env_t* drmprime_out_new_fd(int fd)
         if ((dpo->du = drmu_env_new_fd(fd, &log)) == NULL)
             goto fail;
     }
-    drmu_env_restore_enable(dpo->du);
 
-    if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
+    if (dpo_init(dpo) != 0)
         goto fail;
-
-    if (drmu_output_add_output(dpo->dout, NULL) != 0)
-        goto fail;
-
-    drmu_output_max_bpc_allow(dpo->dout, true);
-
     return dpo;
 
 fail:
