@@ -805,6 +805,39 @@ bo_free_fd(drmu_bo_t * const bo)
     free(bo);
 }
 
+void *
+drmu_bo_mmap(const drmu_bo_t * const bo, const size_t length, const int prot, const int flags)
+{
+    void * map_ptr = NULL;
+
+    if (bo != NULL) {
+        struct drm_mode_map_dumb map_dumb = { .handle = bo->handle };
+        drmu_env_t * const du = bo->du;
+        int rv;
+
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb)) != 0)
+        {
+            drmu_err(du, "%s: map dumb failed: %s", __func__, strerror(-rv));
+            return NULL;
+        }
+
+        // Avoid having to test for MAP_FAILED when testing for mapped/unmapped
+        if ((map_ptr = mmap(NULL, length, prot, flags,
+                            drmu_fd(du), map_dumb.offset)) == MAP_FAILED) {
+            drmu_err(du, "%s: mmap failed (size=%#zx, fd=%d, off=%#"PRIx64"): %s", __func__,
+                     length, drmu_fd(du), map_dumb.offset, strerror(errno));
+            return NULL;
+        }
+    }
+
+    return map_ptr;
+}
+
+uint32_t
+drmu_bo_handle(const drmu_bo_t * const bo)
+{
+    return bo == NULL ? 0 : bo->handle;
+}
 
 void
 drmu_bo_unref(drmu_bo_t ** const ppbo)

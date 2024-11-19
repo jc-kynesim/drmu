@@ -129,6 +129,15 @@ struct drm_mode_create_dumb;
 // if flags are 0 then RDWR | CLOEXEC will be used
 int drmu_bo_export_fd(drmu_bo_t * bo, uint32_t flags);
 
+// Map a BO.
+// Size isn't saved in the BO so must be given here
+// Returns NULL on failure unlike system mmap
+// Mapping isn't held by the BO, must be umapped by user
+void * drmu_bo_mmap(const drmu_bo_t * const bo, const size_t length, const int prot, const int flags);
+
+// Get BO handle
+uint32_t drmu_bo_handle(const drmu_bo_t * const bo);
+
 void drmu_bo_unref(drmu_bo_t ** const ppbo);
 drmu_bo_t * drmu_bo_ref(drmu_bo_t * const bo);
 drmu_bo_t * drmu_bo_new_fd(drmu_env_t *const du, const int fd);
