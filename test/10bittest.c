@@ -291,6 +291,7 @@ usage()
            "-s  colour siting\n"
            "-F  make siting patch .5 pixel smaller\n"
            "-y  Use YUV plane (same vals as for RGB - no conv)\n"
+           "-m  Use multiple buffers when constructing the (YUV) FB\n"
            "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
            "-r  YUV range full, limited (default)\n"
            "-R  Broadcast RGB: auto, full (default), limited\n"
@@ -343,6 +344,7 @@ int main(int argc, char *argv[])
     bool try_writeback = false;
     bool show_writeback = false;
     bool transpose = false;
+    bool multi = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -350,7 +352,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:sTvwWy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:FgpM:mP:r:R:sTvwWy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -374,6 +376,9 @@ int main(int argc, char *argv[])
                 break;
             case 'M':
                 drm_device = optarg;
+                break;
+            case 'm':
+                multi = true;
                 break;
             case 'p':
                 fill_pin = true;
@@ -596,7 +601,7 @@ int main(int argc, char *argv[])
         goto fail;
     }
 
-    if ((fb1 = drmu_fb_new_dumb_mod(du, mp.width, mp.height, p1fmt, p1mod)) == NULL) {
+    if ((fb1 = drmu_fb_new_dumb_multi(du, mp.width, mp.height, p1fmt, p1mod, multi)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
