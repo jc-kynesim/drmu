@@ -78,7 +78,7 @@ drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const ui
             goto fail;
         }
 
-        drmu_fb_int_fd_set(fb, data.fd);
+        drmu_fb_int_fd_set(fb, 0, data.fd);
 
         if ((bo = drmu_bo_new_fd(du, data.fd)) == NULL) {
             drmu_err(du, "%s: Failed to allocate BO", __func__);
@@ -95,7 +95,7 @@ drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const ui
             goto fail;
         }
 
-        drmu_fb_int_mmap_set(fb, map_ptr, (size_t)data.len, w2 * bypp);
+        drmu_fb_int_mmap_set(fb, 0, map_ptr, (size_t)data.len, w2 * bypp);
     }
 
     for (offset = 0, i = 0; i != layers; ++i) {

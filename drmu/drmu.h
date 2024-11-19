@@ -166,6 +166,8 @@ uint32_t drmu_fb_pixel_format(const drmu_fb_t * const dfb);
 uint64_t drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane);
 drmu_fb_t * drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format);
 drmu_fb_t * drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
+drmu_fb_t * drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
+                     const uint32_t format, const uint64_t mod, const bool multi);
 drmu_fb_t * drmu_fb_realloc_dumb(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format);
 drmu_fb_t * drmu_fb_realloc_dumb_mod(drmu_env_t * const du, drmu_fb_t * dfb, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 // Try to reset geometry to these values
@@ -241,11 +243,11 @@ static inline bool drmu_broadcast_rgb_is_set(const drmu_broadcast_rgb_t x) {retu
 void drmu_fb_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space);
 void drmu_fb_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting);
 void drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * v);
-void drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo);
+void drmu_fb_int_bo_set(drmu_fb_t *const dfb, const unsigned int obj_idx, drmu_bo_t * const bo);
 void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset);
 void drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier);
-void drmu_fb_int_fd_set(drmu_fb_t *const dfb, const int fd);
-void drmu_fb_int_mmap_set(drmu_fb_t *const dfb, void * const buf, const size_t size, const size_t pitch);
+void drmu_fb_int_fd_set(drmu_fb_t *const dfb, const unsigned int obj_idx, const int fd);
+void drmu_fb_int_mmap_set(drmu_fb_t *const dfb, const unsigned int obj_idx, void * const buf, const size_t size, const size_t pitch);
 drmu_isset_t drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb);
 const struct hdr_output_metadata * drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb);
 drmu_broadcast_rgb_t drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range);

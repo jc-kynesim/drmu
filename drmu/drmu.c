@@ -1022,13 +1022,17 @@ typedef struct drmu_fb_s {
     drmu_rect_t active;     // Area that was asked for inside the buffer; pixels
     drmu_rect_t crop;       // Cropping inside that; fractional pels (16.16, 16.16)
 
-    int buf_fd;
+    struct {
+        int fd;
 
-    void * map_ptr;
-    size_t map_size;
-    size_t map_pitch;
+        drmu_bo_t * bo;
 
-    drmu_bo_t * bo_list[4];
+        void * map_ptr;
+        size_t map_size;
+        size_t map_pitch;
+    } objects[4];
+
+    int8_t layer_obj[4];
 
     drmu_color_encoding_t color_encoding; // Assumed to be constant strings that don't need freeing
     drmu_color_range_t    color_range;
@@ -1100,14 +1104,14 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
     if (dfb->fb.fb_id != 0)
         drmu_ioctl(du, DRM_IOCTL_MODE_RMFB, &dfb->fb.fb_id);
 
-    if (dfb->map_ptr != NULL && dfb->map_ptr != MAP_FAILED)
-        munmap(dfb->map_ptr, dfb->map_size);
+    for (i = 0; i != 4; ++i) {
+        if (dfb->objects[i].map_ptr != NULL)
+            munmap(dfb->objects[i].map_ptr, dfb->objects[i].map_size);
+        drmu_bo_unref(&dfb->objects[i].bo);
+        if (dfb->objects[i].fd != -1)
+            close(dfb->objects[i].fd);
+    }
 
-    for (i = 0; i != 4; ++i)
-        drmu_bo_unref(dfb->bo_list + i);
-
-    if (dfb->buf_fd != -1)
-        close(dfb->buf_fd);
 
     // Call on_delete last so we have stopped using anything that might be
     // freed by it
@@ -1193,6 +1197,9 @@ drmu_fb_pitch2(const drmu_fb_t *const dfb, const unsigned int layer)
         const uint64_t m = dfb->fb.modifier[layer];
         const uint64_t s2 = fourcc_mod_broadcom_param(m);
 
+        if (m == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0))
+            return layer == 0 ? dfb->fb.height : dfb->fb.height / 2;
+
         // No good masks to check modifier so check if we convert back it matches
         if (m != 0 && m != DRM_FORMAT_MOD_INVALID &&
             DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(s2) == m)
@@ -1204,13 +1211,26 @@ drmu_fb_pitch2(const drmu_fb_t *const dfb, const unsigned int layer)
 void *
 drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer)
 {
-    return (layer >= 4 || dfb->map_ptr == NULL) ? NULL : (uint8_t * )dfb->map_ptr + dfb->fb.offsets[layer];
+    int obj_idx;
+    if (layer >= 4)
+        return NULL;
+    obj_idx = dfb->layer_obj[layer];
+    if (obj_idx < 0)
+        return NULL;
+    return (dfb->objects[obj_idx].map_ptr == NULL) ? NULL :
+        (uint8_t * )dfb->objects[obj_idx].map_ptr + dfb->fb.offsets[layer];
 }
 
 drmu_bo_t *
 drmu_fb_bo(const drmu_fb_t * const dfb, const unsigned int layer)
 {
-    return (layer >= 4) ? NULL : dfb->bo_list[layer];
+    int obj_idx;
+    if (layer >= 4)
+        return NULL;
+    obj_idx = dfb->layer_obj[layer];
+    if (obj_idx < 0)
+        return NULL;
+    return dfb->objects[obj_idx].bo;
 }
 
 uint32_t
@@ -1291,29 +1311,30 @@ drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * 
 }
 
 void
-drmu_fb_int_bo_set(drmu_fb_t *const dfb, unsigned int i, drmu_bo_t * const bo)
+drmu_fb_int_bo_set(drmu_fb_t *const dfb, const unsigned int obj_idx, drmu_bo_t * const bo)
 {
-    dfb->bo_list[i] = bo;
+    dfb->objects[obj_idx].bo = bo;
 }
 
 void
-drmu_fb_int_fd_set(drmu_fb_t *const dfb, const int fd)
+drmu_fb_int_fd_set(drmu_fb_t *const dfb, const unsigned int obj_idx, const int fd)
 {
-    dfb->buf_fd = fd;
+    dfb->objects[obj_idx].fd = fd;
 }
 
 void
-drmu_fb_int_mmap_set(drmu_fb_t *const dfb, void * const buf, const size_t size, const size_t pitch)
+drmu_fb_int_mmap_set(drmu_fb_t *const dfb, const unsigned int obj_idx, void * const buf, const size_t size, const size_t pitch)
 {
-    dfb->map_ptr = buf;
-    dfb->map_size = size;
-    dfb->map_pitch = pitch;
+    dfb->objects[obj_idx].map_ptr = buf;
+    dfb->objects[obj_idx].map_size = size;
+    dfb->objects[obj_idx].map_pitch = pitch;
 }
 
 void
 drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier)
 {
-    dfb->fb.handles[i] = dfb->bo_list[obj_idx]->handle;
+    dfb->layer_obj[i] = obj_idx;
+    dfb->fb.handles[i] = drmu_bo_handle(dfb->objects[obj_idx].bo);
     dfb->fb.pitches[i] = pitch;
     dfb->fb.offsets[i] = offset;
     // We should be able to have "invalid" modifiers and not set the flag
@@ -1404,7 +1425,10 @@ drmu_fb_int_alloc(drmu_env_t * const du)
 
     dfb->du = du;
     dfb->chroma_siting = DRMU_CHROMA_SITING_UNSPECIFIED;
-    dfb->buf_fd = -1;
+    for (unsigned int i = 0; i != 4; ++i)
+        dfb->objects[i].fd = -1;
+    for (unsigned int i = 0; i != 4; ++i)
+        dfb->layer_obj[i] = -1;
     dfb->fence_fd = -1;
     return dfb;
 }
@@ -1431,17 +1455,20 @@ drmu_fb_modifier(const drmu_fb_t * const dfb, const unsigned int plane)
 static int
 fb_sync(drmu_fb_t * const dfb, unsigned int flags)
 {
-    struct dma_buf_sync sync = {
-        .flags = flags
-    };
-    if (dfb->buf_fd == -1 || dfb->map_ptr == NULL)
-        return 0;
-    while (ioctl(dfb->buf_fd, DMA_BUF_IOCTL_SYNC, &sync) == -1) {
-        const int err = errno;
-        if (errno == EINTR)
-            continue;
-        drmu_debug(dfb->du, "%s: ioctl failed: flags=%#x\n", __func__, flags);
-        return -err;
+    unsigned int i;
+    for (i = 0; i != 4; ++i) {
+        if (dfb->objects[i].fd != -1 && dfb->objects[i].map_ptr != NULL) {
+            struct dma_buf_sync sync = {
+                .flags = flags
+            };
+            while (ioctl(dfb->objects[i].fd, DMA_BUF_IOCTL_SYNC, &sync) == -1) {
+                const int err = errno;
+                if (errno == EINTR)
+                    continue;
+                drmu_debug(dfb->du, "%s: ioctl failed: flags=%#x\n", __func__, flags);
+                return -err;
+            }
+        }
     }
     return 0;
 }
@@ -1504,41 +1531,16 @@ fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
     return t;
 }
 
-static void
-fb_pitches_set_mod(drmu_fb_t * const dfb, uint64_t mod)
-{
-    const drmu_fmt_info_t *const f = dfb->fmt_info;
-    const uint32_t pitch0 = dfb->map_pitch * drmu_fmt_info_wdiv(f, 0);
-    const uint32_t h = drmu_fb_height(dfb);
-    const unsigned int c = drmu_fmt_info_plane_count(f);
-    uint32_t t = 0;
-    unsigned int i;
-
-    // This should be true for anything we've allocated
-    if (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0)) {
-        // Cope with the joy that is sand
-        mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
-        drmu_fb_int_layer_mod_set(dfb, 0, 0, dfb->map_pitch, 0, mod);
-        drmu_fb_int_layer_mod_set(dfb, 1, 0, dfb->map_pitch, h * 128, mod);
-        return;
-    }
-
-    for (i = 0; i != c; ++i) {
-        const unsigned int wdiv = drmu_fmt_info_wdiv(f, i);
-        drmu_fb_int_layer_mod_set(dfb, i, 0, pitch0 / wdiv, t, mod);
-        t += (pitch0 * h) / (drmu_fmt_info_hdiv(f, i) * wdiv);
-    }
-}
-
 drmu_fb_t *
-drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
-                     const uint32_t format, const uint64_t mod)
+drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
+                     const uint32_t format, const uint64_t mod, const bool multi)
 {
     drmu_fb_t * const dfb = drmu_fb_int_alloc(du);
     uint32_t bpp;
-    int rv;
     uint32_t w2;
     const uint32_t s30_cw = 128 / 4 * 3;
+    unsigned int plane_count;
+    const drmu_fmt_info_t * f;
 
     if (dfb == NULL) {
         drmu_err(du, "%s: Alloc failure", __func__);
@@ -1564,53 +1566,65 @@ drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
         goto fail;
     }
 
-    {
-        struct drm_mode_create_dumb dumb = {
-            .height = fb_total_height(dfb, (h + 1) & ~1),
-            .width = ((w2 + 31) & ~31) / drmu_fmt_info_wdiv(dfb->fmt_info, 0),
-            .bpp = bpp
-        };
+    f = drmu_fb_format_info_get(dfb);
+    plane_count = !multi ? 1 : drmu_fmt_info_plane_count(f);
 
-        drmu_bo_t * bo = drmu_bo_new_dumb(du, &dumb);
-        if (bo == NULL)
-            goto fail;
-        drmu_fb_int_bo_set(dfb, 0, bo);
-
-        dfb->map_pitch = dumb.pitch;
-        dfb->map_size = (size_t)dumb.size;
-    }
-
-    {
-        struct drm_mode_map_dumb map_dumb = {
-            .handle = dfb->bo_list[0]->handle
-        };
+    for (unsigned int i = 0; i != plane_count; ++i) {
+        const unsigned int wdiv = drmu_fmt_info_wdiv(f, i);
+        const unsigned int hdiv = drmu_fmt_info_hdiv(f, i);
+        drmu_bo_t * bo;
         void * map_ptr;
 
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb)) != 0)
-        {
-            drmu_err(du, "%s: map dumb failed: %s", __func__, strerror(-rv));
-            goto fail;
+        struct drm_mode_create_dumb dumb = {
+            .bpp = bpp,
+        };
+
+        if (!multi) {
+            dumb.height = fb_total_height(dfb, (h + 1) & ~1);
+            dumb.width = ((w2 + 31) & ~31) / wdiv;
+        }
+        else {
+            dumb.height = (h + hdiv - 1) / hdiv;
+            dumb.width = (w + wdiv - 1) / wdiv;
         }
 
-        // Avoid having to test for MAP_FAILED when testing for mapped/unmapped
-        if ((map_ptr = mmap(NULL, dfb->map_size,
-                            PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE,
-                            drmu_fd(du), map_dumb.offset)) == MAP_FAILED) {
-            drmu_err(du, "%s: mmap failed (size=%zd, fd=%d, off=%#"PRIx64"): %s", __func__,
-                     dfb->map_size, drmu_fd(du), map_dumb.offset, strerror(errno));
+        if ((bo = drmu_bo_new_dumb(du, &dumb)) == NULL)
             goto fail;
-        }
+        drmu_fb_int_bo_set(dfb, i, bo);
 
-        dfb->map_ptr = map_ptr;
+        if ((map_ptr = drmu_bo_mmap(bo, (size_t)dumb.size,
+                               PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE)) == NULL)
+            goto fail;
+        drmu_fb_int_mmap_set(dfb, i, map_ptr, (size_t)dumb.size, dumb.pitch);
+
+        if (multi) {
+            drmu_fb_int_layer_mod_set(dfb, i, i, dumb.pitch, 0, mod);
+        }
+        else if (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0)) {
+            // Cope with the joy that is legacy sand
+            const uint64_t sand1_mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
+            drmu_fb_int_layer_mod_set(dfb, 0, 0, dumb.pitch, 0, sand1_mod);
+            drmu_fb_int_layer_mod_set(dfb, 1, 0, dumb.pitch, h * 128, sand1_mod);
+        }
+        else {
+            const uint32_t pitch0 = dumb.pitch * wdiv;
+            const unsigned int c = drmu_fmt_info_plane_count(f);
+            uint32_t t = 0;
+
+            // This should be true for anything we've allocated
+            for (unsigned int layer = 0; layer != c; ++layer) {
+                const unsigned int wdiv2 = drmu_fmt_info_wdiv(f, layer);
+                drmu_fb_int_layer_mod_set(dfb, layer, 0, pitch0 / wdiv2, t, mod);
+                t += (pitch0 * h) / (drmu_fmt_info_hdiv(f, layer) * wdiv2);
+            }
+        }
     }
-
-    fb_pitches_set_mod(dfb, mod);
 
     if (drmu_fb_int_make(dfb))
         goto fail;
 
-    drmu_debug(du, "Create dumb %p %s %dx%d / %dx%d size: %zd", dfb,
-               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->active.w, dfb->active.h, dfb->map_size);
+//    drmu_debug(du, "Create dumb %p %s %dx%d / %dx%d size: %zd", dfb,
+//               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->active.w, dfb->active.h, dfb->map_size);
     return dfb;
 
 fail:
@@ -1619,9 +1633,16 @@ fail:
 }
 
 drmu_fb_t *
+drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
+                     const uint32_t format, const uint64_t mod)
+{
+    return drmu_fb_new_dumb_multi(du, w, h, format, mod, false);
+}
+
+drmu_fb_t *
 drmu_fb_new_dumb(drmu_env_t * const du, uint32_t w, uint32_t h, const uint32_t format)
 {
-    return drmu_fb_new_dumb_mod(du, w, h, format, DRM_FORMAT_MOD_LINEAR);
+    return drmu_fb_new_dumb_multi(du, w, h, format, DRM_FORMAT_MOD_LINEAR, false);
 }
 
 bool
