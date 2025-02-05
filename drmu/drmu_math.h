@@ -62,6 +62,8 @@ static inline drmu_rect_t
 drmu_rect_wh(const unsigned int w, const unsigned int h)
 {
     return (drmu_rect_t){
+        .x = 0,
+        .y = 0,
         .w = w,
         .h = h
     };
