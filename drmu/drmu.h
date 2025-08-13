@@ -332,6 +332,11 @@ int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * con
 // Neither makes sense without the other so do together
 int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
 
+// Connector might support some rotations - true if given rotation supported
+bool drmu_conn_has_rotation(drmu_conn_t * const dn, const unsigned int rotation);
+
+// Add rotation to connector
+int drmu_atomic_conn_add_rotation(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const unsigned int rotation);
 
 const struct drm_mode_modeinfo * drmu_conn_modeinfo(const drmu_conn_t * const dn, const int mode_id);
 drmu_mode_simple_params_t drmu_conn_mode_simple_params(const drmu_conn_t * const dn, const int mode_id);
@@ -381,15 +386,15 @@ int drmu_atomic_plane_add_alpha(struct drmu_atomic_s * const da, const drmu_plan
 int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int zpos);
 
 // X, Y & TRANSPOSE can be ORed to get all others
-#define DRMU_PLANE_ROTATION_0                   0
-#define DRMU_PLANE_ROTATION_X_FLIP              1
-#define DRMU_PLANE_ROTATION_Y_FLIP              2
-#define DRMU_PLANE_ROTATION_180                 3
+#define DRMU_ROTATION_0                   0
+#define DRMU_ROTATION_X_FLIP              1
+#define DRMU_ROTATION_Y_FLIP              2
+#define DRMU_ROTATION_180                 3
 // *** These don't exist on Pi - no inherent transpose
-#define DRMU_PLANE_ROTATION_TRANSPOSE           4
-#define DRMU_PLANE_ROTATION_90                  5  // Rotate 90 clockwise
-#define DRMU_PLANE_ROTATION_270                 6  // Rotate 90 anti-cockwise
-#define DRMU_PLANE_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+#define DRMU_ROTATION_TRANSPOSE           4
+#define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
+#define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
+#define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);

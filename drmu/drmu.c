@@ -1978,6 +1978,38 @@ drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const
 
 //----------------------------------------------------------------------------
 //
+// Rotation util
+
+static void
+rotation_make_array(drmu_prop_bitmask_t * const pid, uint64_t values[8])
+{
+    uint64_t r0;
+
+    memset(values, 0, sizeof(values[0]) * 8);
+    if (pid == NULL)
+        return;
+
+    r0 = drmu_prop_bitmask_value(pid, "rotate-0");
+    if (r0 != 0) {
+        values[DRMU_ROTATION_0] = r0;
+        // Flips MUST be combined with a rotate
+        if ((values[DRMU_ROTATION_X_FLIP] = drmu_prop_bitmask_value(pid, "reflect-x")) != 0)
+            values[DRMU_ROTATION_X_FLIP] |= r0;
+        if ((values[DRMU_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(pid, "reflect-y")) != 0)
+            values[DRMU_ROTATION_Y_FLIP] |= r0;
+        // Transpose counts as a Flip
+        if ((values[DRMU_ROTATION_TRANSPOSE] = drmu_prop_bitmask_value(pid, "transpose")) != 0)
+            values[DRMU_ROTATION_TRANSPOSE] |= r0;
+    }
+    values[DRMU_ROTATION_180] = drmu_prop_bitmask_value(pid, "rotate-180");
+    if (!values[DRMU_ROTATION_180] && values[DRMU_ROTATION_X_FLIP] && values[DRMU_ROTATION_Y_FLIP])
+        values[DRMU_ROTATION_180] = values[DRMU_ROTATION_X_FLIP] | values[DRMU_ROTATION_Y_FLIP];
+    values[DRMU_ROTATION_90] = drmu_prop_bitmask_value(pid, "rotate-90");
+    values[DRMU_ROTATION_270] = drmu_prop_bitmask_value(pid, "rotate-270");
+}
+
+//----------------------------------------------------------------------------
+//
 // CRTC fns
 
 typedef struct drmu_crtc_s {
@@ -2336,12 +2368,14 @@ struct drmu_conn_s {
         drmu_prop_range_t * max_bpc;
         drmu_prop_enum_t * colorspace;
         drmu_prop_enum_t * broadcast_rgb;
+        drmu_prop_bitmask_t * rotation;
         uint32_t hdr_output_metadata;
         uint32_t writeback_out_fence_ptr;
         uint32_t writeback_fb_id;
         uint32_t writeback_pixel_formats;
     } pid;
 
+    uint64_t rot_vals[8];
     drmu_blob_t * hdr_metadata_blob;
 
     char name[32];
@@ -2406,6 +2440,22 @@ int
 drmu_atomic_conn_add_crtc(drmu_atomic_t * const da, drmu_conn_t * const dn, drmu_crtc_t * const dc)
 {
     return drmu_atomic_add_prop_object(da, dn->pid.crtc_id, drmu_crtc_id(dc));
+}
+
+bool
+drmu_conn_has_rotation(drmu_conn_t * const dn, const unsigned int rotation)
+{
+    return rotation < 8 && dn != NULL &&
+        (dn->rot_vals[rotation] != 0 ||
+            (!dn->pid.rotation && rotation == DRMU_ROTATION_0));
+}
+
+int
+drmu_atomic_conn_add_rotation(drmu_atomic_t * const da, drmu_conn_t * const dn, const unsigned int rotation)
+{
+    return !drmu_conn_has_rotation(dn, rotation) ? -EINVAL :
+        !dn->pid.rotation ? 0 : // Must be rotation_0 here
+            drmu_atomic_add_prop_bitmask(da, dn->conn.connector_id, dn->pid.rotation, dn->rot_vals[rotation]);
 }
 
 int
@@ -2580,12 +2630,14 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         dn->pid.max_bpc             = drmu_prop_range_new(du, props_name_to_id(props, "max bpc"));
         dn->pid.colorspace          = drmu_prop_enum_new(du, props_name_to_id(props, "Colorspace"));
         dn->pid.broadcast_rgb       = drmu_prop_enum_new(du, props_name_to_id(props, "Broadcast RGB"));
+        dn->pid.rotation            = drmu_prop_bitmask_new(du, props_name_to_id(props, "rotation"));
         dn->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
         dn->pid.writeback_fb_id     = props_name_to_id(props, "WRITEBACK_FB_ID");
         dn->pid.writeback_out_fence_ptr = props_name_to_id(props, "WRITEBACK_OUT_FENCE_PTR");
         dn->pid.writeback_pixel_formats = props_name_to_id(props, "WRITEBACK_PIXEL_FORMATS");  // Blob of fourccs (no modifier info)
-
         props_free(props);
+
+        rotation_make_array(dn->pid.rotation, dn->rot_vals);
     }
 
     return 0;
@@ -2740,7 +2792,7 @@ int
 drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot)
 {
     if (!dp->pid.rotation)
-        return rot == DRMU_PLANE_ROTATION_0 ? 0 : -EINVAL;
+        return rot == DRMU_ROTATION_0 ? 0 : -EINVAL;
     if (rot < 0 || rot >= 8 || !dp->rot_vals[rot])
         return -EINVAL;
     return drmu_atomic_add_prop_bitmask(da, dp->plane.plane_id, dp->pid.rotation, dp->rot_vals[rot]);
@@ -3017,17 +3069,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
     dp->pid.zpos             = drmu_prop_range_new(du, props_name_to_id(props, "zpos"));
 
-    dp->rot_vals[DRMU_PLANE_ROTATION_0] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-0");
-    if (dp->rot_vals[DRMU_PLANE_ROTATION_0]) {
-        // Flips MUST be combined with a rotate
-        if ((dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] = drmu_prop_bitmask_value(dp->pid.rotation, "reflect-x")) != 0)
-            dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] |= dp->rot_vals[DRMU_PLANE_ROTATION_0];
-        if ((dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(dp->pid.rotation, "reflect-y")) != 0)
-            dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP] |= dp->rot_vals[DRMU_PLANE_ROTATION_0];
-    }
-    dp->rot_vals[DRMU_PLANE_ROTATION_180] = drmu_prop_bitmask_value(dp->pid.rotation, "rotate-180");
-    if (!dp->rot_vals[DRMU_PLANE_ROTATION_180] && dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] && dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP])
-        dp->rot_vals[DRMU_PLANE_ROTATION_180] = dp->rot_vals[DRMU_PLANE_ROTATION_X_FLIP] | dp->rot_vals[DRMU_PLANE_ROTATION_Y_FLIP];
+    rotation_make_array(dp->pid.rotation, dp->rot_vals);
 
     {
         const drmu_propinfo_t * const pinfo = props_name_to_propinfo(props, "type");
