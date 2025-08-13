@@ -34,6 +34,7 @@
 #include "drmu.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
+#include "drmu_scan.h"
 #include "drmu_util.h"
 #include <drm_fourcc.h>
 
@@ -284,7 +285,8 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8]\n"
+           "                 [-C <conn name>] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-p  pinstripes\n"
            "-f  solid a, b, c 10-bit values\n"
@@ -296,6 +298,7 @@ usage()
            "-r  YUV range full, limited (default)\n"
            "-R  Broadcast RGB: auto, full (default), limited\n"
            "    if -r set then defaults to that\n"
+           "-C  Use connection name\n"
            "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
            "-P  pixel format fourcc\n"
@@ -327,6 +330,7 @@ int main(int argc, char *argv[])
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
+    const char * conn_name = NULL;
     drmu_mode_simple_params_t mp = {0};
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
     drmu_color_encoding_t encoding = DRMU_COLOR_ENCODING_BT2020;
@@ -345,6 +349,7 @@ int main(int argc, char *argv[])
     bool show_writeback = false;
     bool transpose = false;
     bool multi = false;
+    bool conn_added = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -352,8 +357,11 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:mP:r:R:sTvwWy")) != -1) {
+    while ((c = getopt(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy")) != -1) {
         switch (c) {
+            case 'C':
+                conn_name = optarg;
+                break;
             case 'c':
                 colorspace = optarg;
                 break;
@@ -476,7 +484,12 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
-        if (
+        if (conn_name) {
+            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0)
+                goto fail;
+            conn_added = true;
+        }
+        else if (
 #if HAS_WAYLEASE
             (du = drmu_env_new_waylease(&log)) == NULL &&
 #endif
@@ -491,7 +504,7 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    if ((dout = drmu_output_new(du)) == NULL)
+    if (!conn_added && (dout = drmu_output_new(du)) == NULL)
         goto fail;
 
     drmu_output_max_bpc_allow(dout, true);
@@ -503,7 +516,7 @@ int main(int argc, char *argv[])
             goto fail;
         }
     }
-    else {
+    else if (!conn_added) {
         if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
             goto fail;
     }
