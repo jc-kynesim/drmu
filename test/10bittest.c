@@ -299,8 +299,10 @@ usage()
            "-8  keep max_bpc 8\n"
            "-P  pixel format fourcc\n"
            "-M  drm module name, default: " DRM_MODULE "\n"
+           "-T  if using writeback transpose the result through the connector"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
+           "-W  as -w but display the result onscreen too"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -339,6 +341,8 @@ int main(int argc, char *argv[])
     bool hi_bpc = true;
     bool dofrac = false;
     bool try_writeback = false;
+    bool show_writeback = false;
+    bool transpose = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -346,7 +350,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:svwy")) != -1) {
+    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:sTvwWy")) != -1) {
         switch (c) {
             case 'c':
                 colorspace = optarg;
@@ -410,6 +414,9 @@ int main(int argc, char *argv[])
             case 's':
                 test_siting = true;
                 break;
+            case 'T':
+                transpose = true;
+                break;
             case 'F':
                 dofrac = true;
                 break;
@@ -428,6 +435,9 @@ int main(int argc, char *argv[])
             case '8':
                 hi_bpc = false;
                 break;
+            case 'W':
+                show_writeback = true;
+                /* FALLTHROUGH */
             case 'w':
                 try_writeback = true;
                 break;
@@ -498,19 +508,32 @@ int main(int argc, char *argv[])
     drmu_output_max_bpc_allow(dout, hi_bpc);
 
     if (try_writeback) {
+        unsigned int rot = transpose ? DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
+
         if (!mp.width || !mp.height) {
             mp.width = 1920;
             mp.height = 1080;
         }
-        printf("Try writeback %dx%d\n", mp.width, mp.height);
+        printf("Try writeback %dx%d%s\n", mp.width, mp.height, !transpose ? "" : " transposed");
+
+        if (!drmu_conn_has_rotation(dn, rot)) {
+            printf("Rotation not supported by connector\n");
+            goto fail;
+        }
 
         if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
             printf("Failed to create fb-out\n");
             goto fail;
         }
-        if (drmu_atomic_output_add_writeback_fb(da, dout, fb_out) != 0) {
+        if (drmu_atomic_output_add_writeback_fb_rotate(da, dout, fb_out, rot) != 0) {
             printf("Failed to add writeback fb\n");
             goto fail;
+        }
+
+        if (transpose) {
+            unsigned int t = mp.width;
+            mp.width = mp.height;
+            mp.height = t;
         }
     }
     else if (!mode_req) {
@@ -656,6 +679,8 @@ int main(int argc, char *argv[])
             drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
             goto fail;
         }
+        drmu_atomic_unref(&da);
+
         rv = drmu_fb_out_fence_wait(fb_out, 1000);
         if (rv == 1) {
             printf("Waited OK for writeback\n");
@@ -673,9 +698,25 @@ int main(int argc, char *argv[])
             fwrite(drmu_fb_data(fb_out, 0), drmu_fb_pitch(fb_out, 0), drmu_fb_height(fb_out), f);
             fclose(f);
         }
-        // *** Test fb contents
+
+        // *** Test fb contents - this is a bit primative
+        if (show_writeback)
+        {
+            drmu_output_t * dout2;
+            drmu_plane_t * p2;
+            if ((dout2 = drmu_output_new(du)) == NULL)
+                goto fail;
+            da = drmu_atomic_new(du);
+            if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
+                goto fail;
+            if ((p2 = drmu_output_plane_ref_format(dout, 0, drmu_fb_pixel_format(fb_out), drmu_fb_modifier(fb_out, 0))) == NULL)
+                goto fail;
+            drmu_atomic_plane_add_fb(da, p2, fb_out, drmu_rect_wh(drmu_fb_width(fb_out), drmu_fb_height(fb_out)));
+            printf("Output w/h = %dx%d\n", drmu_fb_width(fb_out), drmu_fb_height(fb_out));
+        }
     }
-    else {
+
+    if (da) {
         drmu_atomic_queue(&da);
         getchar();
     }
