@@ -34,6 +34,7 @@
 #include "drmu.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
+#include "drmu_scan.h"
 #include "drmu_util.h"
 #include <drm_fourcc.h>
 
@@ -324,6 +325,7 @@ int main(int argc, char *argv[])
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
+    const char * conn_name = NULL;
     drmu_mode_simple_params_t mp = {0};
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
     drmu_color_encoding_t encoding = DRMU_COLOR_ENCODING_BT2020;
@@ -339,6 +341,7 @@ int main(int argc, char *argv[])
     bool hi_bpc = true;
     bool dofrac = false;
     bool try_writeback = false;
+    bool conn_added = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -346,8 +349,11 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     int rv;
 
-    while ((c = getopt(argc, argv, "8c:e:f:FgpM:P:r:R:svwy")) != -1) {
+    while ((c = getopt(argc, argv, "8C:c:e:f:FgpM:P:r:R:svwy")) != -1) {
         switch (c) {
+            case 'C':
+                conn_name = optarg;
+                break;
             case 'c':
                 colorspace = optarg;
                 break;
@@ -461,7 +467,12 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
-        if (
+        if (conn_name) {
+            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0)
+                goto fail;
+            conn_added = true;
+        }
+        else if (
 #if HAS_WAYLEASE
             (du = drmu_env_new_waylease(&log)) == NULL &&
 #endif
@@ -476,7 +487,7 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    if ((dout = drmu_output_new(du)) == NULL)
+    if (!conn_added && (dout = drmu_output_new(du)) == NULL)
         goto fail;
 
     drmu_output_max_bpc_allow(dout, true);
@@ -488,7 +499,7 @@ int main(int argc, char *argv[])
             goto fail;
         }
     }
-    else {
+    else if (!conn_added) {
         if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
             goto fail;
     }
