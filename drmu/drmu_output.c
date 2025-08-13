@@ -345,8 +345,10 @@ retry:
     for (unsigned int i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         if (!drmu_conn_is_output(dn_t) || drmu_conn_is_claimed(dn_t))
             continue;
-        if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0)
+        if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0) {
+            drmu_debug(du, "Compare '%s' == '%s' (%d)", drmu_conn_name(dn_t), conn_name, nlen);
             continue;
+        }
         // This prefers conns that are already attached to crtcs
         if ((crtc_id = drmu_conn_crtc_id_get(dn_t)) == 0 ||
             (dc_t = drmu_env_crtc_find_id(du, crtc_id)) == NULL) {

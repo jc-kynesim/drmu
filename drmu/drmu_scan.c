@@ -39,17 +39,22 @@ drmu_scan_output(const char * const cname, const drmu_log_env_t * const dlog,
         }
 
         // Have FD
-        if ((du = drmu_env_new_fd(fd, dlog)) == NULL)
+        if ((du = drmu_env_new_fd(fd, dlog)) == NULL) {
+            drmu_debug_log(dlog, "card %d: Fail new_fd", i);
             continue;
+        }
 
-        if ((dout = drmu_output_new(du)) == NULL)
+        if ((dout = drmu_output_new(du)) == NULL) {
+            drmu_debug_log(dlog, "card %d: Fail output", i);
             goto loop1;
+        }
 
         if (drmu_output_add_output(dout, cname) == 0) {
             *pDu = du;
             *pDoutput = dout;
             return 0;
         }
+        drmu_debug_log(dlog, "card %d: Fail add", i);
 
         drmu_output_unref(&dout);
 loop1:
