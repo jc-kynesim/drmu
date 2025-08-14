@@ -1,5 +1,6 @@
 #include "player.h"
 
+#include <assert.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -156,7 +157,7 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
     pe->filter_graph = avfilter_graph_alloc();
     if (!outputs || !inputs || !pe->filter_graph) {
         ret = AVERROR(ENOMEM);
-        goto end;
+        goto fail;
     }
 
     /* buffer video source: the decoded frames from the decoder will be inserted here. */
@@ -170,14 +171,14 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
                                        args, NULL, pe->filter_graph);
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot create buffer source\n");
-        goto end;
+        goto fail;
     }
 
     {
         AVBufferSrcParameters *par = av_buffersrc_parameters_alloc();
         if (par == NULL) {
             av_log(NULL, AV_LOG_ERROR, "Failed to alloc buffersc parameters\n");
-            goto end;
+            goto fail;
         }
         // Buffersrc will take a ref - no need to keep locally
         par->hw_frames_ctx = frame->hw_frames_ctx;
@@ -185,7 +186,7 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
         av_freep(&par);
         if (ret < 0) {
             av_log(NULL, AV_LOG_ERROR, "Failed to set buffersc parameters\n");
-            goto end;
+            goto fail;
         }
     }
 
@@ -194,18 +195,18 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
                                        NULL, NULL, pe->filter_graph);
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot create buffer sink\n");
-        goto end;
+        goto fail;
     }
 
     ret = av_opt_set_int_list(pe->buffersink_ctx, "pix_fmts", pix_fmts,
                               AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format\n");
-        goto end;
+        goto fail;
     }
 
     /*
-     * Set the endpoints for the filter graph. The filter_graph will
+     * Set the failpoints for the filter graph. The filter_graph will
      * be linked to the graph described by filters_descr.
      */
 
@@ -232,16 +233,26 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
     inputs->next       = NULL;
 
     if ((ret = avfilter_graph_parse_ptr(pe->filter_graph, filters_descr,
-                                    &inputs, &outputs, NULL)) < 0)
-        goto end;
+                                    &inputs, &outputs, NULL)) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Filter graph parse failed\n");
+        goto fail;
+    }
 
-    if ((ret = avfilter_graph_config(pe->filter_graph, NULL)) < 0)
-        goto end;
+    if ((ret = avfilter_graph_config(pe->filter_graph, NULL)) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Filter graph config failed\n");
+        goto fail;
+    }
 
-end:
     avfilter_inout_free(&inputs);
     avfilter_inout_free(&outputs);
+    return 0;
 
+fail:
+    avfilter_inout_free(&inputs);
+    avfilter_inout_free(&outputs);
+    avfilter_graph_free(&pe->filter_graph);
+    pe->buffersink_ctx = NULL;
+    pe->buffersrc_ctx = NULL;
     return ret;
 }
 
@@ -279,9 +290,9 @@ player_decode_video_packet(player_env_t * const pe, AVPacket * const packet)
         }
 
         if (pe->wants_deinterlace && pe->filter_graph == NULL) {
-            if ((ret = filter_add_deinterlace(pe, frame)) != 0) {
-                fprintf(stderr, "Failed to add deinterlace filter\n");
-                goto fail;
+            if (filter_add_deinterlace(pe, frame) != 0) {
+                fprintf(stderr, "Failed to add deinterlace filter - disabled\n");
+                pe->wants_deinterlace = false;
             }
         }
 
