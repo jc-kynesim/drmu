@@ -144,15 +144,14 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
     const AVStream * const stream = pe->input_ctx->streams[pe->video_stream];
     const AVCodecContext *const dec_ctx = pe->decoder_ctx;
     const char * const filters_descr = "deinterlace_v4l2m2m";
+    static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_NONE };
 
-    char args[512];
     int ret = 0;
     const AVFilter *buffersrc  = avfilter_get_by_name("buffer");
     const AVFilter *buffersink = avfilter_get_by_name("buffersink");
     AVFilterInOut *outputs = avfilter_inout_alloc();
     AVFilterInOut *inputs  = avfilter_inout_alloc();
     AVRational time_base = stream->time_base;
-    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_NONE };
 
     pe->filter_graph = avfilter_graph_alloc();
     if (!outputs || !inputs || !pe->filter_graph) {
@@ -160,16 +159,8 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
         goto fail;
     }
 
-    /* buffer video source: the decoded frames from the decoder will be inserted here. */
-    snprintf(args, sizeof(args),
-            "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-            dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
-            time_base.num, time_base.den,
-            dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
-
-    ret = avfilter_graph_create_filter(&pe->buffersrc_ctx, buffersrc, "in",
-                                       args, NULL, pe->filter_graph);
-    if (ret < 0) {
+    pe->buffersrc_ctx = avfilter_graph_alloc_filter(pe->filter_graph, buffersrc, "in");
+    if (pe->buffersrc_ctx == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Cannot create buffer source\n");
         goto fail;
     }
@@ -180,6 +171,15 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
             av_log(NULL, AV_LOG_ERROR, "Failed to alloc buffersc parameters\n");
             goto fail;
         }
+        par->width = dec_ctx->width;
+        par->height = dec_ctx->height;
+        par->format = dec_ctx->pix_fmt;
+#if LIBAVFILTER_BUILD >= AV_VERSION_INT(10, 1, 100)
+        par->color_range = dec_ctx->color_range;
+        par->color_space = dec_ctx->colorspace;
+#endif
+        par->time_base = time_base;
+        par->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
         // Buffersrc will take a ref - no need to keep locally
         par->hw_frames_ctx = frame->hw_frames_ctx;
         ret = av_buffersrc_parameters_set(pe->buffersrc_ctx, par);
@@ -190,18 +190,34 @@ filter_add_deinterlace(player_env_t * const pe, AVFrame * const frame)
         }
     }
 
-    /* buffer video sink: to terminate the filter chain. */
-    ret = avfilter_graph_create_filter(&pe->buffersink_ctx, buffersink, "out",
-                                       NULL, NULL, pe->filter_graph);
-    if (ret < 0) {
+    if (avfilter_init_dict(pe->buffersrc_ctx, NULL) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Failed to init src dict\n");
+        goto fail;
+    }
+
+    pe->buffersink_ctx = avfilter_graph_alloc_filter(pe->filter_graph, buffersink, "out");
+    if (pe->buffersink_ctx == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Cannot create buffer sink\n");
         goto fail;
     }
 
+#if LIBAVFILTER_BUILD >= AV_VERSION_INT(10, 6, 100)
+    ret = av_opt_set_array(pe->buffersink_ctx, "pixel_formats",
+                           AV_OPT_SEARCH_CHILDREN | AV_OPT_ARRAY_REPLACE,
+                           0, sizeof(pix_fmts)/sizeof(pix_fmts[0]) - 1,
+                           AV_OPT_TYPE_PIXEL_FMT, pix_fmts);
+#else
     ret = av_opt_set_int_list(pe->buffersink_ctx, "pix_fmts", pix_fmts,
                               AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+#endif
+
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot set output pixel format\n");
+        goto fail;
+    }
+
+    if (avfilter_init_dict(pe->buffersink_ctx, NULL) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Failed to init src dict\n");
         goto fail;
     }
 
