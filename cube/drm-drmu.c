@@ -69,45 +69,45 @@ static int run_drmu(const struct gbm *gbm, const struct egl *egl)
 {
     struct drm * const drm = &drm_static;
     unsigned int i;
-	int64_t start_time, report_time, cur_time;
+    int64_t start_time, report_time, cur_time;
 
-	start_time = report_time = get_time_ns();
+    start_time = report_time = get_time_ns();
 
-	for (i = 0 ; i < drm->count; ++i) {
+    for (i = 0 ; i < drm->count; ++i) {
 
-		/* Start fps measuring on second frame, to remove the time spent
-		 * compiling shader, etc, from the fps:
-		 */
-		if (i == 1) {
-			start_time = report_time = get_time_ns();
-		}
+        /* Start fps measuring on second frame, to remove the time spent
+         * compiling shader, etc, from the fps:
+         */
+        if (i == 1) {
+            start_time = report_time = get_time_ns();
+        }
 
         cube_run_drmu(drm, gbm, egl);
 
-		cur_time = get_time_ns();
-		if (cur_time > (report_time + 2 * NSEC_PER_SEC)) {
-			double elapsed_time = cur_time - start_time;
-			double secs = elapsed_time / (double)NSEC_PER_SEC;
-			unsigned frames = i - 1;  /* first frame ignored */
-			printf("Rendered %u frames in %f sec (%f fps)\n",
-				frames, secs, (double)frames/secs);
-			report_time = cur_time;
-		}
+        cur_time = get_time_ns();
+        if (cur_time > (report_time + 2 * NSEC_PER_SEC)) {
+            double elapsed_time = cur_time - start_time;
+            double secs = elapsed_time / (double)NSEC_PER_SEC;
+            unsigned frames = i - 1;  /* first frame ignored */
+            printf("Rendered %u frames in %f sec (%f fps)\n",
+                frames, secs, (double)frames/secs);
+            report_time = cur_time;
+        }
 
-	}
+    }
 
-	finish_perfcntrs();
+    finish_perfcntrs();
 
-	cur_time = get_time_ns();
-	double elapsed_time = cur_time - start_time;
-	double secs = elapsed_time / (double)NSEC_PER_SEC;
-	unsigned frames = i - 1;  /* first frame ignored */
-	printf("Rendered %u frames in %f sec (%f fps)\n",
-		frames, secs, (double)frames/secs);
+    cur_time = get_time_ns();
+    double elapsed_time = cur_time - start_time;
+    double secs = elapsed_time / (double)NSEC_PER_SEC;
+    unsigned frames = i - 1;  /* first frame ignored */
+    printf("Rendered %u frames in %f sec (%f fps)\n",
+        frames, secs, (double)frames/secs);
 
-	dump_perfcntrs(frames, elapsed_time);
+    dump_perfcntrs(frames, elapsed_time);
 
-	return 0;
+    return 0;
 }
 
 
