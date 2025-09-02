@@ -48,6 +48,8 @@ typedef struct drmu_atomic_s {
 
     atomic_cb_t * commit_cb_q;
     atomic_cb_t ** commit_cb_last_ptr;
+
+    struct drmu_atomic_q_s * q;
 } drmu_atomic_t;
 
 static inline unsigned int
@@ -580,6 +582,18 @@ drmu_prop_fn_null_commit(void * v, uint64_t value)
     (void)value;
 }
 
+void
+drmu_atomic_queue_set(drmu_atomic_t * const da, struct drmu_atomic_q_s * const q)
+{
+    da->q = q;
+}
+
+struct drmu_atomic_q_s *
+drmu_atomic_queue_get(const drmu_atomic_t * const da)
+{
+    return da->q;
+}
+
 int
 drmu_atomic_add_commit_callback(drmu_atomic_t * const da, drmu_atomic_commit_fn * const cb, void * const v)
 {
@@ -738,6 +752,7 @@ drmu_atomic_copy(drmu_atomic_t * const b)
     for (atomic_cb_t * p = b->commit_cb_q; p != NULL; p = p->next)
         if (drmu_atomic_add_commit_callback(a, p->cb, p->v) != 0)
             goto fail;
+    a->q = b->q;
     return a;
 
 fail:
@@ -762,6 +777,7 @@ drmu_atomic_move(drmu_atomic_t ** const ppb)
 
 // Merge b into a. b is unrefed (inc on error)
 // Commit cbs are added
+// Non matching, non NULL Qs will return -EINVAL
 int
 drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
 {
@@ -778,6 +794,11 @@ drmu_atomic_merge(drmu_atomic_t * const a, drmu_atomic_t ** const ppb)
 
     if ((b = drmu_atomic_move(ppb)) == NULL)
         return -ENOMEM;
+
+    if (a->q == NULL)
+        a->q = b->q;
+    else if (b->q != NULL && a->q != b->q)
+        return -EINVAL;
 
     if (b->commit_cb_q != NULL) {
         *a->commit_cb_last_ptr = b->commit_cb_q;

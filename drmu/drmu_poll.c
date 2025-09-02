@@ -346,6 +346,7 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
     }
 
     aq = &pe->aq;
+    drmu_atomic_queue_set(da, aq);
 
     pthread_mutex_lock(&aq->lock);
 
