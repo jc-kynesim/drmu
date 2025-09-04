@@ -19,9 +19,13 @@ struct drmu_atomic_s;
 // If there is a pending commit this atomic will be merged with it
 // Commits are done with the PAGE_FLIP flag set so we expect the ack
 // on the next page flip.
+int drmu_atomic_queue_qno(struct drmu_atomic_s ** ppda, const unsigned int qno);
+// drmu_atomic_queue_qno(ppda, 0)
 int drmu_atomic_queue(struct drmu_atomic_s ** ppda);
 // Wait for there to be no pending commit (there may be a commit in
 // progress)
+int drmu_env_queue_wait_qno(struct drmu_env_s * const du, const unsigned int qno);
+// drmu_env_queue_wait_qno(du, 0)
 int drmu_env_queue_wait(struct drmu_env_s * const du);
 
 #ifdef __cplusplus

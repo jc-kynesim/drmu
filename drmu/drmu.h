@@ -562,6 +562,9 @@ void drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da);
 // Run all commit callbacks on this atomic. Callbacks are not cleared.
 void drmu_atomic_run_commit_callbacks(const drmu_atomic_t * const da);
 
+// Run the property commit callbacks - only call on a successful commit
+void drmu_atomic_run_prop_commit_callbacks(const drmu_atomic_t * const da);
+
 // Qing helpers
 struct drmu_atomic_q_s;
 void drmu_atomic_queue_set(drmu_atomic_t * const da, struct drmu_atomic_q_s * const q);

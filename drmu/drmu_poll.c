@@ -87,9 +87,10 @@ atomic_q_retry_cb(void * v, short revents)
 // Called after an atomic commit has completed
 // not called on every vsync, so if we haven't committed anything this won't be called
 static void
-drmu_atomic_page_flip_cb(drmu_env_t * const du, drmu_atomic_q_t * const aq, void *user_data)
+atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
 {
     drmu_atomic_t * const da = user_data;
+    drmu_atomic_q_t * const aq = drmu_atomic_queue_get(da);
 
     // At this point:
     //  next   The atomic we are about to commit
@@ -183,6 +184,9 @@ atomic_q_init(drmu_atomic_q_t * const aq)
 //
 // Event polling functions
 
+#define DRMU_POLL_QUEUE_COUNT   4
+#define DRMU_POLL_QUEUE_NO_MAX  (DRMU_POLL_QUEUE_COUNT - 1)
+
 typedef struct drmu_poll_env_s {
     drmu_env_t * du;
 
@@ -190,7 +194,7 @@ typedef struct drmu_poll_env_s {
     struct polltask * pt;
 
     // global env for atomic flip
-    drmu_atomic_q_t aq;
+    drmu_atomic_q_t aqs[DRMU_POLL_QUEUE_COUNT];
 
 } drmu_poll_env_t;
 
@@ -219,7 +223,7 @@ evt_read(drmu_poll_env_t * const pe)
                 if (EVT(buf + i)->length < sizeof(*vb))
                     break;
 
-                drmu_atomic_page_flip_cb(du, &pe->aq, (void *)(uintptr_t)vb->user_data);
+                atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
                 break;
             }
             default:
@@ -253,11 +257,14 @@ evt_polltask_cb(void * v, short revents)
 static void
 poll_free(drmu_poll_env_t * const pe)
 {
+    unsigned int i;
+
     // pt & pq should already be free by now but may not be in some error cleanup
     // situations.
 
     polltask_delete(&pe->pt);
-    atomic_q_uninit(&pe->aq);
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
+        atomic_q_uninit(pe->aqs + i);
     pollqueue_finish(&pe->pq);
 
     free(pe);
@@ -274,12 +281,14 @@ static void
 poll_destroy(drmu_poll_env_t ** ppPe, drmu_env_t * du)
 {
     drmu_poll_env_t * const pe = *ppPe;
+    unsigned int i;
 
     if (pe == NULL)
         return;
     *ppPe = NULL;
 
-    atomic_q_kill(&pe->aq);
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
+        atomic_q_kill(pe->aqs + i);
 
     polltask_delete(&pe->pt);
     // All polltasks must be dead before calling _finish (including the aq
@@ -288,7 +297,8 @@ poll_destroy(drmu_poll_env_t ** ppPe, drmu_env_t * du)
 
     drmu_env_int_restore(du);
 
-    atomic_q_clear_flips(&pe->aq);
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
+        atomic_q_clear_flips(pe->aqs + i);
 
     poll_free(pe);
 }
@@ -297,9 +307,12 @@ static drmu_poll_env_t *
 poll_new(drmu_env_t * du)
 {
     drmu_poll_env_t * const pe = calloc(1, sizeof(*pe));
+    unsigned int i;
 
     pe->du = du;
-    atomic_q_init(&pe->aq);
+
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
+        atomic_q_init(pe->aqs + 1);
 
     if ((pe->pq = pollqueue_new()) == NULL) {
         drmu_err(du, "Failed to create pollqueue");
@@ -310,9 +323,11 @@ poll_new(drmu_env_t * du)
         goto fail;
     }
 
-    if (atomic_q_set_retry(&pe->aq, pe->pq) != 0) {
-        drmu_err(du, "Failed to create retry polltask");
-        goto fail;
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i) {
+        if (atomic_q_set_retry(pe->aqs + i, pe->pq) != 0) {
+            drmu_err(du, "Failed to create retry polltask");
+            goto fail;
+        }
     }
 
     pollqueue_add_task(pe->pt, 1000);
@@ -330,12 +345,15 @@ fail:
 // Somewhat broken naming scheme for historic reasons
 
 int
-drmu_atomic_queue(drmu_atomic_t ** ppda)
+drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 {
     int rv;
     drmu_env_t * const du = drmu_atomic_env(*ppda);
     drmu_poll_env_t * pe;
     drmu_atomic_q_t * aq;
+
+    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+        return -EINVAL;
 
     if (du == NULL)
         return 0;
@@ -345,8 +363,8 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
         return rv;
     }
 
-    aq = &pe->aq;
-    drmu_atomic_queue_set(da, aq);
+    aq = pe->aqs + qno;
+    drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
 
@@ -361,13 +379,22 @@ drmu_atomic_queue(drmu_atomic_t ** ppda)
 }
 
 int
-drmu_env_queue_wait(drmu_env_t * const du)
+drmu_atomic_queue(drmu_atomic_t ** ppda)
+{
+    return drmu_atomic_queue_qno(ppda, 0);
+}
+
+int
+drmu_env_queue_wait_qno(drmu_env_t * const du, const unsigned int qno)
 {
     drmu_poll_env_t *const pe = drmu_env_int_poll_get(du);
     int rv = 0;
 
+    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+        return -EINVAL;
+
     if (pe != NULL) {
-        drmu_atomic_q_t *const aq = &pe->aq;
+        drmu_atomic_q_t *const aq = pe->aqs + qno;
         struct timespec ts;
 
         pthread_mutex_lock(&aq->lock);
@@ -385,4 +412,8 @@ drmu_env_queue_wait(drmu_env_t * const du)
     return rv;
 }
 
-
+int
+drmu_env_queue_wait(drmu_env_t * const du)
+{
+    return drmu_env_queue_wait_qno(du, 0);
+}
