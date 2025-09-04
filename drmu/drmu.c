@@ -1051,6 +1051,9 @@ typedef struct drmu_fb_s {
     // We pass a pointer to this to DRM which defines it as s32 so do not use
     // int that might be s64.
     int32_t fence_fd;
+    void * fence_v;
+    const drmu_atomic_prop_fns_t * fence_fns;
+
 } drmu_fb_t;
 
 int
@@ -1419,6 +1422,12 @@ drmu_fb_format_info_get(const drmu_fb_t * const dfb)
 drmu_fb_t *
 drmu_fb_int_alloc(drmu_env_t * const du)
 {
+    static const drmu_atomic_prop_fns_t null_fns = {
+        .ref    = drmu_prop_fn_null_ref,
+        .unref  = drmu_prop_fn_null_unref,
+        .commit = drmu_prop_fn_null_commit
+    };
+
     drmu_fb_t * const dfb = calloc(1, sizeof(*dfb));
     if (dfb == NULL)
         return NULL;
@@ -1430,6 +1439,7 @@ drmu_fb_int_alloc(drmu_env_t * const du)
     for (unsigned int i = 0; i != 4; ++i)
         dfb->layer_obj[i] = -1;
     dfb->fence_fd = -1;
+    dfb->fence_fns = null_fns;
     return dfb;
 }
 
@@ -1491,6 +1501,37 @@ int drmu_fb_read_start(drmu_fb_t * const dfb)
 int drmu_fb_read_end(drmu_fb_t * const dfb)
 {
     return fb_sync(dfb, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
+}
+
+void
+drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const drmu_atomic_prop_fns_t * const fns, void * v)
+{
+    dfb->fence_fns = fns;
+    dfb->fence_v = v;
+    return 0;
+}
+
+static void
+atomic_prop_fb_out_fence_unref_cb(void * v)
+{
+    drmu_fb_t * dfb = v;
+    dfb->fence_fns->unref(fence_v);
+    drmu_fb_unref(&dfb);
+}
+
+static void
+atomic_prop_fb_out_fence_ref_cb(void * v)
+{
+    drmu_fb_t * dfb = v;
+    drmu_fb_ref(dfb);
+    dfb->fence_fns->ref(dfb->fence_v);
+}
+
+static void
+atomic_prop_fb_out_fence_commit_cb(void * v, uint64_t value)
+{
+    drmu_fb_t * dfb = v;
+    dfb->fence_fns->commit(dfb->fence_v, dfb->fence_fd);  // Would really like FB too?
 }
 
 // Writeback fence
