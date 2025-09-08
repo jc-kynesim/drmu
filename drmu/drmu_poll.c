@@ -32,6 +32,8 @@ typedef struct drmu_atomic_q_s {
     drmu_atomic_t * last_flip;
     unsigned int retry_count;
     struct polltask * retry_task;
+    drmu_queue_next_atomic_fn next_atomic_fn;
+    void * next_atomic_v;
 } drmu_atomic_q_t;
 
 // Needs locked
@@ -164,6 +166,15 @@ atomic_q_set_retry(drmu_atomic_q_t * const aq, struct pollqueue * pq)
     return aq->retry_task == NULL ? -ENOMEM : 0;
 }
 
+static int
+atomic_q_next_atomic_null_cb(drmu_env_t * du, struct drmu_atomic_s ** ppda, void * v)
+{
+    (void)du;
+    (void)v;
+    *ppda = NULL;
+    return 0;
+}
+
 static void
 atomic_q_init(drmu_atomic_q_t * const aq)
 {
@@ -172,6 +183,7 @@ atomic_q_init(drmu_atomic_q_t * const aq)
     aq->next_flip = NULL;
     aq->cur_flip = NULL;
     aq->last_flip = NULL;
+    aq->next_atomic_fn = atomic_q_next_atomic_null_cb;
     pthread_mutex_init(&aq->lock, NULL);
 
     pthread_condattr_init(&condattr);
@@ -312,7 +324,7 @@ poll_new(drmu_env_t * du)
     pe->du = du;
 
     for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
-        atomic_q_init(pe->aqs + 1);
+        atomic_q_init(pe->aqs + i);
 
     if ((pe->pq = pollqueue_new()) == NULL) {
         drmu_err(du, "Failed to create pollqueue");
@@ -368,12 +380,18 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 
     pthread_mutex_lock(&aq->lock);
 
-    rv = drmu_atomic_move_merge(&aq->next_flip, ppda);
+    if (aq->next_flip == NULL)
+        if ((rv = aq->next_atomic_fn(du, &aq->next_flip, aq->next_atomic_v)) != 0)
+            goto fail_unlock;
+
+    if ((rv = drmu_atomic_move_merge(&aq->next_flip, ppda)) != 0)
+        goto fail_unlock;
 
     // No pending commit?
-    if (rv == 0 && aq->cur_flip == NULL)
+    if (aq->cur_flip == NULL)
         rv = atomic_q_attempt_commit_next(aq);
 
+fail_unlock:
     pthread_mutex_unlock(&aq->lock);
     return rv;
 }
@@ -417,3 +435,25 @@ drmu_env_queue_wait(drmu_env_t * const du)
 {
     return drmu_env_queue_wait_qno(du, 0);
 }
+
+int
+drmu_env_queue_next_atomic_fn_set(drmu_env_t * const du, const unsigned int qno,
+                                  const drmu_queue_next_atomic_fn fn, void * const v)
+{
+    drmu_poll_env_t * pe;
+    drmu_atomic_q_t * aq;
+    int rv;
+
+    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+        return -EINVAL;
+
+    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
+        return rv;
+
+    aq = pe->aqs + qno;
+    aq->next_atomic_fn = fn;
+    aq->next_atomic_v = v;
+
+    return 0;
+}
+

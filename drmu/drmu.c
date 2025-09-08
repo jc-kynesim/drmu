@@ -1052,7 +1052,7 @@ typedef struct drmu_fb_s {
     // int that might be s64.
     int32_t fence_fd;
     void * fence_v;
-    const drmu_atomic_prop_fns_t * fence_fns;
+    drmu_atomic_prop_fns_t fence_fns;
 
 } drmu_fb_t;
 
@@ -1144,25 +1144,12 @@ drmu_fb_unref(drmu_fb_t ** const ppdfb)
     drmu_fb_int_free(dfb);
 }
 
-static void
-atomic_prop_fb_unref_cb(void * v)
-{
-    drmu_fb_t * dfb = v;
-    drmu_fb_unref(&dfb);
-}
-
 drmu_fb_t *
 drmu_fb_ref(drmu_fb_t * const dfb)
 {
     if (dfb != NULL)
         atomic_fetch_add(&dfb->ref_count, 1);
     return dfb;
-}
-
-static void
-atomic_prop_fb_ref_cb(void * v)
-{
-    drmu_fb_ref(v);
 }
 
 // Beware: used by pool fns
@@ -1506,16 +1493,17 @@ int drmu_fb_read_end(drmu_fb_t * const dfb)
 void
 drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const drmu_atomic_prop_fns_t * const fns, void * v)
 {
-    dfb->fence_fns = fns;
+    dfb->fence_fns.ref    = fns->ref    ? fns->ref    : drmu_prop_fn_null_ref;
+    dfb->fence_fns.unref  = fns->unref  ? fns->unref  : drmu_prop_fn_null_unref;
+    dfb->fence_fns.commit = fns->commit ? fns->commit : drmu_prop_fn_null_commit;
     dfb->fence_v = v;
-    return 0;
 }
 
 static void
 atomic_prop_fb_out_fence_unref_cb(void * v)
 {
     drmu_fb_t * dfb = v;
-    dfb->fence_fns->unref(fence_v);
+    dfb->fence_fns.unref(dfb->fence_v);
     drmu_fb_unref(&dfb);
 }
 
@@ -1524,14 +1512,15 @@ atomic_prop_fb_out_fence_ref_cb(void * v)
 {
     drmu_fb_t * dfb = v;
     drmu_fb_ref(dfb);
-    dfb->fence_fns->ref(dfb->fence_v);
+    dfb->fence_fns.ref(dfb->fence_v);
 }
 
 static void
 atomic_prop_fb_out_fence_commit_cb(void * v, uint64_t value)
 {
     drmu_fb_t * dfb = v;
-    dfb->fence_fns->commit(dfb->fence_v, dfb->fence_fd);  // Would really like FB too?
+    (void)value;
+    dfb->fence_fns.commit(dfb->fence_v, dfb->fence_fd);  // Would really like FB too?
 }
 
 // Writeback fence
@@ -1542,9 +1531,9 @@ static int
 atomic_fb_add_out_fence(drmu_atomic_t * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_fb_t * const dfb)
 {
     static const drmu_atomic_prop_fns_t fns = {
-        .ref    = atomic_prop_fb_ref_cb,
-        .unref  = atomic_prop_fb_unref_cb,
-        .commit = drmu_prop_fn_null_commit,
+        .ref    = atomic_prop_fb_out_fence_ref_cb,
+        .unref  = atomic_prop_fb_out_fence_unref_cb,
+        .commit = atomic_prop_fb_out_fence_commit_cb
     };
 
     if (!dfb)

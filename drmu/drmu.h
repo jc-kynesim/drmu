@@ -263,6 +263,9 @@ int drmu_fb_write_end(drmu_fb_t * const dfb);
 int drmu_fb_read_start(drmu_fb_t * const dfb);
 int drmu_fb_read_end(drmu_fb_t * const dfb);
 
+struct drmu_atomic_prop_fns_s;
+void drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const struct drmu_atomic_prop_fns_s * const fns, void * v);
+
 // Wait for data to become ready when fb used as destination of writeback
 // Returns:
 //  -ve   error
