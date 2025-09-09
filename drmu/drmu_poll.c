@@ -457,3 +457,12 @@ drmu_env_queue_next_atomic_fn_set(drmu_env_t * const du, const unsigned int qno,
     return 0;
 }
 
+struct pollqueue *
+drmu_env_pollqueue(drmu_env_t * const du)
+{
+    drmu_poll_env_t * pe;
+    if (drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe) != 0)
+        return NULL;
+    return pe->pq;
+}
+

@@ -963,6 +963,8 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
 
         rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic);
 
+        if (rv == 0)
+            drmu_atomic_run_prop_commit_callbacks(da);
         drmu_atomic_run_commit_callbacks(da);
 
         if (rv  == 0 || !da_fail)

@@ -32,6 +32,9 @@ int drmu_env_queue_wait(struct drmu_env_s * const du);
 typedef int (*drmu_queue_next_atomic_fn)(struct drmu_env_s * du, struct drmu_atomic_s ** ppda, void * v);
 int drmu_env_queue_next_atomic_fn_set(struct drmu_env_s * const du, const unsigned int qno, const drmu_queue_next_atomic_fn fn, void * const v);
 
+struct pollqueue;
+struct pollqueue * drmu_env_pollqueue(struct drmu_env_s * const du);
+
 #ifdef __cplusplus
 }
 #endif
