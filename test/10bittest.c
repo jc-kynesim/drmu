@@ -299,7 +299,8 @@ writeback_fd_done(void * v, short revents)
     }
     printf("%s: Done\n", __func__);
 
-    drmu_atomic_queue_qno(&wbe->da, 1);
+    if (drmu_atomic_queue_qno(&wbe->da, 1) != 0)
+        printf("Atomic Q 1 failed\n");
 }
 
 static void
@@ -810,7 +811,7 @@ int main(int argc, char *argv[])
     if (!try_writeback && drmu_atomic_output_add_connect(da, dout) != 0)
         fprintf(stderr, "Failed connection\n");
 
-    if (try_writeback) {
+    if (try_writeback && !show_writeback) {
 #if 0
         if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
             fprintf(stderr, "Failed to commit writeback: %d (%s)\n", rv, strerror(-rv));
@@ -850,9 +851,10 @@ int main(int argc, char *argv[])
     }
 
     if (da) {
-        drmu_atomic_queue(&da);
+        if (drmu_atomic_queue(&da) != 0)
+            printf("Atomic Q failed\n");;
+        getchar();
     }
-    getchar();
 
 fail:
     drmu_atomic_unref(&da);

@@ -40,14 +40,15 @@ typedef struct drmu_atomic_q_s {
 static int
 atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
 {
-    drmu_env_t * const du = drmu_atomic_env(aq->next_flip);
+    drmu_atomic_t * const da = aq->next_flip;
+    drmu_env_t * const du = drmu_atomic_env(da);
     uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET;
     int rv;
 
-    if ((rv = drmu_atomic_commit(aq->next_flip, flags)) == 0) {
-        if (aq->retry_count != 0)
-            drmu_warn(du, "%s: Atomic commit OK", __func__);
-        aq->cur_flip = aq->next_flip;
+    if ((rv = drmu_atomic_commit(da, flags)) == 0) {
+//        if (aq->retry_count != 0)
+            drmu_warn(du, "%s: Atomic commit OK: %p", __func__, da);
+        aq->cur_flip = da;
         aq->next_flip = NULL;
         aq->retry_count = 0;
     }
@@ -61,7 +62,7 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
     }
     else {
         drmu_err(du, "%s: Atomic commit failed: %s", __func__, strerror(-rv));
-        drmu_atomic_dump(aq->next_flip);
+        drmu_atomic_dump(da);
         drmu_atomic_unref(&aq->next_flip);
         aq->retry_count = 0;
     }
@@ -99,6 +100,7 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
     //  cur    The last atomic we committed, now in use (must be != NULL)
     //  last   The atomic that has just become obsolete
 
+    drmu_info(drmu_atomic_env(da), "da=%p, aq=%p, cur_flip=%p", da, aq, aq->cur_flip);
     pthread_mutex_lock(&aq->lock);
 
     if (da != aq->cur_flip) {
@@ -218,6 +220,8 @@ evt_read(drmu_poll_env_t * const pe)
     uint8_t buf[256] __attribute__((aligned(__BIGGEST_ALIGNMENT__)));
     const ssize_t rlen = read(drmu_fd(du), buf, sizeof(buf));
     size_t i;
+
+    drmu_info(du, "Enter");
 
     if (rlen < 0) {
         const int err = errno;
@@ -376,6 +380,7 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
     }
 
     aq = pe->aqs + qno;
+    drmu_info(du, "qno=%d, aq=%p da=%p", qno, aq, *ppda);
     drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
@@ -388,8 +393,10 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
         goto fail_unlock;
 
     // No pending commit?
-    if (aq->cur_flip == NULL)
+    if (aq->cur_flip == NULL) {
+        drmu_info(du, "Cur flip NULL");
         rv = atomic_q_attempt_commit_next(aq);
+    }
 
 fail_unlock:
     pthread_mutex_unlock(&aq->lock);

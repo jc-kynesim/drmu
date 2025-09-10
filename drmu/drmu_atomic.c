@@ -944,6 +944,8 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
     unsigned int n_props = aprop_hdr_props_count(&da->props);
     int rv = 0;
 
+    drmu_info(du, "Hello");
+
     if (n_props != 0) {
         uint32_t obj_ids[n_objs];
         uint32_t prop_counts[n_objs];
@@ -961,6 +963,7 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
 
         aprop_hdr_atomic_fill(&da->props, obj_ids, prop_counts, prop_ids, prop_values);
 
+        drmu_info(du, "User data=%p", (void *)atomic.user_data);
         rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic);
 
         if (rv == 0)
@@ -984,6 +987,9 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
 
             drmu_atomic_add_prop_value(da_fail, objid, propid, val);
         }
+    }
+    else {
+        drmu_info(du, "Empty commit");
     }
 
     return rv;
