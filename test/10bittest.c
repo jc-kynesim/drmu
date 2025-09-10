@@ -351,7 +351,7 @@ writeback_next_atomic_cb(drmu_env_t * du, struct drmu_atomic_s ** ppda, void * v
         rv = -ENOMEM;
         goto fail;
     }
-    if ((rv = drmu_atomic_plane_add_fb(da, wbe->p2, wbe->fb, drmu_rect_wh(drmu_fb_width(wbe->fb), drmu_fb_height(wbe->fb)))) != 0) {
+    if ((rv = drmu_atomic_plane_add_fb(wbe->da, wbe->p2, wbe->fb, drmu_rect_wh(drmu_fb_width(wbe->fb), drmu_fb_height(wbe->fb)))) != 0) {
         printf("Failed to add fb to atomic\n");
         goto fail;
     }
@@ -812,6 +812,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed connection\n");
 
     if (try_writeback && !show_writeback) {
+        printf("Writing writeback file\n");
 #if 0
         if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
             fprintf(stderr, "Failed to commit writeback: %d (%s)\n", rv, strerror(-rv));
@@ -851,8 +852,10 @@ int main(int argc, char *argv[])
     }
 
     if (da) {
+        printf("Pre queue\n");
         if (drmu_atomic_queue(&da) != 0)
-            printf("Atomic Q failed\n");;
+            printf("Atomic Q failed\n");
+        printf("Post queue\n");
         getchar();
     }
 

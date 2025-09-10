@@ -548,6 +548,9 @@ static inline int drmu_atomic_move_merge(drmu_atomic_t ** const ppa, drmu_atomic
 // b may be sorted (if not already) but is otherwise unchanged
 void drmu_atomic_sub(drmu_atomic_t * const a, drmu_atomic_t * const b);
 
+// Is da NULL or has no properties set?
+bool drmu_atomic_is_empty(const drmu_atomic_t * const da);
+
 // flags are DRM_MODE_ATOMIC_xxx (e.g. DRM_MODE_ATOMIC_TEST_ONLY) and DRM_MODE_PAGE_FLIP_xxx
 int drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags);
 // Attempt commit - if it fails add failing members to da_fail

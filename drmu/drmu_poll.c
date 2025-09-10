@@ -373,6 +373,11 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 
     if (du == NULL)
         return 0;
+    if (drmu_atomic_is_empty(*ppda)) {
+        drmu_info(du, "da empty");
+        drmu_atomic_unref(ppda);
+        return 0;
+    }
 
     if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0) {
         drmu_atomic_unref(ppda);
