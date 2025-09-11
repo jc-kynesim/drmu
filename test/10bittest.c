@@ -39,6 +39,7 @@
 #include "drmu_output.h"
 #include "drmu_scan.h"
 #include "drmu_util.h"
+#include "drmu_writeback.h"
 #include <drm_fourcc.h>
 
 #include "plane16.h"
