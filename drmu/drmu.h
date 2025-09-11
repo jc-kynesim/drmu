@@ -273,6 +273,9 @@ void drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const struct drmu_atomic
 //  1     ready
 int drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms);
 
+// Take the fence fd. Resets fb fence fd. User is now responsible for closing it.
+int drmu_fb_out_fence_take_fd(drmu_fb_t * const fb);
+
 // Object Id
 
 struct drmu_propinfo_s;

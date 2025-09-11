@@ -1086,6 +1086,14 @@ drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms)
     return rv;
 }
 
+int
+drmu_fb_out_fence_take_fd(drmu_fb_t * const fb)
+{
+    int fd = fb->fence_fd;
+    fb->fence_fd = -1;
+    return fd;
+}
+
 void
 drmu_fb_int_free(drmu_fb_t * const dfb)
 {
