@@ -592,9 +592,8 @@ int main(int argc, char *argv[])
         printf("Try writeback %dx%d%s\n", mp.width, mp.height, !transpose ? "" : " transposed");
 
         if (drmu_writeback_size_set(wbe.wbo, mp.width, mp.height) != 0 ||
-            drmu_writeback_rotation_set(wbe.wbo, rot) ||
-            drmu_writeback_fmt_set(wbe.wbo, DRM_FORMAT_ARGB8888)) {
-            printf("Failed to set writeback w/h/rot/fmt\n");
+            drmu_writeback_rotation_set(wbe.wbo, rot)) {
+            printf("Failed to set writeback w/h/rot\n");
             goto fail;
         }
 
@@ -606,7 +605,7 @@ int main(int argc, char *argv[])
             printf("Failed to add conn to output 2\n");
             goto fail;
         }
-        if ((wbe.p2 = drmu_output_plane_ref_format(wbe.dout2, 0, DRM_FORMAT_ARGB8888, 0)) == NULL) {
+        if ((wbe.p2 = drmu_writeback_output_fmt_plane(wbe.wbo, wbe.dout2, 0)) == NULL) {
             printf("Failed to get plane for output 2\n");
             goto fail;
         }

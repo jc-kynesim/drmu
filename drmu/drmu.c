@@ -28,7 +28,7 @@
 
 #include <linux/dma-buf.h>
 
-#define TRACE_PROP_NEW 0
+#define TRACE_PROP_NEW 1
 
 #ifndef OPT_IO_CALLOC
 #define OPT_IO_CALLOC 0
@@ -2464,11 +2464,13 @@ struct drmu_conn_s {
         uint32_t hdr_output_metadata;
         uint32_t writeback_out_fence_ptr;
         uint32_t writeback_fb_id;
-        uint32_t writeback_pixel_formats;
     } pid;
 
     uint64_t rot_vals[8];
     drmu_blob_t * hdr_metadata_blob;
+
+    uint32_t * writeback_fmts;
+    size_t writeback_fmts_count;
 
     char name[32];
 };
@@ -2574,6 +2576,13 @@ fail:
     return rv;
 }
 
+const uint32_t *
+drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount)
+{
+    *ppcount = dn->writeback_fmts_count;
+    return dn->writeback_fmts;
+}
+
 const struct drm_mode_modeinfo *
 drmu_conn_modeinfo(const drmu_conn_t * const dn, const int mode_id)
 {
@@ -2635,10 +2644,13 @@ conn_uninit(drmu_conn_t * const dn)
 
     free(dn->modes);
     free(dn->enc_ids);
+    free(dn->writeback_fmts);
     dn->modes = NULL;
     dn->enc_ids = NULL;
+    dn->writeback_fmts = NULL;
     dn->modes_size = 0;
     dn->enc_ids_size = 0;
+    dn->writeback_fmts_count = 0;
 }
 
 // Assumes zeroed before entry
@@ -2712,6 +2724,9 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
     }
 
     if (props != NULL) {
+        void * wb_blob_data;
+        size_t wb_blob_len;
+
 #if TRACE_PROP_NEW
         drmu_info(du, "Connector id=%d, type=%d.%d (%s), crtc_mask=%#x:",
                   dn->conn.connector_id, dn->conn.connector_type, dn->conn.connector_type_id, drmu_conn_name(dn),
@@ -2726,8 +2741,15 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         dn->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
         dn->pid.writeback_fb_id     = props_name_to_id(props, "WRITEBACK_FB_ID");
         dn->pid.writeback_out_fence_ptr = props_name_to_id(props, "WRITEBACK_OUT_FENCE_PTR");
-        dn->pid.writeback_pixel_formats = props_name_to_id(props, "WRITEBACK_PIXEL_FORMATS");  // Blob of fourccs (no modifier info)
+        props_name_get_blob(props, "WRITEBACK_PIXEL_FORMATS", &wb_blob_data, &wb_blob_len);
         props_free(props);
+
+        dn->writeback_fmts = wb_blob_data;
+        dn->writeback_fmts_count = wb_blob_len / sizeof(*dn->writeback_fmts);
+
+        for (unsigned int i = 0; i != dn->writeback_fmts_count; ++i) {
+            drmu_info(du, "WB[%d]: %s", i, drmu_log_fourcc(dn->writeback_fmts[i]));
+        }
 
         rotation_make_array(dn->pid.rotation, dn->rot_vals);
     }

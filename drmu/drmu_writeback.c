@@ -11,12 +11,12 @@
 #include "drmu_output.h"
 #include "pollqueue.h"
 
-struct drmu_output_forward_s
+struct drmu_writeback_output_s
 {
     atomic_int ref_count;
 
-    unsigned int w;
-    unsigned int h;
+    drmu_rect_t req_rect;
+    drmu_rect_t fb_rect;
     unsigned int rot;
     uint32_t fmt;
 
@@ -155,7 +155,7 @@ writeback_next_atomic_cb(drmu_env_t * du, struct drmu_atomic_s ** ppda, void * v
         goto fail;
     }
     // *** POOL!
-    if ((wbe->fb = drmu_fb_new_dumb(du, dof->w, dof->h, dof->fmt)) == NULL) {
+    if ((wbe->fb = drmu_fb_new_dumb(du, dof->fb_rect.w, dof->fb_rect.h, dof->fmt)) == NULL) {
         drmu_err(du, "Failed to create fb");
         goto fail;
     }
@@ -257,8 +257,8 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
     if (prep_fns == NULL)
         prep_fns = &prep_fns_null;
 
-    dof->w = 1920;
-    dof->h = 1080;
+    dof->req_rect = drmu_rect_wh(1920, 1080);
+    dof->fb_rect = dof->req_rect;
     dof->rot = DRMU_ROTATION_0;
     dof->fmt = DRM_FORMAT_ARGB8888;
     dof->qno = qno;
@@ -291,8 +291,8 @@ fail:
 int
 drmu_writeback_size_set(drmu_writeback_output_t * const dof, const unsigned int w, const unsigned int h)
 {
-    dof->w = w;
-    dof->h = h;
+    dof->req_rect = drmu_rect_wh(w, h);
+    dof->fb_rect = dof->req_rect;
     return 0;
 }
 
@@ -314,3 +314,37 @@ drmu_writeback_fmt_set(drmu_writeback_output_t * const dof, const uint32_t fmt)
     dof->fmt = fmt;
     return 0;
 }
+
+uint32_t
+drmu_writeback_fmt(const drmu_writeback_output_t * const dof)
+{
+    return dof->fmt;
+}
+
+drmu_plane_t *
+drmu_writeback_output_fmt_plane(drmu_writeback_output_t * const dof, drmu_output_t * const dest_dout, const unsigned int types)
+{
+    size_t fmt_count = 1;
+    const uint32_t * fmts = drmu_conn_writeback_formats(drmu_output_conn(dof->dout, 0), &fmt_count);
+
+    // This is a simple & stupid search.
+    // We expect the 1st format we try to be both "good enough" and compatible with the dest dout
+    for (size_t i = 0; i != fmt_count; ++i) {
+        const uint32_t fmt = fmts[i];
+
+        // *** Kludge for Pi not supporting this
+        // *** We could try a test commit
+        if (dof->rot == DRMU_ROTATION_TRANSPOSE && (fmt == DRM_FORMAT_BGR888 || fmt == DRM_FORMAT_RGB888))
+            continue;
+
+        drmu_plane_t * const dp = drmu_output_plane_ref_format(dest_dout, types, fmt, 0);
+
+        if (dp != NULL) {
+            drmu_info(dof->du, "Format: %s", drmu_log_fourcc(fmts[i]));
+            dof->fmt = fmts[i];
+            return dp;
+        }
+    }
+    return NULL;
+}
+

@@ -96,6 +96,7 @@ typedef struct player_env_s {
     AVFilterContext *buffersrc_ctx;
     AVFilterGraph *filter_graph;
 
+    unsigned int rotation;
     long frames;
     long pace_input_hz;
     player_output_pace_mode_t pace_output;
@@ -460,6 +461,12 @@ void
 player_set_input_pace_hz(player_env_t * const pe, long hz)
 {
     pe->pace_input_hz = hz;
+}
+
+int
+player_set_rotation(player_env_t * const pe, unsigned int rot)
+{
+    return drmprime_video_set_window_rotation(pe->dve, rot);
 }
 
 player_output_pace_mode_t

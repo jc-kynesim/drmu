@@ -27,12 +27,17 @@ int drmprime_video_modeset(drmprime_video_env_t *dve, int w, int h, const AVRati
 void drmprime_video_set_window_pos(drmprime_video_env_t *de, const unsigned int x, const unsigned int y);
 void drmprime_video_set_window_size(drmprime_video_env_t *de, const unsigned int w, const unsigned int h);
 void drmprime_video_set_window_zpos(drmprime_video_env_t *de, const unsigned int z);
+int  drmprime_video_set_window_rotation(drmprime_video_env_t *de, const unsigned int rot);
 void drmprime_video_set_sync(drmprime_video_env_t *de, const bool wants_prod);
 
 void drmprime_out_size(drmprime_out_env_t * const dpo, unsigned int *pW, unsigned int *pH);
 
 void drmprime_video_delete(drmprime_video_env_t * dve);
 drmprime_video_env_t * drmprime_video_new(struct drmprime_out_env_s * dpo);
+
+// -1 if unmatched
+// *peos set to char after match (s if no match)
+int drmprime_str_to_rotation(const char * s, const char ** peos);
 
 void drmprime_out_delete(drmprime_out_env_t * dpo);
 drmprime_out_env_t * drmprime_out_new();
