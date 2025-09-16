@@ -33,6 +33,7 @@ typedef struct drmu_writeback_fb_prep_fns_s {
     drmu_writeback_fb_prep_unref_fn * unref;
 } drmu_writeback_fb_prep_fns_t;
 
+// Calls prep_fns->unref(prep_v) on error as well as returning NULL
 drmu_writeback_output_t * drmu_writeback_output_new(struct drmu_output_s * const dout, const unsigned int qno,
                                                     const drmu_writeback_fb_prep_fns_t * prep_fns, void * prep_v);
 drmu_writeback_output_t * drmu_writeback_ref(drmu_writeback_output_t * const dof);
