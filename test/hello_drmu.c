@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
                 --n;
                 ++a;
             }
-            if (strcmp(arg, "--rot") == 0) {
+            else if (strcmp(arg, "--rot") == 0) {
                 if (n == 0)
                     usage();
                 if (playlist_set_rot(pl, *a) != 0) {

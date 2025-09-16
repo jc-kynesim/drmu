@@ -251,8 +251,6 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
 
     if (dof == NULL)
         return NULL;
-    if (du == NULL)
-        goto fail;
 
     if (prep_fns == NULL)
         prep_fns = &prep_fns_null;
@@ -268,6 +266,10 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
     dof->prep_fns.ref   = prep_fns->ref   ? prep_fns->ref   : prep_fns_null.ref;
     dof->prep_fns.unref = prep_fns->unref ? prep_fns->unref : prep_fns_null.unref;
     dof->prep_v = prep_v;
+
+    // Put off till we have callbacks set
+    if (du == NULL)
+        goto fail;
 
     if (drmu_output_add_writeback(dout) != 0) {
         drmu_err(du, "Failed to add writeback");
