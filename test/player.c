@@ -637,7 +637,7 @@ retry_hw:
 #pragma GCC diagnostic pop
 #endif
 
-    if ((ret = avcodec_open2(pe->decoder_ctx, pe->decoder, NULL)) < 0) {
+    if (avcodec_open2(pe->decoder_ctx, pe->decoder, NULL) < 0) {
         if (try_hw) {
             try_hw = false;
             avcodec_free_context(&pe->decoder_ctx);

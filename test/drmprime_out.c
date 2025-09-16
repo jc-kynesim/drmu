@@ -292,8 +292,10 @@ int drmprime_video_get_buffer2(drmprime_video_env_t * const dpo, struct AVCodecC
     avcodec_align_dimensions2(s, &w, &h, align);
 
     gb2 = calloc(1, sizeof(*gb2));
-    if ((gb2->fb = drmu_pool_fb_new(dpo->pic_pool, w, h, fmt, mod)) == NULL)
+    if ((gb2->fb = drmu_pool_fb_new(dpo->pic_pool, w, h, fmt, mod)) == NULL) {
+        free(gb2);
         return AVERROR(ENOMEM);
+    }
     drmu_fb_crop_frac_set(gb2->fb, drmu_rect_shl16((drmu_rect_t){
         .x = frame->crop_left,
         .y = frame->crop_top,
