@@ -249,11 +249,13 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
         .unref = writeback_prep_null_unref_cb,
     };
 
-    if (dof == NULL)
-        return NULL;
-
     if (prep_fns == NULL)
         prep_fns = &prep_fns_null;
+
+    if (dof == NULL) {
+        prep_fns->unref(prep_v);
+        return NULL;
+    }
 
     dof->req_rect = drmu_rect_wh(1920, 1080);
     dof->fb_rect = dof->req_rect;
