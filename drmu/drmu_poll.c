@@ -12,6 +12,7 @@
 #include "drmu_log.h"
 #include "pollqueue.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <pthread.h>
 #include <string.h>
@@ -24,10 +25,111 @@
 //
 // Atomic Q fns (internal)
 
+typedef struct next_flips_s {
+    drmu_atomic_t ** flips;
+    unsigned int len;
+    unsigned int size;
+    unsigned int n;
+} next_flips_t;
+
+static bool
+next_flip_is_empty(const next_flips_t * const nf)
+{
+    return nf->len == 0;
+}
+
+static drmu_atomic_t *
+next_flip_head(const next_flips_t * const nf)
+{
+    return next_flip_is_empty(nf) ? NULL : nf->flips[nf->n];
+}
+
+static drmu_atomic_t **
+next_flip_ptail(const next_flips_t * const nf)
+{
+    return next_flip_is_empty(nf) ? NULL :
+        nf->n + nf->len - 1 < nf->size ? nf->flips + nf->n + nf->len - 1 :
+        nf->flips + nf->n + nf->len - 1 - nf->size;
+}
+
+static drmu_atomic_t *
+next_flip_pop_head(next_flips_t * const nf)
+{
+    drmu_atomic_t * flip;
+
+    if (nf->len == 0)
+        return NULL;
+    flip = nf->flips[nf->n];
+    nf->n = nf->n + 1 >= nf->size ? 0 : nf->n + 1;
+    --nf->len;
+    return flip;
+}
+
+static int
+next_flip_add_tail(next_flips_t * const nf, drmu_atomic_t * const a)
+{
+    const unsigned int oldlen = nf->len;
+
+    if (oldlen < nf->size) {
+        unsigned int n = nf->n + oldlen;
+        if (n >= nf->size)
+            n -= nf->size;
+        nf->flips[n] = a;
+        ++nf->len;
+        return 0;
+    }
+    else {
+        // Given the circular buffer can't just realloc, must alloc & rebuild
+        const unsigned int newsize = (oldlen < 8) ? 8 : oldlen * 2;
+        drmu_atomic_t ** newflips = malloc(sizeof(*nf->flips) * newsize);
+        if (newflips == NULL)
+            return -ENOMEM;
+
+        assert(oldlen == nf->size);
+        memcpy(newflips, nf->flips + nf->n, (nf->size - nf->n) * sizeof(*nf->flips));
+        memcpy(newflips + (nf->size - nf->n), nf->flips, nf->n * sizeof(*nf->flips));
+        newflips[oldlen] = a;
+        free(nf->flips);
+
+        nf->flips = newflips;
+        nf->size = newsize;
+        nf->len = oldlen + 1;
+        nf->n = 0;
+
+        return 0;
+    }
+}
+
+static bool
+next_flip_discard_head(next_flips_t * const nf)
+{
+    drmu_atomic_t * da = next_flip_pop_head(nf);
+    if (da == NULL)
+        return false;
+    drmu_atomic_unref(&da);
+    return true;
+}
+
+static void
+next_flip_init(next_flips_t * const nf)
+{
+    memset(nf, 0, sizeof(*nf));
+}
+
+static void
+next_flip_uninit(next_flips_t * const nf)
+{
+    while (next_flip_discard_head(nf))
+        /* loop */;
+    free(nf->flips);
+    memset(nf, 0, sizeof(*nf));
+}
+
 typedef struct drmu_atomic_q_s {
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    drmu_atomic_t * next_flip;
+    bool do_merge;
+    next_flips_t next;
     drmu_atomic_t * cur_flip;
     drmu_atomic_t * last_flip;
     unsigned int retry_count;
@@ -40,7 +142,7 @@ typedef struct drmu_atomic_q_s {
 static int
 atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
 {
-    drmu_atomic_t * const da = aq->next_flip;
+    drmu_atomic_t * const da = next_flip_head(&aq->next);
     drmu_env_t * const du = drmu_atomic_env(da);
     uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET;
     int rv;
@@ -48,8 +150,7 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
     if ((rv = drmu_atomic_commit(da, flags)) == 0) {
 //        if (aq->retry_count != 0)
             drmu_warn(du, "%s: Atomic commit OK: %p", __func__, da);
-        aq->cur_flip = da;
-        aq->next_flip = NULL;
+        aq->cur_flip = next_flip_pop_head(&aq->next);
         aq->retry_count = 0;
     }
     else if (rv == -EBUSY && ++aq->retry_count < 16 && aq->retry_task != NULL) {
@@ -63,7 +164,7 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
     else {
         drmu_err(du, "%s: Atomic commit failed: %s", __func__, strerror(-rv));
         drmu_atomic_dump(da);
-        drmu_atomic_unref(&aq->next_flip);
+        next_flip_discard_head(&aq->next);
         aq->retry_count = 0;
     }
 
@@ -81,7 +182,7 @@ atomic_q_retry_cb(void * v, short revents)
     // If we need a retry then next != NULL && cur == NULL
     // if not that then we've fixed ourselves elsewhere
 
-    if (aq->next_flip != NULL && aq->cur_flip == NULL)
+    if (!next_flip_is_empty(&aq->next) && aq->cur_flip == NULL)
         atomic_q_attempt_commit_next(aq);
 
     pthread_mutex_unlock(&aq->lock);
@@ -111,7 +212,7 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
     // still be things on screen not updated by the current commit
     drmu_atomic_move_merge(&aq->last_flip, &aq->cur_flip);
 
-    if (aq->next_flip != NULL)
+    if (!next_flip_is_empty(&aq->next))
         atomic_q_attempt_commit_next(aq);
 
     pthread_cond_broadcast(&aq->cond);
@@ -130,8 +231,8 @@ atomic_q_kill(drmu_atomic_q_t * const aq)
     ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
 
     // Can flush next safely - but call commit cbs
-    drmu_atomic_run_commit_callbacks(aq->next_flip);
-    drmu_atomic_unref(&aq->next_flip);
+    drmu_atomic_run_commit_callbacks(next_flip_head(&aq->next));
+    next_flip_discard_head(&aq->next);
     polltask_delete(&aq->retry_task); // If we've got here then retry would not succeed
 
     // Wait for cur to finish - seems to confuse the world otherwise
@@ -147,7 +248,7 @@ atomic_q_kill(drmu_atomic_q_t * const aq)
 static void
 atomic_q_clear_flips(drmu_atomic_q_t * const aq)
 {
-    drmu_atomic_unref(&aq->next_flip);
+    next_flip_uninit(&aq->next);
     drmu_atomic_unref(&aq->cur_flip);
     drmu_atomic_unref(&aq->last_flip);
 }
@@ -182,7 +283,8 @@ atomic_q_init(drmu_atomic_q_t * const aq)
 {
     pthread_condattr_t condattr;
 
-    aq->next_flip = NULL;
+    aq->do_merge = true;
+    next_flip_init(&aq->next);
     aq->cur_flip = NULL;
     aq->last_flip = NULL;
     aq->next_atomic_fn = atomic_q_next_atomic_null_cb;
@@ -390,11 +492,17 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 
     pthread_mutex_lock(&aq->lock);
 
-    if (aq->next_flip == NULL)
-        if ((rv = aq->next_atomic_fn(du, &aq->next_flip, aq->next_atomic_v)) != 0)
+    if (!aq->do_merge || next_flip_is_empty(&aq->next)) {
+        drmu_atomic_t * da;
+        if ((rv = aq->next_atomic_fn(du, &da, aq->next_atomic_v)) != 0)
             goto fail_unlock;
+        if ((rv = next_flip_add_tail(&aq->next, da)) != 0) {
+            drmu_atomic_unref(&da);
+            goto fail_unlock;
+        }
+    }
 
-    if ((rv = drmu_atomic_move_merge(&aq->next_flip, ppda)) != 0)
+    if ((rv = drmu_atomic_move_merge(next_flip_ptail(&aq->next), ppda)) != 0)
         goto fail_unlock;
 
     // No pending commit?
@@ -432,7 +540,7 @@ drmu_env_queue_wait_qno(drmu_env_t * const du, const unsigned int qno)
         ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
 
         // Next should clear quickly
-        while (aq->next_flip != NULL) {
+        while (!next_flip_is_empty(&aq->next)) {
             if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
                 break;
         }
@@ -465,6 +573,26 @@ drmu_env_queue_next_atomic_fn_set(drmu_env_t * const du, const unsigned int qno,
     aq = pe->aqs + qno;
     aq->next_atomic_fn = fn;
     aq->next_atomic_v = v;
+
+    return 0;
+}
+
+int
+drmu_env_queue_next_merge_set(drmu_env_t * const du, const unsigned int qno,
+                              const bool do_merge)
+{
+    drmu_poll_env_t * pe;
+    drmu_atomic_q_t * aq;
+    int rv;
+
+    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+        return -EINVAL;
+
+    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
+        return rv;
+
+    aq = pe->aqs + qno;
+    aq->do_merge = do_merge;
 
     return 0;
 }

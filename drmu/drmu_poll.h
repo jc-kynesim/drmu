@@ -32,6 +32,11 @@ int drmu_env_queue_wait(struct drmu_env_s * const du);
 typedef int (*drmu_queue_next_atomic_fn)(struct drmu_env_s * du, struct drmu_atomic_s ** ppda, void * v);
 int drmu_env_queue_next_atomic_fn_set(struct drmu_env_s * const du, const unsigned int qno, const drmu_queue_next_atomic_fn fn, void * const v);
 
+// Set Q queue behaviour
+// do_merge == true   New commits merged with next uncommitted [default]
+// do_merge == false  New commits queued separately
+int drmu_env_queue_next_merge_set(drmu_env_t * const du, const unsigned int qno, const bool do_merge);
+
 struct pollqueue;
 struct pollqueue * drmu_env_pollqueue(struct drmu_env_s * const du);
 

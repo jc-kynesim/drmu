@@ -416,6 +416,8 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
 #define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+static inline bool drmu_rotation_is_transposed(const unsigned int r) {return r >= DRMU_ROTATION_TRANSPOSE;}
+
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);
