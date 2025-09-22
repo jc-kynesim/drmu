@@ -273,6 +273,11 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
     if (du == NULL)
         goto fail;
 
+    if (drmu_output_modeset_allow(dout, true) != 0) {
+        drmu_err(du, "Failed to allow modeset");
+        goto fail;
+    }
+
     if (drmu_output_add_writeback(dout) != 0) {
         drmu_err(du, "Failed to add writeback");
         goto fail;

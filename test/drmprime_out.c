@@ -47,6 +47,7 @@
 #include "drmu_output.h"
 #include "drmu_pool.h"
 #include "drmu_util.h"
+#include "drmu_writeback.h"
 #include <drm_fourcc.h>
 
 #include "cube/runcube.h"
@@ -230,6 +231,8 @@ struct drmprime_video_env_s
     drmprime_out_env_t * dpo;
     drmu_env_t * du;
     drmu_output_t * dout;
+    drmu_output_t * dxout;
+    drmu_writeback_output_t * dwo;
     drmu_plane_t * dp;
     drmu_pool_t * pic_pool;
     drmu_atomic_t * display_set;
@@ -318,6 +321,101 @@ int drmprime_video_get_buffer2(drmprime_video_env_t * const dpo, struct AVCodecC
     return 0;
 }
 
+static drmu_rect_t
+frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb)
+{
+    const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
+    drmu_rect_t crop = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
+//    drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
+    drmu_ufrac_t ppar = {.num = crop.w, .den = crop.h};
+    drmu_ufrac_t mpar = drmu_util_guess_simple_mode_par(sp);
+    drmu_rect_t r;
+
+    if (de->win_rect.w != 0) {
+        mpar.num *= r.w * sp->height;
+        mpar.den *= r.h * sp->width;
+        mpar = drmu_ufrac_reduce(mpar);
+    }
+
+    ppar = ppar.den == 0 || ppar.num == 0 ? drmu_util_guess_par(crop.w, crop.h) : drmu_ufrac_reduce(ppar);
+
+    if (ppar.num * mpar.den < ppar.den * mpar.num) {
+        // Pillarbox
+        const uint32_t w = r.w;
+        r.w = r.h * ppar.num / ppar.den;
+        r.x += (w - r.w) / 2;
+    }
+    else {
+        // Letterbox
+        const uint32_t h = r.h;
+        r.h = r.w * ppar.den / ppar.num;
+        r.y += (h - r.h) / 2;
+    }
+    return r;
+}
+
+typedef struct frame_env_s {
+    int ref_count;
+    drmprime_video_env_t *de;
+    drmu_atomic_t * da;
+} frame_env_t;
+
+static void
+writeback_done_cb(void * v, struct drmu_fb_s * fb)
+{
+    frame_env_t * const fe = v;
+    (void)fb;
+
+    printf("Q xpose\n");
+    if (drmu_atomic_queue_qno(&fe->da, 0) != 0)
+        printf("Atomic Q 1 failed\n");
+}
+
+static void *
+writeback_done_ref_cb(void * v)
+{
+    frame_env_t * const fe = v;
+    printf("%s\n", __func__);
+    ++fe->ref_count;
+    return fe;
+}
+
+static void
+writeback_done_unref_cb(void ** ppv)
+{
+    frame_env_t * const fe = *ppv;
+    printf("%s\n", __func__);
+    if (fe == NULL)
+        return;
+    *ppv = NULL;
+    if (fe->ref_count-- != 0)
+        return;
+    drmu_atomic_unref(&fe->da);
+    free(fe);
+}
+
+
+static int
+writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_done_fns_t * fns, void ** ppv)
+{
+    drmprime_video_env_t * const de = v;
+    frame_env_t * fe = calloc(1, sizeof(*fe));
+
+    if (fe == NULL)
+        return -1;
+
+    printf("%s\n", __func__);
+    fe->da = drmu_atomic_new(de->du);
+    drmu_atomic_plane_add_fb(fe->da, de->dp, fb, frame_output_rect(de, fb));
+    drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
+
+    fns->done = writeback_done_cb;
+    fns->ref = writeback_done_ref_cb;
+    fns->unref = writeback_done_unref_cb;
+    *ppv = fe;
+    return 0;
+}
+
 int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 {
     bool is_prime;
@@ -350,40 +448,17 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
     }
 
     {
-        drmu_atomic_t * da = drmu_atomic_new(de->du);
+        drmu_env_t * const du = de->du;
+        drmu_atomic_t * da = drmu_atomic_new(du);
         drmu_fb_t * dfb = is_prime ?
-            drmu_fb_av_new_frame_attach(de->du, src_frame) :
+            drmu_fb_av_new_frame_attach(du, src_frame) :
             drmu_fb_ref(((gb2_dmabuf_t *)src_frame->buf[0]->data)->fb);
         const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
         drmu_rect_t r = de->win_rect.w != 0 ? de->win_rect : drmu_rect_wh(sp->width, sp->height);
 
         drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
 
-        {
-            drmu_rect_t crop = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
-            drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
-            drmu_ufrac_t mpar = drmu_util_guess_simple_mode_par(sp);
-            if (de->win_rect.w != 0) {
-                mpar.num *= r.w * sp->height;
-                mpar.den *= r.h * sp->width;
-                mpar = drmu_ufrac_reduce(mpar);
-            }
-
-            ppar = ppar.den == 0 || ppar.num == 0 ? drmu_util_guess_par(crop.w, crop.h) : drmu_ufrac_reduce(ppar);
-
-            if (ppar.num * mpar.den < ppar.den * mpar.num) {
-                // Pillarbox
-                const uint32_t w = r.w;
-                r.w = r.h * ppar.num / ppar.den;
-                r.x += (w - r.w) / 2;
-            }
-            else {
-                // Letterbox
-                const uint32_t h = r.h;
-                r.h = r.w * ppar.den / ppar.num;
-                r.y += (h - r.h) / 2;
-            }
-        }
+        r = frame_output_rect(de, dfb);
 
         if (!is_prime)
             drmu_av_fb_frame_metadata_set(dfb, src_frame);
@@ -401,6 +476,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
         }
 
         drmu_output_fb_info_set(de->dout, dfb);
+
 #if 0
         const struct hdr_output_metadata * const meta = drmu_fb_hdr_metadata_get(dfb);
         const struct hdr_metadata_infoframe *const info = &meta->hdmi_metadata_type1;
@@ -419,16 +495,43 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                    info->max_fall);
         }
 #endif
-        drmu_atomic_output_add_props(da, de->dout);
-        drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
-        drmu_atomic_plane_add_zpos(da, de->dp, de->zpos);
-        if (de->wants_prod) {
-            drmu_atomic_add_commit_callback(da, do_prod, de);
-            de->prod_wait = true;
-        }
 
-        drmu_fb_unref(&dfb);
-        drmu_atomic_queue(&da);
+        if (drmu_rotation_is_transposed(de->rotation)) {
+            if (de->dwo == NULL) {
+                static const drmu_writeback_fb_prep_fns_t writeback_prep_fns = {
+                    .prep = writeback_fb_prep_prep_cb,
+                };
+
+                if ((de->dxout = drmu_output_new(du)) == NULL) {
+                    fprintf(stderr, "Failed to create rotation output\n");
+                    return -1;
+                }
+
+                drmu_env_queue_next_merge_set(du, 1, false);
+
+                if ((de->dwo = drmu_writeback_output_new(de->dxout, 1, &writeback_prep_fns, de)) == NULL) {
+                    fprintf(stderr, "Failed to create writeback\n");
+                    drmu_output_unref(&de->dxout);
+                    return -1;
+                }
+            }
+
+            drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
+            printf("Q base\n");
+            drmu_atomic_queue_qno(&da, 1);
+        }
+        else {
+            drmu_atomic_output_add_props(da, de->dout);
+            drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
+            drmu_atomic_plane_add_zpos(da, de->dp, de->zpos);
+            if (de->wants_prod) {
+                drmu_atomic_add_commit_callback(da, do_prod, de);
+                de->prod_wait = true;
+            }
+
+            drmu_fb_unref(&dfb);
+            drmu_atomic_queue(&da);
+        }
     }
 
     return 0;
@@ -507,6 +610,9 @@ drmprime_video_set_sync(drmprime_video_env_t *de, const bool wants_prod)
 void drmprime_video_delete(drmprime_video_env_t *de)
 {
     drmu_pool_kill(&de->pic_pool);
+
+    drmu_writeback_unref(&de->dwo);
+    drmu_output_unref(&de->dxout);
 
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);

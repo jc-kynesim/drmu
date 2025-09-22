@@ -1,6 +1,8 @@
 #ifndef _DRMU_DRMU_POLL_H
 #define _DRMU_DRMU_POLL_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,7 +37,7 @@ int drmu_env_queue_next_atomic_fn_set(struct drmu_env_s * const du, const unsign
 // Set Q queue behaviour
 // do_merge == true   New commits merged with next uncommitted [default]
 // do_merge == false  New commits queued separately
-int drmu_env_queue_next_merge_set(drmu_env_t * const du, const unsigned int qno, const bool do_merge);
+int drmu_env_queue_next_merge_set(struct drmu_env_s * const du, const unsigned int qno, const bool do_merge);
 
 struct pollqueue;
 struct pollqueue * drmu_env_pollqueue(struct drmu_env_s * const du);
