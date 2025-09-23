@@ -223,6 +223,18 @@ executable(
 	],
 )
 
+executable(
+	'rot_unit',
+	'test/rot_unit.c',
+	include_directories : drmu_incs,
+	link_with : [ drmu_base ],
+	dependencies : [
+		threads_dep,
+		libdrm_dep,
+	],
+)
+
+
 configure_file(
 	output : 'config.h',
 	configuration : conf_data

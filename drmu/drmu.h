@@ -418,6 +418,36 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
 static inline bool drmu_rotation_is_transposed(const unsigned int r) {return r >= DRMU_ROTATION_TRANSPOSE;}
 
+static inline unsigned int
+drmu_rotation_inverse(const unsigned int r)
+{
+    return
+        r == DRMU_ROTATION_90 ? DRMU_ROTATION_270 :
+        r == DRMU_ROTATION_270 ? DRMU_ROTATION_90 :
+            r; // All others are self inverse
+}
+
+static inline unsigned int
+drmu_rotation_transpose(const unsigned int r)
+{
+    return (r & 4) | ((r & 2) >> 1) | ((r & 1) << 1);
+}
+
+// a then b
+// Beware a + b != b + a
+static inline unsigned int
+drmu_rotation_add(const unsigned int a, const unsigned int b)
+{
+    return (drmu_rotation_is_transposed(b) ? drmu_rotation_transpose(a) : a) ^ b;
+}
+
+// a + (b - a) = b
+static inline unsigned int
+drmu_rotation_sub(const unsigned int b, const unsigned int a)
+{
+    return drmu_rotation_add(b, drmu_rotation_inverse(a));
+}
+
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);

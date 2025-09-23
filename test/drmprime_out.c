@@ -231,11 +231,13 @@ struct drmprime_video_env_s
     drmprime_out_env_t * dpo;
     drmu_env_t * du;
     drmu_output_t * dout;
-    drmu_output_t * dxout;
-    drmu_writeback_output_t * dwo;
     drmu_plane_t * dp;
     drmu_pool_t * pic_pool;
     drmu_atomic_t * display_set;
+
+    drmu_output_t * dxout;
+    drmu_writeback_output_t * dwo;
+    drmu_plane_t * dxp;
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -329,7 +331,7 @@ frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb)
 //    drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
     drmu_ufrac_t ppar = {.num = crop.w, .den = crop.h};
     drmu_ufrac_t mpar = drmu_util_guess_simple_mode_par(sp);
-    drmu_rect_t r;
+    drmu_rect_t r = de->win_rect.w != 0 ? de->win_rect : drmu_rect_wh(sp->width, sp->height);
 
     if (de->win_rect.w != 0) {
         mpar.num *= r.w * sp->height;
@@ -453,8 +455,8 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
         drmu_fb_t * dfb = is_prime ?
             drmu_fb_av_new_frame_attach(du, src_frame) :
             drmu_fb_ref(((gb2_dmabuf_t *)src_frame->buf[0]->data)->fb);
-        const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
-        drmu_rect_t r = de->win_rect.w != 0 ? de->win_rect : drmu_rect_wh(sp->width, sp->height);
+//        const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
+        drmu_rect_t r;
 
         drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
 
@@ -463,19 +465,6 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
         if (!is_prime)
             drmu_av_fb_frame_metadata_set(dfb, src_frame);
 
-        if (de->dp == NULL) {
-            unsigned int types = DRMU_PLANE_TYPE_OVERLAY;
-            if (de->zpos == 0)
-                types |= DRMU_PLANE_TYPE_PRIMARY;
-            de->dp = drmu_output_plane_ref_format(de->dout, types, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
-            if (!de->dp) {
-                fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
-                drmu_atomic_unref(&da);
-                return AVERROR(EINVAL);
-            }
-        }
-
-        drmu_output_fb_info_set(de->dout, dfb);
 
 #if 0
         const struct hdr_output_metadata * const meta = drmu_fb_hdr_metadata_get(dfb);
@@ -497,7 +486,15 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 #endif
 
         if (drmu_rotation_is_transposed(de->rotation)) {
+            drmu_rect_t rs = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
+            rs.x = 0;
+            rs.y = 0;
+
             if (de->dwo == NULL) {
+                unsigned int types = DRMU_PLANE_TYPE_OVERLAY;
+                if (de->zpos == 0)
+                    types |= DRMU_PLANE_TYPE_PRIMARY;
+
                 static const drmu_writeback_fb_prep_fns_t writeback_prep_fns = {
                     .prep = writeback_fb_prep_prep_cb,
                 };
@@ -514,13 +511,44 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                     drmu_output_unref(&de->dxout);
                     return -1;
                 }
+
+                drmu_writeback_rotation_set(de->dwo, de->rotation);
+                printf("Rot=%d\n", de->rotation);
+
+                drmu_writeback_size_set(de->dwo, rs.h, rs.w);
+
+                if ((de->dp = drmu_writeback_output_fmt_plane(de->dwo, de->dout, types)) == NULL) {
+                    fprintf(stderr, "Failed to get writeback plane\n");
+                    return -1;
+                }
+
+                de->dxp = drmu_output_plane_ref_format(de->dxout, types, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+                if (!de->dxp) {
+                    fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
+                    drmu_atomic_unref(&da);
+                    return AVERROR(EINVAL);
+                }
             }
 
-            drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
+            drmu_atomic_plane_add_fb(da, de->dxp, dfb, rs);
             printf("Q base\n");
+            drmu_fb_unref(&dfb);
             drmu_atomic_queue_qno(&da, 1);
         }
         else {
+            if (de->dp == NULL) {
+                unsigned int types = DRMU_PLANE_TYPE_OVERLAY;
+                if (de->zpos == 0)
+                    types |= DRMU_PLANE_TYPE_PRIMARY;
+                de->dp = drmu_output_plane_ref_format(de->dout, types, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+                if (!de->dp) {
+                    fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
+                    drmu_atomic_unref(&da);
+                    return AVERROR(EINVAL);
+                }
+            }
+
+            drmu_output_fb_info_set(de->dout, dfb);
             drmu_atomic_output_add_props(da, de->dout);
             drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
             drmu_atomic_plane_add_zpos(da, de->dp, de->zpos);

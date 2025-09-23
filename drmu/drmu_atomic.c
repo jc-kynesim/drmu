@@ -955,6 +955,7 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
     int rv = 0;
 
     drmu_info(du, "Hello: da=%p, flags=%#x, da_fail=%p", da, flags, da_fail);
+    drmu_atomic_dump(da);
 
     if (n_props != 0) {
         uint32_t obj_ids[n_objs];

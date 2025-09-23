@@ -11,6 +11,9 @@
 #include "drmu_output.h"
 #include "pollqueue.h"
 
+//*****
+#include <stdio.h>
+
 struct drmu_writeback_output_s
 {
     atomic_int ref_count;
@@ -18,6 +21,7 @@ struct drmu_writeback_output_s
     drmu_rect_t req_rect;
     drmu_rect_t fb_rect;
     unsigned int rot;
+    unsigned int req_rot;
     uint32_t fmt;
 
     unsigned int qno;
@@ -54,6 +58,7 @@ static void
 writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 {
     writeback_fb_env_t * const wbe = *ppwbe;
+    printf("%s %p\n", __func__, (void*)wbe);
 
     if (wbe == NULL)
         return;
@@ -67,6 +72,7 @@ writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 static writeback_fb_env_t *
 writeback_fb_env_ref(writeback_fb_env_t * const wbe)
 {
+    printf("%s %p\n", __func__, (void*)wbe);
     atomic_fetch_add(&wbe->ref_count, 1);
     return wbe;
 }
@@ -75,6 +81,7 @@ static void
 writeback_fb_polltask_done(void * v, short revents)
 {
     writeback_fb_env_t * wbe = v;
+    printf("%s %p\n", __func__, (void*)wbe);
 
     close(drmu_fb_out_fence_take_fd(wbe->fb));
     if (revents != 0)
@@ -87,6 +94,7 @@ writeback_fb_commit_cb(void * v, uint64_t value)
 {
     writeback_fb_env_t * const wbe = v;
     drmu_env_t * const du = drmu_output_env(wbe->dof->dout);
+    printf("%s %p\n", __func__, (void*)wbe);
 
     wbe->pt = polltask_new(drmu_env_pollqueue(du), (int)value, POLLIN, writeback_fb_polltask_done, wbe);
     pollqueue_add_task(wbe->pt, 1000);
@@ -306,15 +314,32 @@ drmu_writeback_size_set(drmu_writeback_output_t * const dof, const unsigned int 
 }
 
 int
-drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned int rot)
+drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned int req_rot)
 {
-    if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), rot)) {
-        drmu_err(dof->du, "Rotation not supported by connector");
-        return -EINVAL;
+    unsigned int rot = req_rot;
+    if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), req_rot)) {
+        rot = drmu_rotation_is_transposed(req_rot) ?
+                DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
+        if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), req_rot)) {
+            drmu_err(dof->du, "Rotation not supported by connector");
+            return -EINVAL;
+        }
     }
 
+    dof->req_rot = req_rot;
     dof->rot = rot;
     return 0;
+}
+
+unsigned int
+drmu_writeback_rotation_src(const drmu_writeback_output_t * const dof)
+{
+    if (dof->req_rot == dof->rot)
+        return DRMU_ROTATION_0;
+    if (dof->rot == DRMU_ROTATION_0)
+        return dof->req_rot;
+    // dof->rot must be transpose if we are here
+    return drmu_rotation_sub(dof->req_rot, dof->rot);
 }
 
 int

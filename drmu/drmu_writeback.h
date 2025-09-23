@@ -39,6 +39,8 @@ drmu_writeback_output_t * drmu_writeback_output_new(struct drmu_output_s * const
 drmu_writeback_output_t * drmu_writeback_ref(drmu_writeback_output_t * const dof);
 void drmu_writeback_unref(drmu_writeback_output_t ** const ppdof);
 
+// w, h is the destination size i.e. if transposed the source render surface
+// is h x w
 int drmu_writeback_size_set(drmu_writeback_output_t * const dof, const unsigned int w, const unsigned int h);
 int drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned int rot);
 int drmu_writeback_fmt_set(drmu_writeback_output_t * const dof, const uint32_t fmt);

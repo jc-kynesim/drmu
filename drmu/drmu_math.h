@@ -19,6 +19,15 @@ typedef struct drmu_ufrac_s {
 
 drmu_ufrac_t drmu_ufrac_reduce(drmu_ufrac_t x);
 
+static inline drmu_ufrac_t
+drmu_ufrac_invert(const drmu_ufrac_t x)
+{
+    return (drmu_ufrac_t){
+        .num = x.den,
+        .den = x.num
+    };
+}
+
 static inline int32_t
 drmu_rect_rescale_1s(int_fast32_t x, uint_fast32_t mul, uint_fast32_t div)
 {
@@ -119,6 +128,17 @@ drmu_rect_div_xy(const drmu_rect_t a, const unsigned int dx, const unsigned int 
         .y = a.y / (int)dy,
         .w = a.w / dx,
         .h = a.h / dy
+    };
+}
+
+static inline  drmu_rect_t
+drmu_rect_transpose(const drmu_rect_t a)
+{
+    return (drmu_rect_t){
+        .x = a.y,
+        .y = a.x,
+        .w = a.h,
+        .h = a.w
     };
 }
 

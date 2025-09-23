@@ -21,6 +21,9 @@
 
 #include <libdrm/drm_mode.h>
 
+//*****
+#include <stdio.h>
+
 //----------------------------------------------------------------------------
 //
 // Atomic Q fns (internal)
@@ -136,6 +139,7 @@ typedef struct drmu_atomic_q_s {
     struct polltask * retry_task;
     drmu_queue_next_atomic_fn next_atomic_fn;
     void * next_atomic_v;
+    unsigned int qno; // Handy for debug
 } drmu_atomic_q_t;
 
 // Needs locked
@@ -149,7 +153,7 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
 
     if ((rv = drmu_atomic_commit(da, flags)) == 0) {
 //        if (aq->retry_count != 0)
-            drmu_warn(du, "%s: Atomic commit OK: %p", __func__, da);
+            drmu_warn(du, "[%d]: Atomic commit OK: %p", aq->qno, da);
         aq->cur_flip = next_flip_pop_head(&aq->next);
         aq->retry_count = 0;
     }
@@ -157,12 +161,12 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
         // This really shouldn't happen but we observe that the 1st commit after
         // a modeset often fails with BUSY.  It seems to be fine on a 10ms retry
         // but allow some more in case ww need a bit longer in some cases
-        drmu_warn(du, "%s: Atomic commit BUSY", __func__);
+        drmu_warn(du, "[%d]: Atomic commit BUSY", aq->qno);
         pollqueue_add_task(aq->retry_task, 20);
         rv = 0;
     }
     else {
-        drmu_err(du, "%s: Atomic commit failed: %s", __func__, strerror(-rv));
+        drmu_err(du, "[%d]: Atomic commit failed: %s", aq->qno, strerror(-rv));
         drmu_atomic_dump(da);
         next_flip_discard_head(&aq->next);
         aq->retry_count = 0;
@@ -195,6 +199,10 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
 {
     drmu_atomic_t * const da = user_data;
     drmu_atomic_q_t * const aq = drmu_atomic_queue_get(da);
+
+    printf("da=%p\n", (void*)da);
+    printf("aq=%p\n", (void*)aq);
+    printf("qno=%d\n", aq->qno);
 
     // At this point:
     //  next   The atomic we are about to commit
@@ -279,7 +287,7 @@ atomic_q_next_atomic_null_cb(drmu_env_t * du, struct drmu_atomic_s ** ppda, void
 }
 
 static void
-atomic_q_init(drmu_atomic_q_t * const aq)
+atomic_q_init(drmu_atomic_q_t * const aq, const unsigned int qno)
 {
     pthread_condattr_t condattr;
 
@@ -288,6 +296,7 @@ atomic_q_init(drmu_atomic_q_t * const aq)
     aq->cur_flip = NULL;
     aq->last_flip = NULL;
     aq->next_atomic_fn = atomic_q_next_atomic_null_cb;
+    aq->qno = qno;
     pthread_mutex_init(&aq->lock, NULL);
 
     pthread_condattr_init(&condattr);
@@ -341,6 +350,7 @@ evt_read(drmu_poll_env_t * const pe)
                 if (EVT(buf + i)->length < sizeof(*vb))
                     break;
 
+                printf("%s: Crtc=%d, Seq=%d, Userdata=%p\n", __func__, vb->crtc_id, vb->sequence, (void *)(uintptr_t) vb->user_data);
                 atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
                 break;
             }
@@ -430,7 +440,7 @@ poll_new(drmu_env_t * du)
     pe->du = du;
 
     for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
-        atomic_q_init(pe->aqs + i);
+        atomic_q_init(pe->aqs + i, i);
 
     if ((pe->pq = pollqueue_new()) == NULL) {
         drmu_err(du, "Failed to create pollqueue");
@@ -487,7 +497,7 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
     }
 
     aq = pe->aqs + qno;
-    drmu_info(du, "qno=%d, aq=%p da=%p", qno, aq, *ppda);
+    drmu_info(du, "[%d], aq=%p da=%p", qno, aq, *ppda);
     drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
@@ -507,7 +517,7 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 
     // No pending commit?
     if (aq->cur_flip == NULL) {
-        drmu_info(du, "Cur flip NULL");
+        drmu_info(du, "[%d] Cur flip NULL", aq->qno);
         rv = atomic_q_attempt_commit_next(aq);
     }
 
