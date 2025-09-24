@@ -20,6 +20,13 @@ static const struct add_check_s {
     ADD(X_FLIP, 90, 180_TRANSPOSE),
     ADD(TRANSPOSE, X_FLIP, 90),
     ADD(X_FLIP, TRANSPOSE, 270),
+    ADD(X_FLIP, X_FLIP, 0),
+    ADD(270, Y_FLIP, TRANSPOSE),
+    ADD(Y_FLIP, 90, TRANSPOSE),
+    ADD(TRANSPOSE, Y_FLIP, 270),
+    ADD(Y_FLIP, TRANSPOSE, 90),
+    ADD(Y_FLIP, Y_FLIP, 0),
+    ADD(Y_FLIP, X_FLIP, 180),
 };
 
 int
