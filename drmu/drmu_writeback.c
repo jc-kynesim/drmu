@@ -320,7 +320,7 @@ drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned 
     if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), req_rot)) {
         rot = drmu_rotation_is_transposed(req_rot) ?
                 DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
-        if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), req_rot)) {
+        if (!drmu_conn_has_rotation(drmu_output_conn(dof->dout, 0), rot)) {
             drmu_err(dof->du, "Rotation not supported by connector");
             return -EINVAL;
         }

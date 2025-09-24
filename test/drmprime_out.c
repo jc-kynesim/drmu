@@ -242,6 +242,7 @@ struct drmprime_video_env_s
     int mode_id;
     drmu_mode_simple_params_t picked;
     drmu_rect_t win_rect;
+    drmu_rect_t vid_rect;
     unsigned int zpos;
     unsigned int rotation;
 
@@ -324,12 +325,11 @@ int drmprime_video_get_buffer2(drmprime_video_env_t * const dpo, struct AVCodecC
 }
 
 static drmu_rect_t
-frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb)
+frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb, const AVFrame * const src_frame)
 {
     const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
     drmu_rect_t crop = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
-//    drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
-    drmu_ufrac_t ppar = {.num = crop.w, .den = crop.h};
+    drmu_ufrac_t ppar = {.num = src_frame->sample_aspect_ratio.num * crop.w, .den = src_frame->sample_aspect_ratio.den * crop.h};
     drmu_ufrac_t mpar = drmu_util_guess_simple_mode_par(sp);
     drmu_rect_t r = de->win_rect.w != 0 ? de->win_rect : drmu_rect_wh(sp->width, sp->height);
 
@@ -340,6 +340,8 @@ frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb)
     }
 
     ppar = ppar.den == 0 || ppar.num == 0 ? drmu_util_guess_par(crop.w, crop.h) : drmu_ufrac_reduce(ppar);
+    if (drmu_rotation_is_transposed(de->rotation))
+        ppar = drmu_ufrac_invert(ppar);
 
     if (ppar.num * mpar.den < ppar.den * mpar.num) {
         // Pillarbox
@@ -408,7 +410,7 @@ writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_don
 
     printf("%s\n", __func__);
     fe->da = drmu_atomic_new(de->du);
-    drmu_atomic_plane_add_fb(fe->da, de->dp, fb, frame_output_rect(de, fb));
+    drmu_atomic_plane_add_fb(fe->da, de->dp, fb, de->vid_rect);
     drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
 
     fns->done = writeback_done_cb;
@@ -456,11 +458,10 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             drmu_fb_av_new_frame_attach(du, src_frame) :
             drmu_fb_ref(((gb2_dmabuf_t *)src_frame->buf[0]->data)->fb);
 //        const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
-        drmu_rect_t r;
 
         drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
 
-        r = frame_output_rect(de, dfb);
+        de->vid_rect = frame_output_rect(de, dfb, src_frame);
 
         if (!is_prime)
             drmu_av_fb_frame_metadata_set(dfb, src_frame);
@@ -486,7 +487,10 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 #endif
 
         if (drmu_rotation_is_transposed(de->rotation)) {
+            // Pick the smaller of original size and display size for buffer
             drmu_rect_t rs = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
+            if (rs.h * rs.w > de->vid_rect.h * de->vid_rect.w)
+                rs = de->vid_rect;
             rs.x = 0;
             rs.y = 0;
 
@@ -504,7 +508,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                     return -1;
                 }
 
-                drmu_env_queue_next_merge_set(du, 1, false);
+//                drmu_env_queue_next_merge_set(du, 1, false);
 
                 if ((de->dwo = drmu_writeback_output_new(de->dxout, 1, &writeback_prep_fns, de)) == NULL) {
                     fprintf(stderr, "Failed to create writeback\n");
@@ -513,7 +517,6 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                 }
 
                 drmu_writeback_rotation_set(de->dwo, de->rotation);
-                printf("Rot=%d\n", de->rotation);
 
                 drmu_writeback_size_set(de->dwo, rs.h, rs.w);
 
@@ -531,6 +534,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             }
 
             drmu_atomic_plane_add_fb(da, de->dxp, dfb, rs);
+            drmu_atomic_plane_add_rotation(da, de->dxp, drmu_writeback_rotation_src(de->dwo));
             printf("Q base\n");
             drmu_fb_unref(&dfb);
             drmu_atomic_queue_qno(&da, 1);
@@ -550,8 +554,9 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 
             drmu_output_fb_info_set(de->dout, dfb);
             drmu_atomic_output_add_props(da, de->dout);
-            drmu_atomic_plane_add_fb(da, de->dp, dfb, r);
+            drmu_atomic_plane_add_fb(da, de->dp, dfb, de->vid_rect);
             drmu_atomic_plane_add_zpos(da, de->dp, de->zpos);
+            drmu_atomic_plane_add_rotation(da, de->dp, de->rotation);
             if (de->wants_prod) {
                 drmu_atomic_add_commit_callback(da, do_prod, de);
                 de->prod_wait = true;

@@ -45,6 +45,9 @@ int drmu_writeback_size_set(drmu_writeback_output_t * const dof, const unsigned 
 int drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned int rot);
 int drmu_writeback_fmt_set(drmu_writeback_output_t * const dof, const uint32_t fmt);
 
+// Source rotation required to achieve desired rotation
+unsigned int drmu_writeback_rotation_src(const drmu_writeback_output_t * const dof);
+
 // return current format
 uint32_t drmu_writeback_fmt(const drmu_writeback_output_t * const dof);
 
