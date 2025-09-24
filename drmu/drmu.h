@@ -416,16 +416,7 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
 #define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
-static inline bool drmu_rotation_is_transposed(const unsigned int r) {return r >= DRMU_ROTATION_TRANSPOSE;}
-
-static inline unsigned int
-drmu_rotation_inverse(const unsigned int r)
-{
-    return
-        r == DRMU_ROTATION_90 ? DRMU_ROTATION_270 :
-        r == DRMU_ROTATION_270 ? DRMU_ROTATION_90 :
-            r; // All others are self inverse
-}
+static inline bool drmu_rotation_is_transposed(const unsigned int r) {return (r & 4) != 0;}
 
 static inline unsigned int
 drmu_rotation_transpose(const unsigned int r)
@@ -441,11 +432,12 @@ drmu_rotation_add(const unsigned int a, const unsigned int b)
     return (drmu_rotation_is_transposed(b) ? drmu_rotation_transpose(a) : a) ^ b;
 }
 
-// a + (b - a) = b
+// Returns value that would need to be added to a to get b
+// i.e. a + (b - a) = b
 static inline unsigned int
 drmu_rotation_sub(const unsigned int b, const unsigned int a)
 {
-    return drmu_rotation_add(b, drmu_rotation_inverse(a));
+    return (drmu_rotation_is_transposed(a ^ b) ? drmu_rotation_transpose(a) : a) ^ b;
 }
 
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
