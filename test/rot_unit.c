@@ -59,12 +59,37 @@ main(int argc, char *argv[])
         for (j = 0; j != 8; ++j)
         {
             unsigned int apb = drmu_rotation_add(i, j);
-            unsigned int bma = drmu_rotation_sub(j, i);
+            unsigned int amb = drmu_rotation_suba(i, j);
+            unsigned int a = drmu_rotation_add(amb, j);
+
+            if (a != i)
+            {
+                printf("A: %d + %d = %d, %d - %d = %d, %d + %d = %d\n",
+                       i, j, apb,
+                       i, j, amb,
+                       amb, j, a);
+                ++x;
+            }
+        }
+    }
+
+    if (x != 0)
+        printf("*** SubA check failed %d tests\n", x);
+    else
+        printf("Sub check OK\n");
+
+    x = 0;
+    for (i = 0; i != 8; ++i)
+    {
+        for (j = 0; j != 8; ++j)
+        {
+            unsigned int apb = drmu_rotation_add(i, j);
+            unsigned int bma = drmu_rotation_subb(j, i);
             unsigned int b = drmu_rotation_add(i, bma);
 
             if (b != j)
             {
-                printf("%d + %d = %d, %d - %d = %d, %d + %d = %d\n",
+                printf("B: %d + %d = %d, %d - %d = %d, %d + %d = %d\n",
                        i, j, apb,
                        j, i, bma,
                        i, bma, b);
@@ -74,9 +99,9 @@ main(int argc, char *argv[])
     }
 
     if (x != 0)
-        printf("*** Sub check failed %d tests\n", x);
+        printf("*** SubB check failed %d tests\n", x);
     else
-        printf("Sub check OK\n");
+        printf("SubB check OK\n");
 
     return 0;
 }

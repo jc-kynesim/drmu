@@ -331,15 +331,12 @@ drmu_writeback_rotation_set(drmu_writeback_output_t * const dof, const unsigned 
     return 0;
 }
 
+// Source rotation required to achieve desired rotation
 unsigned int
 drmu_writeback_rotation_src(const drmu_writeback_output_t * const dof)
 {
-    if (dof->req_rot == dof->rot)
-        return DRMU_ROTATION_0;
-    if (dof->rot == DRMU_ROTATION_0)
-        return dof->req_rot;
     // dof->rot must be transpose if we are here
-    return drmu_rotation_sub(dof->req_rot, dof->rot);
+    return drmu_rotation_suba(dof->req_rot, dof->rot);
 }
 
 int

@@ -438,13 +438,22 @@ drmu_rotation_add(const unsigned int a, const unsigned int b)
     return drmu_rotation_ctranspose(a, b) ^ b;
 }
 
-// Returns value that would need to be added to a to get b
-// i.e. a + (b - a) = b
+// Returns value that if b is added to gets a
+// i.e. suba(a, b) + b = a
 static inline unsigned int
-drmu_rotation_sub(const unsigned int b, const unsigned int a)
+drmu_rotation_suba(const unsigned int a, const unsigned int b)
+{
+    return drmu_rotation_ctranspose(a ^ b, b);
+}
+
+// Returns value that would need to be added to a to get b
+// i.e. a + subb(b, a) = b
+static inline unsigned int
+drmu_rotation_subb(const unsigned int b, const unsigned int a)
 {
     return drmu_rotation_ctranspose(a, a ^ b) ^ b;
 }
+
 
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
