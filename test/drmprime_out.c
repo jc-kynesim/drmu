@@ -25,6 +25,7 @@
 #include "drmprime_out.h"
 
 #include <assert.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -238,6 +239,7 @@ struct drmprime_video_env_s
     drmu_output_t * dxout;
     drmu_writeback_output_t * dwo;
     drmu_plane_t * dxp;
+    atomic_int xcount;
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -395,6 +397,7 @@ writeback_done_unref_cb(void ** ppv)
     if (fe->ref_count-- != 0)
         return;
     drmu_atomic_unref(&fe->da);
+    atomic_fetch_sub(&fe->de->xcount, 1);
     free(fe);
 }
 
@@ -403,21 +406,34 @@ static int
 writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_done_fns_t * fns, void ** ppv)
 {
     drmprime_video_env_t * const de = v;
-    frame_env_t * fe = calloc(1, sizeof(*fe));
+    int n;
 
-    if (fe == NULL)
+    n = atomic_fetch_add(&de->xcount, 1);
+    printf("n = %d\n", n);
+
+    if (n > 3) {
+        atomic_fetch_sub(&de->xcount, 1);
         return -1;
+    }
 
-    printf("%s\n", __func__);
-    fe->da = drmu_atomic_new(de->du);
-    drmu_atomic_plane_add_fb(fe->da, de->dp, fb, de->vid_rect);
-    drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
+    {
+        frame_env_t * fe = calloc(1, sizeof(*fe));
 
-    fns->done = writeback_done_cb;
-    fns->ref = writeback_done_ref_cb;
-    fns->unref = writeback_done_unref_cb;
-    *ppv = fe;
-    return 0;
+        if (fe == NULL)
+            return -1;
+
+        printf("%s\n", __func__);
+        fe->da = drmu_atomic_new(de->du);
+        fe->de = de;
+        drmu_atomic_plane_add_fb(fe->da, de->dp, fb, de->vid_rect);
+        drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
+
+        fns->done = writeback_done_cb;
+        fns->ref = writeback_done_ref_cb;
+        fns->unref = writeback_done_unref_cb;
+        *ppv = fe;
+        return 0;
+    }
 }
 
 int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
@@ -508,7 +524,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                     return -1;
                 }
 
-//                drmu_env_queue_next_merge_set(du, 1, false);
+                drmu_env_queue_next_merge_set(du, 1, false);
 
                 if ((de->dwo = drmu_writeback_output_new(de->dxout, 1, &writeback_prep_fns, de)) == NULL) {
                     fprintf(stderr, "Failed to create writeback\n");
