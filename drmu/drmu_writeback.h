@@ -70,11 +70,12 @@ struct drmu_env_s;
 struct drmu_plane_s;
 struct drmu_output_s;
 struct drmu_atomic_s;
+struct drmu_pool_s;
 
 struct drmu_writeback_env_s;
 typedef struct drmu_writeback_env_s drmu_writeback_env_t;
 
-drmu_writeback_env_t * drmu_writeback_env_new(struct drmu_env_s * du);
+drmu_writeback_env_t * drmu_writeback_env_new(struct drmu_env_s * const du);
 drmu_writeback_env_t * drmu_writeback_env_ref(drmu_writeback_env_t * const wbe);
 void drmu_writeback_env_unref(drmu_writeback_env_t ** const ppwbe);
 
@@ -82,20 +83,21 @@ void drmu_writeback_env_unref(drmu_writeback_env_t ** const ppwbe);
 struct drmu_output_s * drmu_writeback_env_output(const drmu_writeback_env_t * const wbe);
 
 // Find and ref a plane in dest_dout that is compatible with a format that the
-// writeback connector can produce. The format is set on the writeback, retrieve
-// it with drmu_writeback_fmt().
+// writeback connector can produce. The format is returned in *pFmt
 // Types is a bit field of acceptable plane types (DRMU_PLANE_TYPE_xxx), 0 => any
 // cf. drmu_output_plane_ref_format
 // Returns NULL if nothing compatible found
 struct drmu_plane_s * drmu_writeback_env_fmt_plane(drmu_writeback_env_t * const wbe,
-                                                   struct drmu_output_s * const dest_dout, const unsigned int types);
+                                                   struct drmu_output_s * const dest_dout, const unsigned int types,
+                                                   uint32_t * const pFmt);
 
 struct drmu_writeback_fb_s;
 typedef struct drmu_writeback_fb_s drmu_writeback_fb_t;
 
-drmu_writeback_fb_t * drmu_writeback_fb_new(drmu_writeback_env_t * const wbe);
-drmu_writeback_fb_t * drmu_writeback_fb_ref(drmu_writeback_fb_t * const wbe);
-void drmu_writeback_fb_unref(drmu_writeback_fb_t ** const ppwbe);
+// fb_pool is the pool to alloc wb fbs from
+drmu_writeback_fb_t * drmu_writeback_fb_new(drmu_writeback_env_t * const wbq, struct drmu_pool_s * const fb_pool);
+drmu_writeback_fb_t * drmu_writeback_fb_ref(drmu_writeback_fb_t * const wbq);
+void drmu_writeback_fb_unref(drmu_writeback_fb_t ** const ppwbq);
 
 // Returns rot supported by Q that enables req_rot
 // Use drmu_rotation_suba(req_rot, <rv>) to get needed fb rotation
