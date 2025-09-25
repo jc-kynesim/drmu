@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -128,7 +129,8 @@ next_flip_uninit(next_flips_t * const nf)
     memset(nf, 0, sizeof(*nf));
 }
 
-typedef struct drmu_atomic_q_s {
+struct drmu_atomic_q_s {
+    atomic_int ref_count; // 0 - free, 1 - uniniting, 2 - one ref
     pthread_mutex_t lock;
     pthread_cond_t cond;
     bool do_merge;
@@ -140,7 +142,7 @@ typedef struct drmu_atomic_q_s {
     drmu_queue_next_atomic_fn next_atomic_fn;
     void * next_atomic_v;
     unsigned int qno; // Handy for debug
-} drmu_atomic_q_t;
+};
 
 // Needs locked
 static int
@@ -318,6 +320,8 @@ typedef struct drmu_poll_env_s {
     struct pollqueue * pq;
     struct polltask * pt;
 
+    drmu_atomic_q_t * default_q;
+
     // global env for atomic flip
     drmu_atomic_q_t aqs[DRMU_POLL_QUEUE_COUNT];
 
@@ -366,6 +370,23 @@ evt_read(drmu_poll_env_t * const pe)
     return 0;
 }
 #undef EVT
+
+static drmu_atomic_q_t *
+pollenv_queue_alloc(drmu_poll_env_t *const pe)
+{
+    unsigned int i;
+
+    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i) {
+        drmu_atomic_q_t * const dq = pe->aqs + i;
+        int free_val = 0;
+        if (atomic_compare_exchange_strong(&dq->ref_count, &free_val, 2)) {
+            atomic_q_init(dq, i);
+            return dq;
+        }
+    }
+
+    return NULL;
+}
 
 static void
 evt_polltask_cb(void * v, short revents)
@@ -439,9 +460,6 @@ poll_new(drmu_env_t * du)
 
     pe->du = du;
 
-    for (i = 0; i != DRMU_POLL_QUEUE_COUNT; ++i)
-        atomic_q_init(pe->aqs + i, i);
-
     if ((pe->pq = pollqueue_new()) == NULL) {
         drmu_err(du, "Failed to create pollqueue");
         goto fail;
@@ -460,6 +478,8 @@ poll_new(drmu_env_t * du)
 
     pollqueue_add_task(pe->pt, 1000);
 
+    pe->default_q = pollenv_queue_alloc(pe);
+
     return pe;
 
 fail:
@@ -472,15 +492,49 @@ fail:
 // External functions
 // Somewhat broken naming scheme for historic reasons
 
+drmu_atomic_q_t *
+drmu_queue_new(struct drmu_env_s * const du)
+{
+    drmu_poll_env_t * pe;
+    if (drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe) != 0)
+        return NULL;
+    return pollenv_queue_alloc(pe);
+}
+
+drmu_atomic_q_t *
+drmu_queue_ref(drmu_atomic_q_t * const dq)
+{
+    atomic_fetch_add(&dq->ref_count, 1);
+    return dq;
+}
+
+void
+drmu_queue_unref(drmu_atomic_q_t ** const ppdq)
+{
+    drmu_atomic_q_t * const dq = *ppdq;
+    int n;
+
+    if (dq == NULL)
+        return;
+    *ppdq = NULL;
+
+    n = atomic_fetch_add(&dq->ref_count, 1);
+    if (n != 1)
+        return;
+
+    atomic_q_uninit(dq);
+
+    atomic_store(&dq->ref_count, 0);
+}
+
 int
-drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
+drmu_queue_queue(drmu_atomic_q_t * const aq, drmu_atomic_t ** ppda)
 {
     int rv = 0;
     drmu_env_t * const du = drmu_atomic_env(*ppda);
     drmu_poll_env_t * pe;
-    drmu_atomic_q_t * aq;
 
-    if (qno > DRMU_POLL_QUEUE_NO_MAX) {
+    if (aq == NULL) {
         rv = -EINVAL;
         goto fail_unref;
     }
@@ -493,8 +547,7 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
     if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
         goto fail_unref;
 
-    aq = pe->aqs + qno;
-    drmu_info(du, "[%d], aq=%p da=%p", qno, aq, *ppda);
+    drmu_info(du, "[%d], aq=%p da=%p", aq->qno, aq, *ppda);
     drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
@@ -528,7 +581,24 @@ fail_unref:
 int
 drmu_atomic_queue(drmu_atomic_t ** ppda)
 {
-    return drmu_atomic_queue_qno(ppda, 0);
+    drmu_poll_env_t * pe;
+    int rv;
+
+    if ((rv = drmu_env_int_poll_set(drmu_atomic_env(*ppda), poll_new, poll_destroy, &pe)) != 0) {
+        drmu_atomic_unref(ppda);
+        return rv;
+    }
+
+    return drmu_queue_queue(pe->aqs + 0, ppda);
+}
+
+drmu_atomic_q_t *
+drmu_env_queue_default(drmu_env_t * const du)
+{
+    drmu_poll_env_t *const pe = drmu_env_int_poll_get(du);
+    if (pe == NULL)
+        return NULL;
+    return pe->default_q;
 }
 
 int
@@ -566,43 +636,24 @@ drmu_env_queue_wait(drmu_env_t * const du)
 }
 
 int
-drmu_env_queue_next_atomic_fn_set(drmu_env_t * const du, const unsigned int qno,
+drmu_env_queue_next_atomic_fn_set(drmu_atomic_q_t * const aq,
                                   const drmu_queue_next_atomic_fn fn, void * const v)
 {
-    drmu_poll_env_t * pe;
-    drmu_atomic_q_t * aq;
-    int rv;
-
-    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+    if (aq == NULL)
         return -EINVAL;
 
-    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
-        return rv;
-
-    aq = pe->aqs + qno;
     aq->next_atomic_fn = fn;
     aq->next_atomic_v = v;
-
     return 0;
 }
 
 int
-drmu_env_queue_next_merge_set(drmu_env_t * const du, const unsigned int qno,
-                              const bool do_merge)
+drmu_env_queue_next_merge_set(drmu_atomic_q_t * const dq, const bool do_merge)
 {
-    drmu_poll_env_t * pe;
-    drmu_atomic_q_t * aq;
-    int rv;
-
-    if (qno > DRMU_POLL_QUEUE_NO_MAX)
+    if (dq == NULL)
         return -EINVAL;
 
-    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
-        return rv;
-
-    aq = pe->aqs + qno;
-    aq->do_merge = do_merge;
-
+    dq->do_merge = do_merge;
     return 0;
 }
 

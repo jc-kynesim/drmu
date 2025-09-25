@@ -24,7 +24,6 @@ struct drmu_writeback_output_s
     unsigned int req_rot;
     uint32_t fmt;
 
-    unsigned int qno;
     drmu_env_t * du;  // Derived from dout - just a copy for ease of use
     drmu_output_t * dout;
 
@@ -246,7 +245,7 @@ writeback_prep_null_unref_cb(void ** ppv)
 }
 
 drmu_writeback_output_t *
-drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
+drmu_writeback_output_new(drmu_output_t * const dout, drmu_atomic_q_t * dq,
                           const drmu_writeback_fb_prep_fns_t * prep_fns, void * prep_v)
 {
     drmu_writeback_output_t * const dof = calloc(1, sizeof(*dof));
@@ -265,13 +264,15 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
         return NULL;
     }
 
+    if (dq == NULL)
+        dq = drmu_env_queue_default(du);
+
     dof->req_rect = drmu_rect_wh(1920, 1080);
     dof->fb_rect = dof->req_rect;
     dof->rot = DRMU_ROTATION_0;
     dof->fmt = DRM_FORMAT_ARGB8888;
-    dof->qno = qno;
     dof->dout = drmu_output_ref(dout);
-    dof->du = drmu_output_env(dout);
+    dof->du = du;
     dof->prep_fns.prep  = prep_fns->prep  ? prep_fns->prep  : prep_fns_null.prep;
     dof->prep_fns.ref   = prep_fns->ref   ? prep_fns->ref   : prep_fns_null.ref;
     dof->prep_fns.unref = prep_fns->unref ? prep_fns->unref : prep_fns_null.unref;
@@ -291,7 +292,7 @@ drmu_writeback_output_new(drmu_output_t * const dout, const unsigned int qno,
         goto fail;
     }
 
-    if (drmu_env_queue_next_atomic_fn_set(du, qno, writeback_next_atomic_cb, dof) != 0) {
+    if (drmu_env_queue_next_atomic_fn_set(dq, writeback_next_atomic_cb, dof) != 0) {
         drmu_err(du, "Failed to set writeback queue function");
         goto fail;
     }
@@ -378,4 +379,6 @@ drmu_writeback_output_fmt_plane(drmu_writeback_output_t * const dof, drmu_output
     }
     return NULL;
 }
+
+//=============================================================================
 

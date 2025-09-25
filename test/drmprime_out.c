@@ -241,6 +241,7 @@ struct drmprime_video_env_s
     drmu_plane_t * dxp;
     atomic_int xcount;
     drmu_fb_t *dfb2;  // *** Kludge dfb copy
+    drmu_atomic_q_t * dxq;
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -375,7 +376,7 @@ writeback_done_cb(void * v, struct drmu_fb_s * fb)
     (void)fb;
 
     printf("Q xpose\n");
-    if (drmu_atomic_queue_qno(&fe->da, 0) != 0)
+    if (drmu_atomic_queue(&fe->da) != 0)
         printf("Atomic Q 1 failed\n");
 }
 
@@ -531,9 +532,14 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                     return -1;
                 }
 
-                drmu_env_queue_next_merge_set(du, 1, false);
+                if ((de->dxq = drmu_queue_new(du)) == NULL) {
+                    fprintf(stderr, "Failed to create rotation Q\n");
+                    return -1;
+                }
 
-                if ((de->dwo = drmu_writeback_output_new(de->dxout, 1, &writeback_prep_fns, de)) == NULL) {
+                drmu_env_queue_next_merge_set(de->dxq, false);
+
+                if ((de->dwo = drmu_writeback_output_new(de->dxout, de->dxq, &writeback_prep_fns, de)) == NULL) {
                     fprintf(stderr, "Failed to create writeback\n");
                     drmu_output_unref(&de->dxout);
                     return -1;
@@ -560,7 +566,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             drmu_atomic_plane_add_rotation(da, de->dxp, drmu_writeback_rotation_src(de->dwo));
             printf("Q base\n");
             de->dfb2 = dfb;
-            drmu_atomic_queue_qno(&da, 1);
+            drmu_queue_queue(de->dxq, &da);
             drmu_fb_unref(&dfb);
         }
         else {

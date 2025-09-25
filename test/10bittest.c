@@ -275,6 +275,7 @@ typedef struct writeback_env_s {
     drmu_output_t * dout2;
     drmu_plane_t * p2;
     drmu_atomic_t * da;
+    drmu_atomic_q_t * dq;
 
     drmu_writeback_output_t * wbo;
 
@@ -288,8 +289,9 @@ writeback_done_cb(void * v, struct drmu_fb_s * fb)
     writeback_env_t * const wbe = v;
     (void)fb;
 
-    if (drmu_atomic_queue_qno(&wbe->da, 1) != 0)
+    if (drmu_queue_queue(wbe->dq, &wbe->da) != 0)
         printf("Atomic Q 1 failed\n");
+    drmu_queue_unref(&wbe->dq);
 }
 
 static int
@@ -568,7 +570,12 @@ int main(int argc, char *argv[])
     drmu_output_modeset_allow(dout, true);
 
     if (try_writeback) {
-        if ((wbe.wbo = drmu_writeback_output_new(dout, 0, &writeback_prep_fns, &wbe)) == NULL) {
+        if ((wbe.dq = drmu_queue_new(du)) == NULL) {
+            fprintf(stderr, "Failed to create writeback display q\n");
+            goto fail;
+        }
+
+        if ((wbe.wbo = drmu_writeback_output_new(dout, NULL, &writeback_prep_fns, &wbe)) == NULL) {
             fprintf(stderr, "Failed to add writeback\n");
             goto fail;
         }
