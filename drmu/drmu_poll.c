@@ -475,26 +475,23 @@ fail:
 int
 drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 {
-    int rv;
+    int rv = 0;
     drmu_env_t * const du = drmu_atomic_env(*ppda);
     drmu_poll_env_t * pe;
     drmu_atomic_q_t * aq;
 
-    if (qno > DRMU_POLL_QUEUE_NO_MAX)
-        return -EINVAL;
+    if (qno > DRMU_POLL_QUEUE_NO_MAX) {
+        rv = -EINVAL;
+        goto fail_unref;
+    }
 
-    if (du == NULL)
-        return 0;
     if (drmu_atomic_is_empty(*ppda)) {
         drmu_info(du, "da empty");
-        drmu_atomic_unref(ppda);
-        return 0;
+        goto fail_unref;  // rv = 0 so not an error really
     }
 
-    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0) {
-        drmu_atomic_unref(ppda);
-        return rv;
-    }
+    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
+        goto fail_unref;
 
     aq = pe->aqs + qno;
     drmu_info(du, "[%d], aq=%p da=%p", qno, aq, *ppda);
@@ -523,6 +520,8 @@ drmu_atomic_queue_qno(drmu_atomic_t ** ppda, const unsigned int qno)
 
 fail_unlock:
     pthread_mutex_unlock(&aq->lock);
+fail_unref:
+    drmu_atomic_unref(ppda);
     return rv;
 }
 

@@ -240,6 +240,7 @@ struct drmprime_video_env_s
     drmu_writeback_output_t * dwo;
     drmu_plane_t * dxp;
     atomic_int xcount;
+    drmu_fb_t *dfb2;  // *** Kludge dfb copy
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -364,6 +365,7 @@ typedef struct frame_env_s {
     int ref_count;
     drmprime_video_env_t *de;
     drmu_atomic_t * da;
+    drmu_fb_t * dfb;
 } frame_env_t;
 
 static void
@@ -390,14 +392,17 @@ static void
 writeback_done_unref_cb(void ** ppv)
 {
     frame_env_t * const fe = *ppv;
-    printf("%s\n", __func__);
+    int n;
     if (fe == NULL)
         return;
     *ppv = NULL;
-    if (fe->ref_count-- != 0)
+    n = fe->ref_count--;
+    if (n != 0)
         return;
     drmu_atomic_unref(&fe->da);
-    atomic_fetch_sub(&fe->de->xcount, 1);
+    drmu_fb_unref(&fe->dfb);
+    n = atomic_fetch_sub(&fe->de->xcount, 1);
+    printf("%s[%p]: n=%d\n", __func__, (void*)fe, n);
     free(fe);
 }
 
@@ -409,15 +414,16 @@ writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_don
     int n;
 
     n = atomic_fetch_add(&de->xcount, 1);
-    printf("n = %d\n", n);
-
     if (n > 3) {
         atomic_fetch_sub(&de->xcount, 1);
+        printf("%s[%p]: n=%d: Done\n", __func__, NULL, n);
         return -1;
     }
 
     {
         frame_env_t * fe = calloc(1, sizeof(*fe));
+
+        printf("%s[%p]: n=%d: Q\n", __func__, (void*)fe, n);
 
         if (fe == NULL)
             return -1;
@@ -425,6 +431,7 @@ writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_don
         printf("%s\n", __func__);
         fe->da = drmu_atomic_new(de->du);
         fe->de = de;
+        fe->dfb = drmu_fb_ref(de->dfb2);  //*** nasty kludge
         drmu_atomic_plane_add_fb(fe->da, de->dp, fb, de->vid_rect);
         drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
 
@@ -552,8 +559,9 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             drmu_atomic_plane_add_fb(da, de->dxp, dfb, rs);
             drmu_atomic_plane_add_rotation(da, de->dxp, drmu_writeback_rotation_src(de->dwo));
             printf("Q base\n");
-            drmu_fb_unref(&dfb);
+            de->dfb2 = dfb;
             drmu_atomic_queue_qno(&da, 1);
+            drmu_fb_unref(&dfb);
         }
         else {
             if (de->dp == NULL) {
