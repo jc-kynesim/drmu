@@ -310,7 +310,6 @@ atomic_q_init(drmu_atomic_q_t * const aq, const unsigned int qno)
 {
     pthread_condattr_t condattr;
 
-    aq->do_merge = true;
     next_flip_init(&aq->next);
     aq->cur_flip = NULL;
     aq->last_flip = NULL;
@@ -602,7 +601,7 @@ int
 drmu_atomic_queue(drmu_atomic_t ** ppda)
 {
     drmu_atomic_q_t * const aq = drmu_env_queue_default(drmu_atomic_env(*ppda));
-    return drmu_queue_queue_tagged(aq, 0, aq->do_merge ? DRMU_QUEUE_MERGE_MERGE : DRMU_QUEUE_MERGE_QUEUE, ppda);
+    return drmu_queue_queue_tagged(aq, 0, DRMU_QUEUE_MERGE_MERGE, ppda);
 }
 
 drmu_atomic_q_t *
@@ -652,16 +651,6 @@ drmu_env_queue_next_atomic_fn_set(drmu_atomic_q_t * const aq,
 
     aq->next_atomic_fn = fn;
     aq->next_atomic_v = v;
-    return 0;
-}
-
-int
-drmu_env_queue_next_merge_set(drmu_atomic_q_t * const dq, const bool do_merge)
-{
-    if (dq == NULL)
-        return -EINVAL;
-
-    dq->do_merge = do_merge;
     return 0;
 }
 
