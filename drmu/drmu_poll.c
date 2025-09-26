@@ -29,8 +29,13 @@
 //
 // Atomic Q fns (internal)
 
+typedef struct flips_ent_s {
+    drmu_atomic_t * da;
+    unsigned int tag;
+} flip_ent_t;
+
 typedef struct next_flips_s {
-    drmu_atomic_t ** flips;
+    flip_ent_t * flips;
     unsigned int len;
     unsigned int size;
     unsigned int n;
@@ -45,15 +50,25 @@ next_flip_is_empty(const next_flips_t * const nf)
 static drmu_atomic_t *
 next_flip_head(const next_flips_t * const nf)
 {
-    return next_flip_is_empty(nf) ? NULL : nf->flips[nf->n];
+    return next_flip_is_empty(nf) ? NULL : nf->flips[nf->n].da;
 }
 
 static drmu_atomic_t **
-next_flip_ptail(const next_flips_t * const nf)
+next_flip_find_tag(const next_flips_t * const nf, const unsigned int tag)
 {
-    return next_flip_is_empty(nf) ? NULL :
-        nf->n + nf->len - 1 < nf->size ? nf->flips + nf->n + nf->len - 1 :
-        nf->flips + nf->n + nf->len - 1 - nf->size;
+    unsigned int n;
+    unsigned int i;
+
+    n = nf->n + nf->len - 1 < nf->size ?
+        nf->n + nf->len - 1 :
+        nf->n + nf->len - 1 - nf->size;
+
+    for (i = 0; i != nf->len; ++i) {
+        if (nf->flips[n].tag == tag)
+            return &nf->flips[n].da;
+        n = (n == 0) ? nf->size - 1 : n - 1;
+    }
+    return NULL;
 }
 
 static drmu_atomic_t *
@@ -61,16 +76,16 @@ next_flip_pop_head(next_flips_t * const nf)
 {
     drmu_atomic_t * flip;
 
-    if (nf->len == 0)
+    if (next_flip_is_empty(nf))
         return NULL;
-    flip = nf->flips[nf->n];
+    flip = nf->flips[nf->n].da;
     nf->n = nf->n + 1 >= nf->size ? 0 : nf->n + 1;
     --nf->len;
     return flip;
 }
 
-static int
-next_flip_add_tail(next_flips_t * const nf, drmu_atomic_t * const a)
+static drmu_atomic_t **
+next_flip_add_tail(next_flips_t * const nf, unsigned int tag)
 {
     const unsigned int oldlen = nf->len;
 
@@ -78,21 +93,23 @@ next_flip_add_tail(next_flips_t * const nf, drmu_atomic_t * const a)
         unsigned int n = nf->n + oldlen;
         if (n >= nf->size)
             n -= nf->size;
-        nf->flips[n] = a;
+        nf->flips[n].da = NULL;
+        nf->flips[n].tag = tag;
         ++nf->len;
-        return 0;
+        return &nf->flips[n].da;
     }
     else {
         // Given the circular buffer can't just realloc, must alloc & rebuild
         const unsigned int newsize = (oldlen < 8) ? 8 : oldlen * 2;
-        drmu_atomic_t ** newflips = malloc(sizeof(*nf->flips) * newsize);
+        flip_ent_t * newflips = malloc(sizeof(*nf->flips) * newsize);
         if (newflips == NULL)
-            return -ENOMEM;
+            return NULL;
 
         assert(oldlen == nf->size);
         memcpy(newflips, nf->flips + nf->n, (nf->size - nf->n) * sizeof(*nf->flips));
         memcpy(newflips + (nf->size - nf->n), nf->flips, nf->n * sizeof(*nf->flips));
-        newflips[oldlen] = a;
+        newflips[oldlen].da = NULL;
+        newflips[oldlen].tag = tag;
         free(nf->flips);
 
         nf->flips = newflips;
@@ -100,7 +117,7 @@ next_flip_add_tail(next_flips_t * const nf, drmu_atomic_t * const a)
         nf->len = oldlen + 1;
         nf->n = 0;
 
-        return 0;
+        return &newflips[oldlen].da;
     }
 }
 
@@ -133,7 +150,7 @@ struct drmu_atomic_q_s {
     atomic_int ref_count; // 0 - free, 1 - uniniting, 2 - one ref
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    bool do_merge;
+    bool do_merge;   // **** Get rid of this
     next_flips_t next;
     drmu_atomic_t * cur_flip;
     drmu_atomic_t * last_flip;
@@ -528,11 +545,13 @@ drmu_queue_unref(drmu_atomic_q_t ** const ppdq)
 }
 
 int
-drmu_queue_queue(drmu_atomic_q_t * const aq, drmu_atomic_t ** ppda)
+drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
+                        const unsigned int tag, const drmu_queue_merge_t qmerge,
+                        struct drmu_atomic_s ** ppda)
 {
     int rv = 0;
     drmu_env_t * const du = drmu_atomic_env(*ppda);
-    drmu_poll_env_t * pe;
+    drmu_atomic_t ** ppna;
 
     if (aq == NULL) {
         rv = -EINVAL;
@@ -544,25 +563,26 @@ drmu_queue_queue(drmu_atomic_q_t * const aq, drmu_atomic_t ** ppda)
         goto fail_unref;  // rv = 0 so not an error really
     }
 
-    if ((rv = drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe)) != 0)
-        goto fail_unref;
-
     drmu_info(du, "[%d], aq=%p da=%p", aq->qno, aq, *ppda);
     drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
 
-    if (!aq->do_merge || next_flip_is_empty(&aq->next)) {
+    ppna = (qmerge == DRMU_QUEUE_MERGE_QUEUE) ? NULL : next_flip_find_tag(&aq->next, tag);
+
+    if (ppna == NULL) {
         drmu_atomic_t * da;
         if ((rv = aq->next_atomic_fn(du, &da, aq->next_atomic_v)) != 0)
             goto fail_unlock;
-        if ((rv = next_flip_add_tail(&aq->next, da)) != 0) {
+        if ((ppna = next_flip_add_tail(&aq->next, 0)) == NULL) {
             drmu_atomic_unref(&da);
+            rv = -ENOMEM;
             goto fail_unlock;
         }
+        *ppna = da;
     }
 
-    if ((rv = drmu_atomic_move_merge(next_flip_ptail(&aq->next), ppda)) != 0)
+    if ((rv = drmu_atomic_move_merge(ppna, ppda)) != 0)
         goto fail_unlock;
 
     // No pending commit?
@@ -581,58 +601,46 @@ fail_unref:
 int
 drmu_atomic_queue(drmu_atomic_t ** ppda)
 {
-    drmu_poll_env_t * pe;
-    int rv;
-
-    if ((rv = drmu_env_int_poll_set(drmu_atomic_env(*ppda), poll_new, poll_destroy, &pe)) != 0) {
-        drmu_atomic_unref(ppda);
-        return rv;
-    }
-
-    return drmu_queue_queue(pe->aqs + 0, ppda);
+    drmu_atomic_q_t * const aq = drmu_env_queue_default(drmu_atomic_env(*ppda));
+    return drmu_queue_queue_tagged(aq, 0, aq->do_merge ? DRMU_QUEUE_MERGE_MERGE : DRMU_QUEUE_MERGE_QUEUE, ppda);
 }
 
 drmu_atomic_q_t *
 drmu_env_queue_default(drmu_env_t * const du)
 {
-    drmu_poll_env_t *const pe = drmu_env_int_poll_get(du);
-    if (pe == NULL)
+    drmu_poll_env_t * pe;
+    if (drmu_env_int_poll_set(du, poll_new, poll_destroy, &pe) != 0)
         return NULL;
     return pe->default_q;
 }
 
 int
-drmu_env_queue_wait_qno(drmu_env_t * const du, const unsigned int qno)
+drmu_queue_wait(drmu_atomic_q_t * const aq)
 {
-    drmu_poll_env_t *const pe = drmu_env_int_poll_get(du);
     int rv = 0;
+    struct timespec ts;
 
-    if (qno > DRMU_POLL_QUEUE_NO_MAX)
-        return -EINVAL;
+    if (aq == NULL)
+        return 0;
 
-    if (pe != NULL) {
-        drmu_atomic_q_t *const aq = pe->aqs + qno;
-        struct timespec ts;
+    pthread_mutex_lock(&aq->lock);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
 
-        pthread_mutex_lock(&aq->lock);
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        ts.tv_sec += 1;  // We should never timeout if all is well - 1 sec is plenty
-
-        // Next should clear quickly
-        while (!next_flip_is_empty(&aq->next)) {
-            if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
-                break;
-        }
-
-        pthread_mutex_unlock(&aq->lock);
+    // Next should clear quickly
+    while (!next_flip_is_empty(&aq->next)) {
+        if ((rv = pthread_cond_timedwait(&aq->cond, &aq->lock, &ts)) != 0)
+            break;
     }
+
+    pthread_mutex_unlock(&aq->lock);
     return rv;
 }
 
 int
 drmu_env_queue_wait(drmu_env_t * const du)
 {
-    return drmu_env_queue_wait_qno(du, 0);
+    return drmu_queue_wait(drmu_env_queue_default(du));
 }
 
 int
