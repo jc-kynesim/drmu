@@ -537,6 +537,8 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
                     return -1;
                 }
 
+                drmu_env_queue_next_merge_set(de->dxq, false);
+
                 if ((de->dwo = drmu_writeback_output_new(de->dxout, de->dxq, &writeback_prep_fns, de)) == NULL) {
                     fprintf(stderr, "Failed to create writeback\n");
                     drmu_output_unref(&de->dxout);
@@ -564,7 +566,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             drmu_atomic_plane_add_rotation(da, de->dxp, drmu_writeback_rotation_src(de->dwo));
             printf("Q base\n");
             de->dfb2 = dfb;
-            drmu_queue_queue_tagged(de->dxq, 0, DRMU_QUEUE_MERGE_QUEUE, &da);
+            drmu_queue_queue(de->dxq, &da);
             drmu_fb_unref(&dfb);
         }
         else {
