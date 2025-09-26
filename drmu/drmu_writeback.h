@@ -106,7 +106,8 @@ unsigned int drmu_writeback_fb_queue_rotation(const drmu_writeback_fb_t * const 
 // dfb NULL if writeback failed or abandoned
 typedef void drmu_writeback_fb_done_fn(void * v, struct drmu_fb_s * dfb);
 
-int drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq, const drmu_rect_t req_dest_rect, const unsigned int rot,
+int drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
+                            const drmu_rect_t dest_rect, const unsigned int rot, const uint32_t fmt,
                             drmu_writeback_fb_done_fn * const done_fn, void * const v,
                             struct drmu_atomic_s ** const ppda);
 

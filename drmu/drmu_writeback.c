@@ -389,6 +389,8 @@ struct drmu_writeback_env_s {
     drmu_env_t * du;
     drmu_output_t * dout;
     drmu_atomic_q_t * dq;
+
+    atomic_int tag_n;
 };
 
 static void
@@ -398,6 +400,16 @@ writeback_env_free(drmu_writeback_env_t * const wbe)
     drmu_queue_unref(&wbe->dq);
     drmu_env_unref(&wbe->du);
     free(wbe);
+}
+
+// Get a "unique" non-zero tag no
+static unsigned int
+writeback_env_tag_new(drmu_writeback_env_t * const wbe)
+{
+    unsigned int n;
+    while ((n = atomic_fetch_add(&wbe->tag_n, 1)) == 0)
+        /* Loop */;
+    return n;
 }
 
 drmu_writeback_env_t *
@@ -495,11 +507,98 @@ drmu_writeback_env_fmt_plane(drmu_writeback_env_t * const wbe,
 
 //-----------------------------------------------------------------------------
 
+typedef struct wbq_ent_s {
+    atomic_int ref_count;
+
+    drmu_env_t * du;
+    drmu_fb_t * fb;
+    struct pollqueue * pq;
+    struct polltask * pt;
+    drmu_writeback_fb_done_fn * done_fn;
+    void * done_v;
+} wbq_ent_t;
+
+static void
+wbq_ent_free(wbq_ent_t * const ent)
+{
+    if (ent == NULL)
+        return;
+    drmu_fb_unref(&ent->fb);
+    // In normal useg these two should alreasdty be unreffed
+    polltask_delete(&ent->pt);
+    pollqueue_unref(&ent->pq);
+    free(ent);
+}
+
+static wbq_ent_t *
+wbq_ent_ref(wbq_ent_t * const ent)
+{
+    if (ent == NULL)
+        return NULL;
+    atomic_fetch_add(&ent->ref_count, 1);
+    return ent;
+}
+
+static void
+wbq_ent_unref(wbq_ent_t ** const ppent)
+{
+    wbq_ent_t * const ent = *ppent;
+
+    if (ent == NULL)
+        return;
+    *ppent = NULL;
+
+    if (atomic_fetch_sub(&ent->ref_count, 1) != 0)
+        return;
+
+    wbq_ent_free(ent);
+}
+
+static void
+writeback_fb_ent_polltask_done(void * v, short revents)
+{
+    wbq_ent_t * const ent = v;
+    printf("%s %p\n", __func__, (void*)ent);
+
+    close(drmu_fb_out_fence_take_fd(ent->fb));
+    if (revents != 0)
+        ent->done_fn(ent->done_v, ent->fb);
+    polltask_delete(&ent->pt);
+}
+
+static void
+writeback_fb_ent_commit_cb(void * v, uint64_t value)
+{
+    wbq_ent_t * const ent = v;
+    printf("%s %p\n", __func__, (void*)ent);
+
+    ent->pt = polltask_new(ent->pq, (int)value, POLLIN, writeback_fb_ent_polltask_done, ent);
+    pollqueue_add_task(ent->pt, 1000);
+    pollqueue_unref(&ent->pq);
+}
+
+static void
+writeback_fb_ent_unref_cb(void * v)
+{
+    wbq_ent_t * ent = v;
+    wbq_ent_unref(&ent);
+}
+
+static void
+writeback_fb_ent_ref_cb(void * v)
+{
+    wbq_ent_t * const ent = v;
+    wbq_ent_ref(ent);
+}
+
 struct drmu_writeback_fb_s {
     atomic_int ref_count;
 
     drmu_writeback_env_t * wbe;
     drmu_pool_t * pool;
+
+    unsigned int q_tag;
+    drmu_queue_merge_t q_merge;
 };
 
 static void
@@ -520,6 +619,8 @@ drmu_writeback_fb_new(drmu_writeback_env_t * const wbe, drmu_pool_t * const fb_p
 
     wbq->wbe = drmu_writeback_env_ref(wbe);
     wbq->pool = drmu_pool_ref(fb_pool);
+    wbq->q_tag = writeback_env_tag_new(wbe);
+    wbq->q_merge = DRMU_QUEUE_MERGE_REPLACE;
     return wbq;
 }
 
@@ -547,26 +648,23 @@ drmu_writeback_fb_unref(drmu_writeback_fb_t ** const ppwbq)
     writeback_fb_free(wbq);
 }
 
-typedef struct wbq_ent_s {
-    drmu_writeback_fb_done_fn * done_fn;
-    void * done_v;
-} wbq_ent_t;
-
-static void
-wbq_ent_free(wbq_ent_t * const ent)
-{
-    if (ent == NULL)
-        return;
-    free(ent);
-}
 
 int
-drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq, const drmu_rect_t req_dest_rect, const unsigned int rot,
+drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
+                        const drmu_rect_t dest_rect, const unsigned int rot, const uint32_t fmt,
                         drmu_writeback_fb_done_fn * const done_fn, void * const v,
                         struct drmu_atomic_s ** const ppda)
 {
     wbq_ent_t * ent = calloc(1, sizeof(*ent));
+    drmu_writeback_env_t * const wbe = wbq->wbe;
+    drmu_env_t * const du = wbe->du;
     int rv;
+
+    static const drmu_atomic_prop_fns_t fb_prop_fns = {
+        .ref    = writeback_fb_ent_ref_cb,
+        .unref  = writeback_fb_ent_unref_cb,
+        .commit = writeback_fb_ent_commit_cb,
+    };
 
     if (ent == NULL) {
         rv = -ENOMEM;
@@ -580,11 +678,24 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq, const drmu_rect_t req_dest_re
 
     ent->done_fn = done_fn;
     ent->done_v = v;
+    ent->pq = pollqueue_ref(drmu_env_pollqueue(du));
 
-    // **** Q ent!
-    (void)wbq;
-    (void)req_dest_rect;
-    (void)rot;
+    if ((ent->fb = drmu_pool_fb_new(wbq->pool, dest_rect.w, dest_rect.h, fmt, 0)) == NULL) {
+        drmu_err(du, "Failed to create fb");
+        rv = -ENOMEM;
+        goto fail;
+    }
+    if ((rv = drmu_atomic_output_add_writeback_fb_rotate(*ppda, wbe->dout, ent->fb, rot)) != 0) {
+        drmu_err(du, "Failed to add writeback fb\n");
+        goto fail;
+    }
+
+    drmu_fb_add_fence_callbacks(ent->fb, &fb_prop_fns, ent);
+
+    if ((rv = drmu_queue_queue_tagged(wbe->dq, wbq->q_tag, wbq->q_merge, ppda)) != 0) {
+        drmu_err(du, "Failed merge");
+        goto fail;
+    }
 
     return 0;
 

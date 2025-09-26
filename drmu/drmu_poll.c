@@ -563,7 +563,6 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
     }
 
     drmu_info(du, "[%d], aq=%p da=%p", aq->qno, aq, *ppda);
-    drmu_atomic_queue_set(*ppda, aq);
 
     pthread_mutex_lock(&aq->lock);
 
@@ -581,14 +580,36 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
         *ppna = da;
     }
 
-    if ((rv = drmu_atomic_move_merge(ppna, ppda)) != 0)
-        goto fail_unlock;
+    switch (qmerge) {
+        case DRMU_QUEUE_MERGE_MERGE:
+            if ((rv = drmu_atomic_move_merge(ppna, ppda)) != 0)
+                goto fail_unlock;
+            break;
+        case DRMU_QUEUE_MERGE_QUEUE:
+        case DRMU_QUEUE_MERGE_DROP:
+            if (*ppna == NULL)
+                *ppna = drmu_atomic_move(ppda);
+            break;
+        case DRMU_QUEUE_MERGE_REPLACE:
+            drmu_atomic_unref(ppna);
+            *ppna = drmu_atomic_move(ppda);
+            break;
+        default:
+            drmu_err(du, "Bad qmerge value");
+            rv = -EINVAL;
+            goto fail_unlock;
+    }
+
+    drmu_atomic_queue_set(*ppna, aq);
 
     // No pending commit?
     if (aq->cur_flip == NULL) {
         drmu_info(du, "[%d] Cur flip NULL", aq->qno);
-        rv = atomic_q_attempt_commit_next(aq);
+        if ((rv = atomic_q_attempt_commit_next(aq)) != 0)
+            goto fail_unlock;
     }
+
+    rv = 0;
 
 fail_unlock:
     pthread_mutex_unlock(&aq->lock);
