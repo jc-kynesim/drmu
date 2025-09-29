@@ -227,6 +227,7 @@ void drmprime_out_runcube_stop(drmprime_out_env_t * const dpo)
 
 //-----------------------------------------------------------------------------
 
+#define WB_OLD 0
 struct drmprime_video_env_s
 {
     drmprime_out_env_t * dpo;
@@ -236,12 +237,21 @@ struct drmprime_video_env_s
     drmu_pool_t * pic_pool;
     drmu_atomic_t * display_set;
 
+#if WB_OLD
     drmu_output_t * dxout;
     drmu_writeback_output_t * dwo;
     drmu_plane_t * dxp;
     atomic_int xcount;
     drmu_fb_t *dfb2;  // *** Kludge dfb copy
     drmu_atomic_q_t * dxq;
+#else
+    drmu_writeback_fb_t * wbq;
+
+    // Should be common?
+    drmu_writeback_env_t * wbe;
+    drmu_plane_t * dxp;
+    uint32_t xfmt;
+#endif
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -362,6 +372,7 @@ frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb, const 
     return r;
 }
 
+#if WB_OLD
 typedef struct frame_env_s {
     int ref_count;
     drmprime_video_env_t *de;
@@ -443,6 +454,49 @@ writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_don
         return 0;
     }
 }
+#else
+
+typedef struct frame_env_s {
+    drmprime_video_env_t *de;
+    drmu_rect_t dest_rect;
+} frame_env_t;
+
+static void
+frame_env_free(frame_env_t * const fe)
+{
+    free(fe);
+}
+
+static frame_env_t *
+frame_env_new(drmprime_video_env_t * const de, const drmu_rect_t dest_rect)
+{
+    frame_env_t * const fe = calloc(1, sizeof(*fe));
+    if (fe == NULL)
+        return NULL;
+
+    fe->de = de;
+    fe->dest_rect = dest_rect;
+    return fe;
+}
+
+static void
+writeback_fb_done_cb(void * v, struct drmu_fb_s * dfb)
+{
+    frame_env_t * const fe = v;
+
+    if (dfb != NULL) {
+        drmprime_video_env_t * const de = fe->de;
+        drmu_atomic_t * da = drmu_atomic_new(de->du);
+        drmu_atomic_output_add_props(da, de->dout);
+        drmu_atomic_plane_add_fb(da, de->dxp, dfb, fe->dest_rect);
+        drmu_atomic_plane_add_zpos(da, de->dxp, de->zpos);
+        drmu_atomic_queue(&da);
+    }
+
+    frame_env_free(fe);
+}
+
+#endif
 
 int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 {
@@ -511,6 +565,7 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 #endif
 
         if (drmu_rotation_is_transposed(de->rotation)) {
+#if WB_OLD
             // Pick the smaller of original size and display size for buffer
             drmu_rect_t rs = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
             if (rs.h * rs.w > de->vid_rect.h * de->vid_rect.w)
@@ -568,6 +623,66 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             de->dfb2 = dfb;
             drmu_queue_queue(de->dxq, &da);
             drmu_fb_unref(&dfb);
+#else
+            drmu_rect_t rs = drmu_rect_shr16(drmu_fb_crop_frac(dfb));
+            if (rs.h * rs.w > de->vid_rect.h * de->vid_rect.w)
+                rs = de->vid_rect;
+            unsigned int rot;
+            int rv;
+
+            frame_env_t *fe = frame_env_new(de, de->vid_rect);
+
+            if (fe == NULL) {
+                fprintf(stderr, "Failed to alloc frame_env\n");
+                return -ENOMEM;
+            }
+
+            // This should be global
+            if (de->wbe == NULL) {
+                if ((de->wbe = drmu_writeback_env_new(du)) == NULL) {
+                    fprintf(stderr, "Failed to create writeback env\n");
+                    return -1;
+                }
+                if ((de->dxp = drmu_writeback_env_fmt_plane(de->wbe, de->dout, 0, &de->xfmt)) == NULL) {
+                    fprintf(stderr, "Failed to get plane for writeback\n");
+                    return -1;
+                }
+
+                if (de->dp == NULL) {
+                    drmu_output_t * dxout = drmu_writeback_env_output(de->wbe);
+                    unsigned int types = DRMU_PLANE_TYPE_OVERLAY;
+                    if (de->zpos == 0)
+                        types |= DRMU_PLANE_TYPE_PRIMARY;
+                    de->dp = drmu_output_plane_ref_format(dxout, types, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+                    if (!de->dp) {
+                        fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
+                        drmu_atomic_unref(&da);
+                        return AVERROR(EINVAL);
+                    }
+                }
+            }
+
+            if (de->wbq == NULL) {
+                if ((de->wbq = drmu_writeback_fb_new(de->wbe, de->pic_pool)) == NULL) {
+                    fprintf(stderr, "Failed to get queue for writeback\n");
+                    return -1;
+                }
+            }
+
+            rs = drmu_writeback_fb_queue_rect(de->wbq, rs);
+            rot = drmu_writeback_fb_queue_rotation(de->wbq, de->rotation);
+
+            drmu_atomic_plane_add_fb(da, de->dp, dfb, drmu_rect_transpose(rs));
+            drmu_fb_unref(&dfb);
+
+            drmu_atomic_plane_add_rotation(da, de->dp, drmu_rotation_suba(de->rotation, rot));
+
+            if ((rv = drmu_writeback_fb_queue(de->wbq, rs, rot, de->xfmt, writeback_fb_done_cb, fe, &da)) != 0) {
+                fprintf(stderr, "Writeback FB Q fail\n");
+                return rv;
+            }
+
+#endif
         }
         else {
             if (de->dp == NULL) {
@@ -674,8 +789,14 @@ void drmprime_video_delete(drmprime_video_env_t *de)
 {
     drmu_pool_kill(&de->pic_pool);
 
+#if WB_OLD
     drmu_writeback_unref(&de->dwo);
     drmu_output_unref(&de->dxout);
+#else
+    drmu_writeback_fb_unref(&de->wbq);
+    drmu_plane_unref(&de->dxp);
+    drmu_writeback_env_unref(&de->wbe);
+#endif
 
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);

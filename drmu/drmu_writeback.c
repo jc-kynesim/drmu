@@ -14,6 +14,7 @@
 
 //*****
 #include <stdio.h>
+#include <assert.h>
 
 struct drmu_writeback_output_s
 {
@@ -58,7 +59,7 @@ static void
 writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 {
     writeback_fb_env_t * const wbe = *ppwbe;
-    printf("%s %p\n", __func__, (void*)wbe);
+    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     if (wbe == NULL)
         return;
@@ -72,7 +73,7 @@ writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 static writeback_fb_env_t *
 writeback_fb_env_ref(writeback_fb_env_t * const wbe)
 {
-    printf("%s %p\n", __func__, (void*)wbe);
+    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
     atomic_fetch_add(&wbe->ref_count, 1);
     return wbe;
 }
@@ -81,7 +82,7 @@ static void
 writeback_fb_polltask_done(void * v, short revents)
 {
     writeback_fb_env_t * wbe = v;
-    printf("%s %p\n", __func__, (void*)wbe);
+    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     close(drmu_fb_out_fence_take_fd(wbe->fb));
     if (revents != 0)
@@ -94,7 +95,7 @@ writeback_fb_commit_cb(void * v, uint64_t value)
 {
     writeback_fb_env_t * const wbe = v;
     drmu_env_t * const du = drmu_output_env(wbe->dof->dout);
-    printf("%s %p\n", __func__, (void*)wbe);
+    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     wbe->pt = polltask_new(drmu_env_pollqueue(du), (int)value, POLLIN, writeback_fb_polltask_done, wbe);
     pollqueue_add_task(wbe->pt, 1000);
@@ -512,17 +513,26 @@ typedef struct wbq_ent_s {
 
     drmu_env_t * du;
     drmu_fb_t * fb;
+    bool done;
     struct pollqueue * pq;
     struct polltask * pt;
     drmu_writeback_fb_done_fn * done_fn;
     void * done_v;
 } wbq_ent_t;
 
+static int ent_count = 0;
+
 static void
 wbq_ent_free(wbq_ent_t * const ent)
 {
+    fprintf(stderr, "%s %p count=%d\n", __func__, (void*)ent, --ent_count);
+
     if (ent == NULL)
         return;
+
+    if (!ent->done)
+        ent->done_fn(ent->done_v, NULL);
+
     drmu_fb_unref(&ent->fb);
     // In normal useg these two should alreasdty be unreffed
     polltask_delete(&ent->pt);
@@ -533,9 +543,13 @@ wbq_ent_free(wbq_ent_t * const ent)
 static wbq_ent_t *
 wbq_ent_ref(wbq_ent_t * const ent)
 {
+    int n;
     if (ent == NULL)
         return NULL;
-    atomic_fetch_add(&ent->ref_count, 1);
+    n = atomic_fetch_add(&ent->ref_count, 1);
+    fprintf(stderr, "%s %p: n=%d\n", __func__, (void*)ent, n);
+    assert(n < 10 && n >= 0);
+
     return ent;
 }
 
@@ -543,13 +557,18 @@ static void
 wbq_ent_unref(wbq_ent_t ** const ppent)
 {
     wbq_ent_t * const ent = *ppent;
+    int n;
 
     if (ent == NULL)
         return;
     *ppent = NULL;
 
-    if (atomic_fetch_sub(&ent->ref_count, 1) != 0)
+    if ((n = atomic_fetch_sub(&ent->ref_count, 1)) != 0) {
+        fprintf(stderr, "%s %p: n=%d\n", __func__, (void*)ent, n);
+        assert(n < 10 && n >= 0);
         return;
+    }
+    fprintf(stderr, "%s %p: done\n", __func__, (void*)ent);
 
     wbq_ent_free(ent);
 }
@@ -558,19 +577,22 @@ static void
 writeback_fb_ent_polltask_done(void * v, short revents)
 {
     wbq_ent_t * const ent = v;
-    printf("%s %p\n", __func__, (void*)ent);
+    fprintf(stderr, "%s %p\n", __func__, (void*)ent);
 
     close(drmu_fb_out_fence_take_fd(ent->fb));
-    if (revents != 0)
+    if (revents != 0) {
         ent->done_fn(ent->done_v, ent->fb);
+        ent->done = true;
+    }
     polltask_delete(&ent->pt);
+    drmu_fb_unref(&ent->fb);
 }
 
 static void
 writeback_fb_ent_commit_cb(void * v, uint64_t value)
 {
     wbq_ent_t * const ent = v;
-    printf("%s %p\n", __func__, (void*)ent);
+    fprintf(stderr, "%s %p\n", __func__, (void*)ent);
 
     ent->pt = polltask_new(ent->pq, (int)value, POLLIN, writeback_fb_ent_polltask_done, ent);
     pollqueue_add_task(ent->pt, 1000);
@@ -621,6 +643,8 @@ drmu_writeback_fb_new(drmu_writeback_env_t * const wbe, drmu_pool_t * const fb_p
     wbq->pool = drmu_pool_ref(fb_pool);
     wbq->q_tag = writeback_env_tag_new(wbe);
     wbq->q_merge = DRMU_QUEUE_MERGE_REPLACE;
+    fprintf(stderr, "%s Tag=%d\n", __func__, wbq->q_tag);
+
     return wbq;
 }
 
@@ -671,6 +695,8 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
         goto fail;
     }
 
+    fprintf(stderr, "%s %p count=%d\n", __func__, (void*)ent, ++ent_count);
+
     if (drmu_atomic_is_empty(*ppda)) {
         rv = 0;
         goto fail;
@@ -680,18 +706,28 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
     ent->done_v = v;
     ent->pq = pollqueue_ref(drmu_env_pollqueue(du));
 
+#if 1
+    if ((ent->fb = drmu_fb_new_dumb(du, dest_rect.w, dest_rect.h, fmt)) == NULL) {
+        drmu_err(du, "Failed to create fb");
+        rv = -ENOMEM;
+        goto fail;
+    }
+#else
     if ((ent->fb = drmu_pool_fb_new(wbq->pool, dest_rect.w, dest_rect.h, fmt, 0)) == NULL) {
         drmu_err(du, "Failed to create fb");
         rv = -ENOMEM;
         goto fail;
     }
+#endif
+
+    drmu_fb_add_fence_callbacks(ent->fb, &fb_prop_fns, ent);
+
     if ((rv = drmu_atomic_output_add_writeback_fb_rotate(*ppda, wbe->dout, ent->fb, rot)) != 0) {
         drmu_err(du, "Failed to add writeback fb\n");
         goto fail;
     }
 
-    drmu_fb_add_fence_callbacks(ent->fb, &fb_prop_fns, ent);
-
+    fprintf(stderr, "%s Tag=%d\n", __func__, wbq->q_tag);
     if ((rv = drmu_queue_queue_tagged(wbe->dq, wbq->q_tag, wbq->q_merge, ppda)) != 0) {
         drmu_err(du, "Failed merge");
         goto fail;
@@ -703,5 +739,37 @@ fail:
     drmu_atomic_unref(ppda);
     wbq_ent_free(ent);
     return rv;
+}
+
+unsigned int
+drmu_writeback_fb_queue_rotation(const drmu_writeback_fb_t * const wbq, const unsigned int req_rot)
+{
+    unsigned int rot = req_rot;
+    drmu_writeback_env_t * const wbe = wbq->wbe;
+    drmu_env_t * const du = wbe->du;
+    drmu_conn_t * const conn = drmu_output_conn(wbe->dout, 0);
+
+    if (!drmu_conn_has_rotation(conn, req_rot)) {
+        rot = drmu_rotation_is_transposed(req_rot) ?
+                DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
+        if (!drmu_conn_has_rotation(conn, rot)) {
+            drmu_err(du, "Rotation not supported by connector");
+            return DRMU_ROTATION_0;
+        }
+    }
+
+    return rot;
+}
+
+drmu_rect_t
+drmu_writeback_fb_queue_rect(const drmu_writeback_fb_t * const wbq, const drmu_rect_t dest_rect)
+{
+    drmu_rect_t r = dest_rect;
+    (void)wbq;
+
+    // *** Limit size
+    r.x = 0;
+    r.y = 0;
+    return r;
 }
 

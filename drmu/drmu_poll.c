@@ -64,6 +64,7 @@ next_flip_find_tag(const next_flips_t * const nf, const unsigned int tag)
         nf->n + nf->len - 1 - nf->size;
 
     for (i = 0; i != nf->len; ++i) {
+        fprintf(stderr, "%s[%d,%d]: Tag=%d, req=%d, len=%d\n", __func__, i, n, nf->flips[n].tag, tag, nf->len);
         if (nf->flips[n].tag == tag)
             return &nf->flips[n].da;
         n = (n == 0) ? nf->size - 1 : n - 1;
@@ -79,6 +80,7 @@ next_flip_pop_head(next_flips_t * const nf)
     if (next_flip_is_empty(nf))
         return NULL;
     flip = nf->flips[nf->n].da;
+    fprintf(stderr, "%s[%d]: Tag=%d\n", __func__, nf->n, nf->flips[nf->n].tag);
     nf->n = nf->n + 1 >= nf->size ? 0 : nf->n + 1;
     --nf->len;
     return flip;
@@ -95,6 +97,7 @@ next_flip_add_tail(next_flips_t * const nf, unsigned int tag)
             n -= nf->size;
         nf->flips[n].da = NULL;
         nf->flips[n].tag = tag;
+        fprintf(stderr, "%s[%d]: Tag=%d\n", __func__, n, nf->flips[n].tag);
         ++nf->len;
         return &nf->flips[n].da;
     }
@@ -110,6 +113,7 @@ next_flip_add_tail(next_flips_t * const nf, unsigned int tag)
         memcpy(newflips + (nf->size - nf->n), nf->flips, nf->n * sizeof(*nf->flips));
         newflips[oldlen].da = NULL;
         newflips[oldlen].tag = tag;
+        fprintf(stderr, "%s[%d]: Resize, Tag=%d\n", __func__, oldlen, newflips[oldlen].tag);
         free(nf->flips);
 
         nf->flips = newflips;
@@ -219,9 +223,9 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
     drmu_atomic_t * const da = user_data;
     drmu_atomic_q_t * const aq = drmu_atomic_queue_get(da);
 
-    printf("da=%p\n", (void*)da);
-    printf("aq=%p\n", (void*)aq);
-    printf("qno=%d\n", aq->qno);
+    fprintf(stderr, "da=%p\n", (void*)da);
+    fprintf(stderr, "aq=%p\n", (void*)aq);
+    fprintf(stderr, "qno=%d\n", aq->qno);
 
     // At this point:
     //  next   The atomic we are about to commit
@@ -371,7 +375,7 @@ evt_read(drmu_poll_env_t * const pe)
                 if (EVT(buf + i)->length < sizeof(*vb))
                     break;
 
-                printf("%s: Crtc=%d, Seq=%d, Userdata=%p\n", __func__, vb->crtc_id, vb->sequence, (void *)(uintptr_t) vb->user_data);
+                fprintf(stderr, "%s: Crtc=%d, Seq=%d, Userdata=%p\n", __func__, vb->crtc_id, vb->sequence, (void *)(uintptr_t) vb->user_data);
                 atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
                 break;
             }
@@ -573,7 +577,7 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
         drmu_atomic_t * da;
         if ((rv = aq->next_atomic_fn(du, &da, aq->next_atomic_v)) != 0)
             goto fail_unlock;
-        if ((ppna = next_flip_add_tail(&aq->next, 0)) == NULL) {
+        if ((ppna = next_flip_add_tail(&aq->next, tag)) == NULL) {
             drmu_atomic_unref(&da);
             rv = -ENOMEM;
             goto fail_unlock;
@@ -592,6 +596,7 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
                 *ppna = drmu_atomic_move(ppda);
             break;
         case DRMU_QUEUE_MERGE_REPLACE:
+            fprintf(stderr, "%s: Replace %p with %p\n", __func__, (void*)*ppna, (void*)*ppda);
             drmu_atomic_unref(ppna);
             *ppna = drmu_atomic_move(ppda);
             break;

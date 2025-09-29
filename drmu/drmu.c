@@ -1100,10 +1100,7 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
     drmu_env_t * const du = dfb->du;
     unsigned int i;
 
-    if (dfb->pre_delete_fn && dfb->pre_delete_fn(dfb, dfb->pre_delete_v) != 0)
-        return;
-
-    // * If we implement callbacks this logic will want revision
+    // Assume pre_delete is used for pool - kill stuff we don't want in pool
     if (dfb->fence_fd != -1) {
         drmu_warn(du, "Out fence still set on FB on delete");
         if (drmu_fb_out_fence_wait(dfb, 500) == 0) {
@@ -1111,6 +1108,18 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
             close(dfb->fence_fd);
         }
     }
+
+    // ************ EEEEK - probably not????
+    dfb->fence_fns.unref(dfb->fence_v);
+
+    dfb->fence_fns.ref    = drmu_prop_fn_null_ref;
+    dfb->fence_fns.unref  = drmu_prop_fn_null_unref;
+    dfb->fence_fns.commit = drmu_prop_fn_null_commit;
+    dfb->fence_v = NULL;
+
+    // Pre delete
+    if (dfb->pre_delete_fn && dfb->pre_delete_fn(dfb, dfb->pre_delete_v) != 0)
+        return;
 
     if (dfb->fb.fb_id != 0)
         drmu_ioctl(du, DRM_IOCTL_MODE_RMFB, &dfb->fb.fb_id);

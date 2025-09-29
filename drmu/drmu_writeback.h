@@ -95,13 +95,15 @@ struct drmu_writeback_fb_s;
 typedef struct drmu_writeback_fb_s drmu_writeback_fb_t;
 
 // fb_pool is the pool to alloc wb fbs from
-drmu_writeback_fb_t * drmu_writeback_fb_new(drmu_writeback_env_t * const wbq, struct drmu_pool_s * const fb_pool);
+drmu_writeback_fb_t * drmu_writeback_fb_new(drmu_writeback_env_t * const wbe, struct drmu_pool_s * const fb_pool);
 drmu_writeback_fb_t * drmu_writeback_fb_ref(drmu_writeback_fb_t * const wbq);
 void drmu_writeback_fb_unref(drmu_writeback_fb_t ** const ppwbq);
 
 // Returns rot supported by Q that enables req_rot
 // Use drmu_rotation_suba(req_rot, <rv>) to get needed fb rotation
 unsigned int drmu_writeback_fb_queue_rotation(const drmu_writeback_fb_t * const wbq, const unsigned int req_rot);
+
+drmu_rect_t drmu_writeback_fb_queue_rect(const drmu_writeback_fb_t * const wbq, const drmu_rect_t dest_rect);
 
 // dfb NULL if writeback failed or abandoned
 typedef void drmu_writeback_fb_done_fn(void * v, struct drmu_fb_s * dfb);
