@@ -668,19 +668,15 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
     ent->done_v = v;
     ent->pq = pollqueue_ref(drmu_env_pollqueue(du));
 
-#if 1
-    if ((ent->fb = drmu_fb_new_dumb(du, dest_rect.w, dest_rect.h, fmt)) == NULL) {
+    ent->fb = (wbq->pool == NULL) ?
+        drmu_fb_new_dumb(du, dest_rect.w, dest_rect.h, fmt) :
+        drmu_pool_fb_new(wbq->pool, dest_rect.w, dest_rect.h, fmt, 0);
+
+    if (ent->fb == NULL) {
         drmu_err(du, "Failed to create fb");
         rv = -ENOMEM;
         goto fail;
     }
-#else
-    if ((ent->fb = drmu_pool_fb_new(wbq->pool, dest_rect.w, dest_rect.h, fmt, 0)) == NULL) {
-        drmu_err(du, "Failed to create fb");
-        rv = -ENOMEM;
-        goto fail;
-    }
-#endif
 
     rv = drmu_atomic_output_add_writeback_fb_callback(*ppda, wbe->dout, ent->fb, rot, writeback_fb_ent_commit_cb, ent);
     ent = NULL; // Ownership taken by call
