@@ -22,9 +22,6 @@
 
 #include <libdrm/drm_mode.h>
 
-//*****
-#include <stdio.h>
-
 //----------------------------------------------------------------------------
 //
 // Atomic Q fns (internal)
@@ -64,7 +61,6 @@ next_flip_find_tag(const next_flips_t * const nf, const unsigned int tag)
         nf->n + nf->len - 1 - nf->size;
 
     for (i = 0; i != nf->len; ++i) {
-        fprintf(stderr, "%s[%d,%d]: Tag=%d, req=%d, len=%d\n", __func__, i, n, nf->flips[n].tag, tag, nf->len);
         if (nf->flips[n].tag == tag)
             return &nf->flips[n].da;
         n = (n == 0) ? nf->size - 1 : n - 1;
@@ -80,7 +76,6 @@ next_flip_pop_head(next_flips_t * const nf)
     if (next_flip_is_empty(nf))
         return NULL;
     flip = nf->flips[nf->n].da;
-    fprintf(stderr, "%s[%d]: Tag=%d\n", __func__, nf->n, nf->flips[nf->n].tag);
     nf->n = nf->n + 1 >= nf->size ? 0 : nf->n + 1;
     --nf->len;
     return flip;
@@ -97,7 +92,6 @@ next_flip_add_tail(next_flips_t * const nf, unsigned int tag)
             n -= nf->size;
         nf->flips[n].da = NULL;
         nf->flips[n].tag = tag;
-        fprintf(stderr, "%s[%d]: Tag=%d\n", __func__, n, nf->flips[n].tag);
         ++nf->len;
         return &nf->flips[n].da;
     }
@@ -113,7 +107,6 @@ next_flip_add_tail(next_flips_t * const nf, unsigned int tag)
         memcpy(newflips + (nf->size - nf->n), nf->flips, nf->n * sizeof(*nf->flips));
         newflips[oldlen].da = NULL;
         newflips[oldlen].tag = tag;
-        fprintf(stderr, "%s[%d]: Resize, Tag=%d\n", __func__, oldlen, newflips[oldlen].tag);
         free(nf->flips);
 
         nf->flips = newflips;
@@ -175,7 +168,7 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
     int rv;
 
     if ((rv = drmu_atomic_commit(da, flags)) == 0) {
-//        if (aq->retry_count != 0)
+        if (aq->retry_count != 0)
             drmu_warn(du, "[%d]: Atomic commit OK: %p", aq->qno, da);
         aq->cur_flip = next_flip_pop_head(&aq->next);
         aq->retry_count = 0;
@@ -223,16 +216,11 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
     drmu_atomic_t * const da = user_data;
     drmu_atomic_q_t * const aq = drmu_atomic_queue_get(da);
 
-    fprintf(stderr, "da=%p\n", (void*)da);
-    fprintf(stderr, "aq=%p\n", (void*)aq);
-    fprintf(stderr, "qno=%d\n", aq->qno);
-
     // At this point:
     //  next   The atomic we are about to commit
     //  cur    The last atomic we committed, now in use (must be != NULL)
     //  last   The atomic that has just become obsolete
 
-    drmu_info(drmu_atomic_env(da), "da=%p, aq=%p, cur_flip=%p", da, aq, aq->cur_flip);
     pthread_mutex_lock(&aq->lock);
 
     if (da != aq->cur_flip) {
@@ -357,8 +345,6 @@ evt_read(drmu_poll_env_t * const pe)
     const ssize_t rlen = read(drmu_fd(du), buf, sizeof(buf));
     size_t i;
 
-    drmu_info(du, "Enter");
-
     if (rlen < 0) {
         const int err = errno;
         drmu_err(du, "Event read failure: %s", strerror(err));
@@ -375,7 +361,6 @@ evt_read(drmu_poll_env_t * const pe)
                 if (EVT(buf + i)->length < sizeof(*vb))
                     break;
 
-                fprintf(stderr, "%s: Crtc=%d, Seq=%d, Userdata=%p\n", __func__, vb->crtc_id, vb->sequence, (void *)(uintptr_t) vb->user_data);
                 atomic_page_flip_cb(du, (void *)(uintptr_t)vb->user_data);
                 break;
             }
@@ -562,12 +547,8 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
         goto fail_unref;
     }
 
-    if (drmu_atomic_is_empty(*ppda)) {
-        drmu_info(du, "da empty");
+    if (drmu_atomic_is_empty(*ppda))
         goto fail_unref;  // rv = 0 so not an error really
-    }
-
-    drmu_info(du, "[%d], aq=%p da=%p", aq->qno, aq, *ppda);
 
     pthread_mutex_lock(&aq->lock);
 
@@ -596,7 +577,6 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
                 *ppna = drmu_atomic_move(ppda);
             break;
         case DRMU_QUEUE_MERGE_REPLACE:
-            fprintf(stderr, "%s: Replace %p with %p\n", __func__, (void*)*ppna, (void*)*ppda);
             drmu_atomic_unref(ppna);
             *ppna = drmu_atomic_move(ppda);
             break;
@@ -610,7 +590,6 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
 
     // No pending commit?
     if (aq->cur_flip == NULL) {
-        drmu_info(du, "[%d] Cur flip NULL", aq->qno);
         if ((rv = atomic_q_attempt_commit_next(aq)) != 0)
             goto fail_unlock;
     }

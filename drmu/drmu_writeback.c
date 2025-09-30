@@ -12,8 +12,6 @@
 #include "drmu_pool.h"
 #include "pollqueue.h"
 
-//*****
-#include <stdio.h>
 #include <assert.h>
 
 struct drmu_writeback_output_s
@@ -59,7 +57,6 @@ static void
 writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 {
     writeback_fb_env_t * const wbe = *ppwbe;
-    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     if (wbe == NULL)
         return;
@@ -73,7 +70,6 @@ writeback_fb_env_unref(writeback_fb_env_t ** const ppwbe)
 static writeback_fb_env_t *
 writeback_fb_env_ref(writeback_fb_env_t * const wbe)
 {
-    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
     atomic_fetch_add(&wbe->ref_count, 1);
     return wbe;
 }
@@ -82,7 +78,6 @@ static void
 writeback_fb_polltask_done(void * v, short revents)
 {
     writeback_fb_env_t * wbe = v;
-    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     close(drmu_fb_out_fence_take_fd(wbe->fb));
     if (revents != 0)
@@ -95,7 +90,6 @@ writeback_fb_commit_cb(void * v, uint64_t value)
 {
     writeback_fb_env_t * const wbe = v;
     drmu_env_t * const du = drmu_output_env(wbe->dof->dout);
-    fprintf(stderr, "%s %p\n", __func__, (void*)wbe);
 
     wbe->pt = polltask_new(drmu_env_pollqueue(du), (int)value, POLLIN, writeback_fb_polltask_done, wbe);
     pollqueue_add_task(wbe->pt, 1000);
@@ -520,13 +514,9 @@ typedef struct wbq_ent_s {
     void * done_v;
 } wbq_ent_t;
 
-static int ent_count = 0;
-
 static void
 wbq_ent_free(wbq_ent_t * const ent)
 {
-    fprintf(stderr, "%s %p count=%d\n", __func__, (void*)ent, --ent_count);
-
     if (ent == NULL)
         return;
 
@@ -543,13 +533,9 @@ wbq_ent_free(wbq_ent_t * const ent)
 static wbq_ent_t *
 wbq_ent_ref(wbq_ent_t * const ent)
 {
-    int n;
     if (ent == NULL)
         return NULL;
-    n = atomic_fetch_add(&ent->ref_count, 1);
-    fprintf(stderr, "%s %p: n=%d\n", __func__, (void*)ent, n);
-    assert(n < 10 && n >= 0);
-
+    atomic_fetch_add(&ent->ref_count, 1);
     return ent;
 }
 
@@ -557,18 +543,13 @@ static void
 wbq_ent_unref(wbq_ent_t ** const ppent)
 {
     wbq_ent_t * const ent = *ppent;
-    int n;
 
     if (ent == NULL)
         return;
     *ppent = NULL;
 
-    if ((n = atomic_fetch_sub(&ent->ref_count, 1)) != 0) {
-        fprintf(stderr, "%s %p: n=%d\n", __func__, (void*)ent, n);
-        assert(n < 10 && n >= 0);
+    if (atomic_fetch_sub(&ent->ref_count, 1) != 0)
         return;
-    }
-    fprintf(stderr, "%s %p: done\n", __func__, (void*)ent);
 
     wbq_ent_free(ent);
 }
@@ -577,7 +558,6 @@ static void
 writeback_fb_ent_polltask_done(void * v, short revents)
 {
     wbq_ent_t * ent = v;
-    fprintf(stderr, "%s %p\n", __func__, (void*)ent);
 
     close(drmu_fb_out_fence_take_fd(ent->fb));
     if (revents != 0) {
@@ -593,8 +573,6 @@ static void
 writeback_fb_ent_commit_cb(void * v, int fd, drmu_fb_t * dfb)
 {
     wbq_ent_t * ent = v;
-
-    fprintf(stderr, "%s ent=%p fd=%d dfb=%p\n", __func__, (void*)ent, fd, (void*)dfb);
 
     if (fd != -1 && dfb != NULL) {
         ent->pt = polltask_new(ent->pq, fd, POLLIN, writeback_fb_ent_polltask_done, wbq_ent_ref(ent));
@@ -636,7 +614,6 @@ drmu_writeback_fb_new(drmu_writeback_env_t * const wbe, drmu_pool_t * const fb_p
     wbq->pool = drmu_pool_ref(fb_pool);
     wbq->q_tag = writeback_env_tag_new(wbe);
     wbq->q_merge = DRMU_QUEUE_MERGE_REPLACE;
-    fprintf(stderr, "%s Tag=%d\n", __func__, wbq->q_tag);
 
     return wbq;
 }
@@ -682,8 +659,6 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
         goto fail;
     }
 
-    fprintf(stderr, "%s %p count=%d\n", __func__, (void*)ent, ++ent_count);
-
     if (drmu_atomic_is_empty(*ppda)) {
         rv = 0;
         goto fail;
@@ -714,7 +689,6 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
         goto fail;
     }
 
-    fprintf(stderr, "%s Tag=%d\n", __func__, wbq->q_tag);
     if ((rv = drmu_queue_queue_tagged(wbe->dq, wbq->q_tag, wbq->q_merge, ppda)) != 0) {
         drmu_err(du, "Failed merge");
         goto fail;
