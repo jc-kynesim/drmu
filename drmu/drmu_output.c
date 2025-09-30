@@ -504,26 +504,30 @@ fail:
 }
 
 int
-drmu_atomic_output_add_writeback_fb_rotate(drmu_atomic_t * const da_out, drmu_output_t * const dout,
-                                    drmu_fb_t * const dfb, const unsigned int rot)
+drmu_atomic_output_add_writeback_fb_callback(drmu_atomic_t * const da_out, drmu_output_t * const dout,
+                                    drmu_fb_t * const dfb, const unsigned int rot,
+                                    drmu_fb_fence_fd_fn * const fn, void * const v)
 {
     drmu_env_t * const du = dout->du;
     drmu_atomic_t * da = drmu_atomic_new(drmu_atomic_env(da_out));
-    int rv = -ENOMEM;
-    struct drm_mode_modeinfo mode = (rot & DRMU_ROTATION_TRANSPOSE) == 0 ?
+    int rv;
+    struct drm_mode_modeinfo mode = !drmu_rotation_is_transposed(rot) ?
         modeinfo_fake(drmu_fb_width(dfb), drmu_fb_height(dfb)) :
         modeinfo_fake(drmu_fb_height(dfb), drmu_fb_width(dfb));
     drmu_conn_t * const dn = dout->dns[0];
 
-    if (da == NULL)
+    if (da == NULL) {
+        if (fn)
+            fn(v, -1, NULL);
         return -ENOMEM;
+    }
 
-    if ((rv = drmu_atomic_conn_add_rotation(da, dn, rot)) != 0) {
-        drmu_err(du, "Failed to add rotation to conn");
+    if ((rv = drmu_atomic_conn_add_writeback_fb(da, dn, dfb, fn, v)) != 0) {
+        drmu_err(du, "Failed to add FB to conn");
         goto fail;
     }
-    if ((rv = drmu_atomic_conn_add_writeback_fb(da, dn, dfb)) != 0) {
-        drmu_err(du, "Failed to add FB to conn");
+    if ((rv = drmu_atomic_conn_add_rotation(da, dn, rot)) != 0) {
+        drmu_err(du, "Failed to add rotation to conn");
         goto fail;
     }
     if ((rv = drmu_atomic_crtc_add_modeinfo(da, dout->dc, &mode)) != 0) {
@@ -544,6 +548,13 @@ drmu_atomic_output_add_writeback_fb_rotate(drmu_atomic_t * const da_out, drmu_ou
 fail:
     drmu_atomic_unref(&da);
     return rv;
+}
+
+int
+drmu_atomic_output_add_writeback_fb_rotate(drmu_atomic_t * const da_out, drmu_output_t * const dout,
+                                    drmu_fb_t * const dfb, const unsigned int rot)
+{
+    return drmu_atomic_output_add_writeback_fb_callback(da_out, dout, dfb, rot, NULL, NULL);
 }
 
 int

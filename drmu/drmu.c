@@ -1507,6 +1507,7 @@ int drmu_fb_read_end(drmu_fb_t * const dfb)
     return fb_sync(dfb, DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
 }
 
+// **** KILLME ****
 void
 drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const drmu_atomic_prop_fns_t * const fns, void * v)
 {
@@ -1516,28 +1517,55 @@ drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const drmu_atomic_prop_fns_t 
     dfb->fence_v = v;
 }
 
+typedef struct fb_fence_cb_env_s {
+    atomic_int ref_count;
+    drmu_fb_t * dfb;
+    drmu_fb_fence_fd_fn * fn;
+    void * v;
+} fb_fence_cb_env_t;
+
+static void
+fb_fence_cb_env_free(fb_fence_cb_env_t * const ffce)
+{
+    ffce->fn(ffce->v, -1, NULL);
+    drmu_fb_unref(&ffce->dfb);
+    free(ffce);
+}
+
+static fb_fence_cb_env_t *
+fb_fence_cb_env_new(drmu_fb_t * dfb, drmu_fb_fence_fd_fn * fn, void * v)
+{
+    fb_fence_cb_env_t * const ffce = malloc(sizeof(*ffce));
+    if (ffce == NULL)
+        return NULL;
+    atomic_init(&ffce->ref_count, 0);
+    ffce->dfb = drmu_fb_ref(dfb);
+    ffce->fn = fn;
+    ffce->v = v;
+    return ffce;
+}
+
 static void
 atomic_prop_fb_out_fence_unref_cb(void * v)
 {
-    drmu_fb_t * dfb = v;
-    dfb->fence_fns.unref(dfb->fence_v);
-    drmu_fb_unref(&dfb);
+    fb_fence_cb_env_t * const ffce = v;
+    if (atomic_fetch_sub(&ffce->ref_count, 1) != 0)
+        return;
+    fb_fence_cb_env_free(ffce);
 }
 
 static void
 atomic_prop_fb_out_fence_ref_cb(void * v)
 {
-    drmu_fb_t * dfb = v;
-    drmu_fb_ref(dfb);
-    dfb->fence_fns.ref(dfb->fence_v);
+    fb_fence_cb_env_t * const ffce = v;
+    atomic_fetch_add(&ffce->ref_count, 1);
 }
 
 static void
 atomic_prop_fb_out_fence_commit_cb(void * v, uint64_t value)
 {
-    drmu_fb_t * dfb = v;
-    (void)value;
-    dfb->fence_fns.commit(dfb->fence_v, dfb->fence_fd);  // Would really like FB too?
+    fb_fence_cb_env_t * const ffce = v;
+    ffce->fn(ffce->v, *(int*)(intptr_t)(value), ffce->dfb);
 }
 
 // Writeback fence
@@ -1545,20 +1573,33 @@ atomic_prop_fb_out_fence_commit_cb(void * v, uint64_t value)
 // (This is as a handy hint that you must wait for the previous fence
 // to go ready before you set a new one)
 static int
-atomic_fb_add_out_fence(drmu_atomic_t * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_fb_t * const dfb)
+atomic_fb_add_out_fence(drmu_atomic_t * const da, const uint32_t obj_id, const uint32_t prop_id, drmu_fb_t * const dfb,
+                        drmu_fb_fence_fd_fn * fn, void * v)
 {
-    static const drmu_atomic_prop_fns_t fns = {
+    int rv;
+    fb_fence_cb_env_t * const ffce = fb_fence_cb_env_new(dfb, fn, v);
+
+    static const drmu_atomic_prop_fns_t fence_fns = {
         .ref    = atomic_prop_fb_out_fence_ref_cb,
         .unref  = atomic_prop_fb_out_fence_unref_cb,
         .commit = atomic_prop_fb_out_fence_commit_cb
     };
 
-    if (!dfb)
-        return -EINVAL;
-    if (dfb->fence_fd != -1)
-        return -EBUSY;
+    if (ffce == NULL) {
+        fn(v, -1, NULL);
+        return -ENOMEM;
+    }
 
-    return drmu_atomic_add_prop_generic(da, obj_id, prop_id, (uintptr_t)&dfb->fence_fd, &fns, dfb);
+    if (!dfb)
+        rv = -EINVAL;
+    else if (dfb->fence_fd != -1)
+        rv = -EBUSY;
+    else
+        rv = drmu_atomic_add_prop_generic(da, obj_id, prop_id, (uintptr_t)&dfb->fence_fd, &fence_fns, ffce);
+
+    // ref will be taken by add_prop_generic if it succeeds
+    atomic_prop_fb_out_fence_unref_cb(ffce);
+    return rv;
 }
 
 // For allocation purposes given fb_pixel bits how tall
@@ -2561,18 +2602,31 @@ drmu_atomic_conn_add_rotation(drmu_atomic_t * const da, drmu_conn_t * const dn, 
             drmu_atomic_add_prop_bitmask(da, dn->conn.connector_id, dn->pid.rotation, dn->rot_vals[rotation]);
 }
 
+static void
+fb_fence_cb_null_cb(void * v, int fd, drmu_fb_t * dfb)
+{
+    (void)v;
+    (void)fd;
+    (void)dfb;
+}
+
 int
 drmu_atomic_conn_add_writeback_fb(drmu_atomic_t * const da_out, drmu_conn_t * const dn,
-                                  drmu_fb_t * const dfb)
+                                  drmu_fb_t * const dfb,
+                                  drmu_fb_fence_fd_fn * const fn_req, void * const v)
 {
+    drmu_fb_fence_fd_fn * const fn = (fn_req != NULL) ? fn_req : fb_fence_cb_null_cb;
+
     // Add both or neither, so build a temp atomic to store the intermediate result
     drmu_atomic_t * da = drmu_atomic_new(drmu_atomic_env(da_out));
     int rv;
 
-    if (!da)
+    if (!da) {
+        fn(v, -1, NULL);
         return -ENOMEM;
+    }
 
-    if ((rv = atomic_fb_add_out_fence(da, dn->conn.connector_id, dn->pid.writeback_out_fence_ptr, dfb)) != 0)
+    if ((rv = atomic_fb_add_out_fence(da, dn->conn.connector_id, dn->pid.writeback_out_fence_ptr, dfb, fn, v)) != 0)
         goto fail;
 
     if ((rv = drmu_atomic_add_prop_fb(da, dn->conn.connector_id, dn->pid.writeback_fb_id, dfb)) != 0)

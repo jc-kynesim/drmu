@@ -266,6 +266,16 @@ int drmu_fb_read_end(drmu_fb_t * const dfb);
 struct drmu_atomic_prop_fns_s;
 void drmu_fb_add_fence_callbacks(drmu_fb_t * const dfb, const struct drmu_atomic_prop_fns_s * const fns, void * v);
 
+// Called after commit succeeded and/or when atomic deleted
+//
+// On commit (with dfb != NULL, fd != -1) may possibly be called > once if
+// atomic copied or reused
+//
+// On delete (with dfb == NULL, fd == -1) will be called once after any commit
+// callbacks. If atomic deleted before commit or commit has error then commit
+// may never be called.
+typedef void drmu_fb_fence_fd_fn(void * v, int fd, drmu_fb_t * dfb);
+
 // Wait for data to become ready when fb used as destination of writeback
 // Returns:
 //  -ve   error
@@ -345,9 +355,12 @@ int drmu_atomic_conn_add_broadcast_rgb(struct drmu_atomic_s * const da, drmu_con
 // Add crtc id
 int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_crtc_t * const dc);
 
-// Add writeback fb & fence
+// Add writeback fb & fence with callback
 // Neither makes sense without the other so do together
-int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
+// If fn is null then no callback, user must wait
+int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da_out, drmu_conn_t * const dn,
+                                      drmu_fb_t * const dfb,
+                                      drmu_fb_fence_fd_fn * const fn, void * const v);
 
 // List of supported writeback formats - no modifiers supported
 // *ppcount receives the count
@@ -422,7 +435,7 @@ static inline bool drmu_rotation_is_transposed(const unsigned int r)
 }
 
 // Transpose r if c is transposed.
-// Probably not a useful user fn biut used in +/-
+// Probably not a useful user fn but used in +/-
 static inline unsigned int
 drmu_rotation_ctranspose(const unsigned int r, const unsigned int c)
 {

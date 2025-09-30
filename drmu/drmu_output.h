@@ -74,6 +74,10 @@ int drmu_atomic_output_add_writeback_fb(drmu_atomic_t * const da_req, drmu_outpu
 int drmu_atomic_output_add_writeback_fb_rotate(drmu_atomic_t * const da_out, drmu_output_t * const dout,
                                     drmu_fb_t * const dfb, const unsigned int rot);
 
+int drmu_atomic_output_add_writeback_fb_callback(drmu_atomic_t * const da_out, drmu_output_t * const dout,
+                                    drmu_fb_t * const dfb, const unsigned int rot,
+                                    drmu_fb_fence_fd_fn * const fn, void * const v);
+
 // Add a writeback connector & find a crtc for it
 int drmu_output_add_writeback(drmu_output_t * const dout);
 

@@ -576,7 +576,7 @@ wbq_ent_unref(wbq_ent_t ** const ppent)
 static void
 writeback_fb_ent_polltask_done(void * v, short revents)
 {
-    wbq_ent_t * const ent = v;
+    wbq_ent_t * ent = v;
     fprintf(stderr, "%s %p\n", __func__, (void*)ent);
 
     close(drmu_fb_out_fence_take_fd(ent->fb));
@@ -586,31 +586,24 @@ writeback_fb_ent_polltask_done(void * v, short revents)
     }
     polltask_delete(&ent->pt);
     drmu_fb_unref(&ent->fb);
-}
-
-static void
-writeback_fb_ent_commit_cb(void * v, uint64_t value)
-{
-    wbq_ent_t * const ent = v;
-    fprintf(stderr, "%s %p\n", __func__, (void*)ent);
-
-    ent->pt = polltask_new(ent->pq, (int)value, POLLIN, writeback_fb_ent_polltask_done, ent);
-    pollqueue_add_task(ent->pt, 1000);
-    pollqueue_unref(&ent->pq);
-}
-
-static void
-writeback_fb_ent_unref_cb(void * v)
-{
-    wbq_ent_t * ent = v;
     wbq_ent_unref(&ent);
 }
 
 static void
-writeback_fb_ent_ref_cb(void * v)
+writeback_fb_ent_commit_cb(void * v, int fd, drmu_fb_t * dfb)
 {
-    wbq_ent_t * const ent = v;
-    wbq_ent_ref(ent);
+    wbq_ent_t * ent = v;
+
+    fprintf(stderr, "%s ent=%p fd=%d dfb=%p\n", __func__, (void*)ent, fd, (void*)dfb);
+
+    if (fd != -1 && dfb != NULL) {
+        ent->pt = polltask_new(ent->pq, fd, POLLIN, writeback_fb_ent_polltask_done, wbq_ent_ref(ent));
+        pollqueue_add_task(ent->pt, 1000);
+        pollqueue_unref(&ent->pq);
+    }
+    else {
+        wbq_ent_unref(&ent);
+    }
 }
 
 struct drmu_writeback_fb_s {
@@ -684,12 +677,6 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
     drmu_env_t * const du = wbe->du;
     int rv;
 
-    static const drmu_atomic_prop_fns_t fb_prop_fns = {
-        .ref    = writeback_fb_ent_ref_cb,
-        .unref  = writeback_fb_ent_unref_cb,
-        .commit = writeback_fb_ent_commit_cb,
-    };
-
     if (ent == NULL) {
         rv = -ENOMEM;
         goto fail;
@@ -720,9 +707,9 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
     }
 #endif
 
-    drmu_fb_add_fence_callbacks(ent->fb, &fb_prop_fns, ent);
-
-    if ((rv = drmu_atomic_output_add_writeback_fb_rotate(*ppda, wbe->dout, ent->fb, rot)) != 0) {
+    rv = drmu_atomic_output_add_writeback_fb_callback(*ppda, wbe->dout, ent->fb, rot, writeback_fb_ent_commit_cb, ent);
+    ent = NULL; // Ownership taken by call
+    if (rv != 0) {
         drmu_err(du, "Failed to add writeback fb\n");
         goto fail;
     }
@@ -737,7 +724,7 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
 
 fail:
     drmu_atomic_unref(ppda);
-    wbq_ent_free(ent);
+    wbq_ent_unref(&ent);
     return rv;
 }
 
