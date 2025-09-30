@@ -754,7 +754,10 @@ drmu_writeback_fb_queue_rect(const drmu_writeback_fb_t * const wbq, const drmu_r
     drmu_rect_t r = dest_rect;
     (void)wbq;
 
-    // *** Limit size
+    // Pi has a max input width -> output height
+    if (r.h > 1920)
+        r.h = 1920;
+
     r.x = 0;
     r.y = 0;
     return r;
