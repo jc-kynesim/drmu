@@ -57,6 +57,7 @@ drmu_writeback_env_new(struct drmu_env_s * const du)
         drmu_err(du, "Cannot allocate queue");
         goto fail;
     }
+    drmu_queue_keep_last_set(wbe->dq, false);
 
     if ((wbe->dout = drmu_output_new(du)) == NULL) {
         drmu_err(du, "Cannot allocate output");

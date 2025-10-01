@@ -145,14 +145,17 @@ next_flip_uninit(next_flips_t * const nf)
 
 struct drmu_atomic_q_s {
     atomic_int ref_count; // 0 - free, 1 - uniniting, 2 - one ref
+
+    bool discard_last;
+    unsigned int retry_count;
+    unsigned int qno; // Handy for debug
+
     pthread_mutex_t lock;
     pthread_cond_t cond;
     next_flips_t next;
     drmu_atomic_t * cur_flip;
     drmu_atomic_t * last_flip;
-    unsigned int retry_count;
     struct polltask * retry_task;
-    unsigned int qno; // Handy for debug
 };
 
 // Needs locked
@@ -210,7 +213,7 @@ atomic_q_retry_cb(void * v, short revents)
 static void
 atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
 {
-    drmu_atomic_t * const da = user_data;
+    drmu_atomic_t * da = user_data;
     drmu_atomic_q_t * const aq = drmu_atomic_queue_get(da);
 
     // At this point:
@@ -223,16 +226,25 @@ atomic_page_flip_cb(drmu_env_t * const du, void *user_data)
     if (da != aq->cur_flip) {
         drmu_err(du, "%s: User data el (%p) != cur (%p)", __func__, da, aq->cur_flip);
     }
-
-    // Must merge cur into last rather than just replace last as there may
-    // still be things on screen not updated by the current commit
-    drmu_atomic_move_merge(&aq->last_flip, &aq->cur_flip);
+    aq->cur_flip = NULL;
 
     if (!next_flip_is_empty(&aq->next))
         atomic_q_attempt_commit_next(aq);
 
     pthread_cond_broadcast(&aq->cond);
     pthread_mutex_unlock(&aq->lock);
+
+    // This is the only place last_flip is written when not shutting down
+    // so we don't need the lock
+    if (aq->discard_last) {
+        // Writeback doesn't need to keep the source once done
+        drmu_atomic_unref(&da);
+    }
+    else {
+        // Must merge cur into last rather than just replace last as there may
+        // still be things on screen not updated by the current commit
+        drmu_atomic_move_merge(&aq->last_flip, &da);
+    }
 }
 
 static int
@@ -624,6 +636,12 @@ drmu_queue_wait(drmu_atomic_q_t * const aq)
 
     pthread_mutex_unlock(&aq->lock);
     return rv;
+}
+
+void
+drmu_queue_keep_last_set(drmu_atomic_q_t * const aq, const bool keep_last)
+{
+    aq->discard_last = !keep_last;
 }
 
 int
