@@ -582,7 +582,8 @@ drmu_output_add_writeback(drmu_output_t * const dout)
 
     for (unsigned int i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         drmu_info(du, "%d: try %s", i, drmu_conn_name(dn_t));
-        if (!drmu_conn_is_writeback(dn_t))
+        if (!drmu_conn_is_writeback(dn_t) ||
+            drmu_conn_is_claimed(dn_t))
             continue;
         dn = dn_t;
         break;
@@ -605,6 +606,8 @@ drmu_output_add_writeback(drmu_output_t * const dout)
 
         if ((dc_t = drmu_env_crtc_find_n(du, i)) == NULL)
             break;
+        if (drmu_crtc_is_claimed(dc_t))
+            continue;
 
         if (try_conn_crtc(du, dn, dc_t) == 0) {
             dc = dc_t;
@@ -619,6 +622,16 @@ drmu_output_add_writeback(drmu_output_t * const dout)
 
     if ((rv = check_conns_size(dout)) != 0)
         return rv;
+
+    if ((rv = drmu_conn_claim_ref(dn)) != 0) {
+        drmu_err(du, "Conn is already claimed");
+        return rv;
+    }
+    if ((rv = drmu_crtc_claim_ref(dc)) != 0) {
+        drmu_err(du, "CRTC is already claimed");
+        drmu_conn_unref(&dn);
+        return rv;
+    }
 
     dout->dns[dout->conn_n++] = dn;
     dout->dc = dc;
