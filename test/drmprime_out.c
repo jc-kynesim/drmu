@@ -362,90 +362,6 @@ frame_output_rect(drmprime_video_env_t * const de, drmu_fb_t * const dfb, const 
     return r;
 }
 
-#if WB_OLD
-typedef struct frame_env_s {
-    int ref_count;
-    drmprime_video_env_t *de;
-    drmu_atomic_t * da;
-    drmu_fb_t * dfb;
-} frame_env_t;
-
-static void
-writeback_done_cb(void * v, struct drmu_fb_s * fb)
-{
-    frame_env_t * const fe = v;
-    (void)fb;
-
-    printf("Q xpose\n");
-    if (drmu_atomic_queue(&fe->da) != 0)
-        printf("Atomic Q 1 failed\n");
-}
-
-static void *
-writeback_done_ref_cb(void * v)
-{
-    frame_env_t * const fe = v;
-    printf("%s\n", __func__);
-    ++fe->ref_count;
-    return fe;
-}
-
-static void
-writeback_done_unref_cb(void ** ppv)
-{
-    frame_env_t * const fe = *ppv;
-    int n;
-    if (fe == NULL)
-        return;
-    *ppv = NULL;
-    n = fe->ref_count--;
-    if (n != 0)
-        return;
-    drmu_atomic_unref(&fe->da);
-    drmu_fb_unref(&fe->dfb);
-    n = atomic_fetch_sub(&fe->de->xcount, 1);
-    printf("%s[%p]: n=%d\n", __func__, (void*)fe, n);
-    free(fe);
-}
-
-
-static int
-writeback_fb_prep_prep_cb(void * v, struct drmu_fb_s * fb, drmu_writeback_fb_done_fns_t * fns, void ** ppv)
-{
-    drmprime_video_env_t * const de = v;
-    int n;
-
-    n = atomic_fetch_add(&de->xcount, 1);
-    if (n > 3) {
-        atomic_fetch_sub(&de->xcount, 1);
-        printf("%s[%p]: n=%d: Done\n", __func__, NULL, n);
-        return -1;
-    }
-
-    {
-        frame_env_t * fe = calloc(1, sizeof(*fe));
-
-        printf("%s[%p]: n=%d: Q\n", __func__, (void*)fe, n);
-
-        if (fe == NULL)
-            return -1;
-
-        printf("%s\n", __func__);
-        fe->da = drmu_atomic_new(de->du);
-        fe->de = de;
-        fe->dfb = drmu_fb_ref(de->dfb2);  //*** nasty kludge
-        drmu_atomic_plane_add_fb(fe->da, de->dp, fb, de->vid_rect);
-        drmu_atomic_plane_add_zpos(fe->da, de->dp, de->zpos);
-
-        fns->done = writeback_done_cb;
-        fns->ref = writeback_done_ref_cb;
-        fns->unref = writeback_done_unref_cb;
-        *ppv = fe;
-        return 0;
-    }
-}
-#else
-
 typedef struct frame_env_s {
     drmprime_video_env_t *de;
     drmu_rect_t dest_rect;
@@ -485,8 +401,6 @@ writeback_fb_done_cb(void * v, struct drmu_fb_s * dfb)
 
     frame_env_free(fe);
 }
-
-#endif
 
 int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 {
@@ -570,21 +484,20 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 
             // This should be global
             if (de->wbe == NULL) {
+                unsigned int plane_type = de->zpos == 0 ? DRMU_PLANE_TYPE_PRIMARY : DRMU_PLANE_TYPE_OVERLAY;
                 if ((de->wbe = drmu_writeback_env_new(du)) == NULL) {
                     fprintf(stderr, "Failed to create writeback env\n");
                     return -1;
                 }
-                if ((de->dxp = drmu_writeback_env_fmt_plane(de->wbe, de->dout, 0, &de->xfmt)) == NULL) {
+                // dxp is display plane
+                if ((de->dxp = drmu_writeback_env_fmt_plane(de->wbe, de->dout, plane_type, &de->xfmt)) == NULL) {
                     fprintf(stderr, "Failed to get plane for writeback\n");
                     return -1;
                 }
-
+                // dp is writeback plane
                 if (de->dp == NULL) {
                     drmu_output_t * dxout = drmu_writeback_env_output(de->wbe);
-                    unsigned int types = DRMU_PLANE_TYPE_OVERLAY;
-                    if (de->zpos == 0)
-                        types |= DRMU_PLANE_TYPE_PRIMARY;
-                    de->dp = drmu_output_plane_ref_format(dxout, types, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+                    de->dp = drmu_output_plane_ref_format(dxout, DRMU_PLANE_TYPE_PRIMARY, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
                     if (!de->dp) {
                         fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
                         drmu_atomic_unref(&da);
