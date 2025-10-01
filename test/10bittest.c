@@ -733,6 +733,8 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Writeback FB Q fail\n");
             goto fail;
         }
+
+        getchar();
     }
 
     if (try_writeback && !show_writeback) {
