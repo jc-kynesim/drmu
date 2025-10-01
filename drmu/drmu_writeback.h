@@ -55,6 +55,10 @@ unsigned int drmu_writeback_fb_queue_rotation(const drmu_writeback_fb_t * const 
 drmu_rect_t drmu_writeback_fb_queue_rect(const drmu_writeback_fb_t * const wbq, const drmu_rect_t dest_rect);
 
 // dfb NULL if writeback failed or abandoned
+// BEWARE: As it stands this is called inside a Q lock so any queue operations
+// to the same (writeback) Q from here will deadlock. Queue ops to another Q
+// (say display) are fine.
+// * It would be good to fix this
 typedef void drmu_writeback_fb_done_fn(void * v, struct drmu_fb_s * dfb);
 
 int drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
