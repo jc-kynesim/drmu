@@ -147,14 +147,11 @@ struct drmu_atomic_q_s {
     atomic_int ref_count; // 0 - free, 1 - uniniting, 2 - one ref
     pthread_mutex_t lock;
     pthread_cond_t cond;
-    bool do_merge;   // **** Get rid of this
     next_flips_t next;
     drmu_atomic_t * cur_flip;
     drmu_atomic_t * last_flip;
     unsigned int retry_count;
     struct polltask * retry_task;
-    drmu_queue_next_atomic_fn next_atomic_fn;
-    void * next_atomic_v;
     unsigned int qno; // Handy for debug
 };
 
@@ -288,25 +285,14 @@ atomic_q_set_retry(drmu_atomic_q_t * const aq, struct pollqueue * pq)
     return aq->retry_task == NULL ? -ENOMEM : 0;
 }
 
-static int
-atomic_q_next_atomic_null_cb(drmu_env_t * du, struct drmu_atomic_s ** ppda, void * v)
-{
-    (void)du;
-    (void)v;
-    *ppda = NULL;
-    return 0;
-}
-
 static void
 atomic_q_init(drmu_atomic_q_t * const aq, const unsigned int qno)
 {
     pthread_condattr_t condattr;
 
-    aq->do_merge = true;
     next_flip_init(&aq->next);
     aq->cur_flip = NULL;
     aq->last_flip = NULL;
-    aq->next_atomic_fn = atomic_q_next_atomic_null_cb;
     aq->qno = qno;
     pthread_mutex_init(&aq->lock, NULL);
 
@@ -540,7 +526,8 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
 {
     int rv = 0;
     drmu_env_t * const du = drmu_atomic_env(*ppda);
-    drmu_atomic_t ** ppna;
+    drmu_atomic_t ** ppna = NULL;
+    drmu_atomic_t * discard_da = NULL;
 
     if (aq == NULL) {
         rv = -EINVAL;
@@ -552,18 +539,14 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
 
     pthread_mutex_lock(&aq->lock);
 
-    ppna = (qmerge == DRMU_QUEUE_MERGE_QUEUE) ? NULL : next_flip_find_tag(&aq->next, tag);
+    if (qmerge != DRMU_QUEUE_MERGE_QUEUE)
+        ppna = next_flip_find_tag(&aq->next, tag);
 
     if (ppna == NULL) {
-        drmu_atomic_t * da;
-        if ((rv = aq->next_atomic_fn(du, &da, aq->next_atomic_v)) != 0)
-            goto fail_unlock;
         if ((ppna = next_flip_add_tail(&aq->next, tag)) == NULL) {
-            drmu_atomic_unref(&da);
             rv = -ENOMEM;
             goto fail_unlock;
         }
-        *ppna = da;
     }
 
     switch (qmerge) {
@@ -577,7 +560,7 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
                 *ppna = drmu_atomic_move(ppda);
             break;
         case DRMU_QUEUE_MERGE_REPLACE:
-            drmu_atomic_unref(ppna);
+            discard_da = *ppna; // Unref cxan take a short while - move outside lock
             *ppna = drmu_atomic_move(ppda);
             break;
         default:
@@ -598,6 +581,7 @@ drmu_queue_queue_tagged(drmu_atomic_q_t * const aq,
 
 fail_unlock:
     pthread_mutex_unlock(&aq->lock);
+    drmu_atomic_unref(&discard_da);
 fail_unref:
     drmu_atomic_unref(ppda);
     return rv;
@@ -607,7 +591,7 @@ int
 drmu_atomic_queue(drmu_atomic_t ** ppda)
 {
     drmu_atomic_q_t * const aq = drmu_env_queue_default(drmu_atomic_env(*ppda));
-    return drmu_queue_queue_tagged(aq, 0, aq->do_merge ? DRMU_QUEUE_MERGE_MERGE : DRMU_QUEUE_MERGE_QUEUE, ppda);
+    return drmu_queue_queue_tagged(aq, 0, DRMU_QUEUE_MERGE_MERGE, ppda);
 }
 
 drmu_atomic_q_t *
@@ -646,28 +630,6 @@ int
 drmu_env_queue_wait(drmu_env_t * const du)
 {
     return drmu_queue_wait(drmu_env_queue_default(du));
-}
-
-int
-drmu_env_queue_next_atomic_fn_set(drmu_atomic_q_t * const aq,
-                                  const drmu_queue_next_atomic_fn fn, void * const v)
-{
-    if (aq == NULL)
-        return -EINVAL;
-
-    aq->next_atomic_fn = fn;
-    aq->next_atomic_v = v;
-    return 0;
-}
-
-int
-drmu_env_queue_next_merge_set(drmu_atomic_q_t * const dq, const bool do_merge)
-{
-    if (dq == NULL)
-        return -EINVAL;
-
-    dq->do_merge = do_merge;
-    return 0;
 }
 
 struct pollqueue *
