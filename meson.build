@@ -51,6 +51,7 @@ endif
 drmu_base = library('drmu_base',
 	'drmu/drmu_scan.c',
 	'drmu/drmu_pool.c',
+	'drmu/drmu_writeback.c',
 	'drmu/drmu_output.c',
 	'drmu/drmu_dmabuf.c',
 	'drmu/drmu_poll.c',
