@@ -33,6 +33,7 @@ int player_run_eos(player_env_t * const pe);
 
 void player_set_write_frame_count(player_env_t * const pe, long frame_count);
 void player_set_input_pace_hz(player_env_t * const pe, long hz);
+int player_set_rotation(player_env_t * const pe, unsigned int rot);
 player_output_pace_mode_t player_str_to_output_pace_mode(const char * const str);
 void player_set_output_pace_mode(player_env_t * const pe, const player_output_pace_mode_t mode);
 void player_set_modeset(player_env_t * const pe, bool modeset);

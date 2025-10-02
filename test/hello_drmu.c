@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include "drmprime_out.h"
+#include "drmu_util.h"
 #include "player.h"
 
 #include <libavcodec/packet.h>
@@ -66,6 +67,7 @@ typedef struct playlist_s {
     bool wants_deinterlace;
     bool wants_modeset;
     const char * hwdev;
+    unsigned int rotation;
 
     // run vars
     FILE *output_file;
@@ -101,6 +103,7 @@ playlist_new(playlist_env_t * ple)
     pl->hwdev = "drm";
     pl->zpos = ple->n;
     pl->pace_output_mode = PLAYER_PACE_PTS;
+    pl->rotation = 0;
 
     ple->pla[ple->n++] = pl;
     return pl;
@@ -139,6 +142,19 @@ playlist_set_win(playlist_t * const pl, const char * arg)
     pl->y = strtoul(p, &p, 0);
     if (*p++ != '\0')
         return -1;
+    return 0;
+}
+
+static int
+playlist_set_rot(playlist_t * const pl, const char * arg)
+{
+    const char * p = arg;
+    unsigned int n = drmu_util_str_to_rotation(arg, (char**)&p);
+
+    if (p == arg || *p != '\0')
+        return -1;
+
+    pl->rotation = n;
     return 0;
 }
 
@@ -235,6 +251,7 @@ void usage()
 "                      [--tile]\n"
 "                      <playlist0> [: <playlist1> [: ...]]\n"
 " <playlist> = [--win <w>x<h>@<x>,<y>]\n"
+"              [--rot 0|90|180|270|T|180T|X|Y]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
 "              <input file> [<input_file> ...]\n"
@@ -299,6 +316,16 @@ int main(int argc, char *argv[])
                     usage();
                 if (playlist_set_win(pl, *a) != 0) {
                     fprintf(stderr, "Bad window <w>x<h>@<x>,<y>: '%s'", *a);
+                    return -1;
+                }
+                --n;
+                ++a;
+            }
+            else if (strcmp(arg, "--rot") == 0) {
+                if (n == 0)
+                    usage();
+                if (playlist_set_rot(pl, *a) != 0) {
+                    fprintf(stderr, "Bad rotation: '%s'", *a);
                     return -1;
                 }
                 --n;
@@ -443,6 +470,7 @@ int main(int argc, char *argv[])
         if (player_set_hwdevice_by_name(pl->pe, pl->hwdev) != 0)
             return -1;
         player_set_modeset(pl->pe, pl->wants_modeset);
+        player_set_rotation(pl->pe, pl->rotation);
         player_set_output_file(pl->pe, pl->output_file);
         player_set_window(pl->pe, pl->x, pl->y, pl->w, pl->h, pl->zpos);
         player_set_output_pace_mode(pl->pe, pl->pace_output_mode);

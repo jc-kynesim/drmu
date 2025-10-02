@@ -96,6 +96,7 @@ typedef struct player_env_s {
     AVFilterContext *buffersrc_ctx;
     AVFilterGraph *filter_graph;
 
+    unsigned int rotation;
     long frames;
     long pace_input_hz;
     player_output_pace_mode_t pace_output;
@@ -462,6 +463,12 @@ player_set_input_pace_hz(player_env_t * const pe, long hz)
     pe->pace_input_hz = hz;
 }
 
+int
+player_set_rotation(player_env_t * const pe, unsigned int rot)
+{
+    return drmprime_video_set_window_rotation(pe->dve, rot);
+}
+
 player_output_pace_mode_t
 player_str_to_output_pace_mode(const char * const str)
 {
@@ -630,7 +637,7 @@ retry_hw:
 #pragma GCC diagnostic pop
 #endif
 
-    if ((ret = avcodec_open2(pe->decoder_ctx, pe->decoder, NULL)) < 0) {
+    if (avcodec_open2(pe->decoder_ctx, pe->decoder, NULL) < 0) {
         if (try_hw) {
             try_hw = false;
             avcodec_free_context(&pe->decoder_ctx);
