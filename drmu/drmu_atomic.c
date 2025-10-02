@@ -84,6 +84,12 @@ aprop_prop_ref(aprop_prop_t * const pp)
 }
 
 static void
+aprop_prop_committed(aprop_prop_t * const pp)
+{
+    pp->fns->commit(pp->v, pp->value);
+}
+
+static void
 aprop_obj_uninit(aprop_obj_t * const po)
 {
     unsigned int i;
@@ -306,6 +312,14 @@ aprop_obj_dump(drmu_env_t * const du,
 }
 
 static void
+aprop_obj_committed(const aprop_obj_t * const po)
+{
+    unsigned int i;
+    for (i = 0; i != po->n; ++i)
+        aprop_prop_committed(po->props + i);
+}
+
+static void
 aprop_hdr_dump(drmu_env_t * const du,
                const drmu_log_env_t * const log, const enum drmu_log_level_e lvl,
                const aprop_hdr_t * const ph)
@@ -314,6 +328,14 @@ aprop_hdr_dump(drmu_env_t * const du,
     drmu_log_lvl(log, lvl, "Header: size %d n %d", ph->size, ph->n);
     for (i = 0; i != ph->n; ++i)
         aprop_obj_dump(du, log, lvl, ph->objs + i);
+}
+
+static void
+aprop_hdr_committed(const aprop_hdr_t * const ph)
+{
+    unsigned int i;
+    for (i = 0; i != ph->n; ++i)
+        aprop_obj_committed(ph->objs + i);
 }
 
 static aprop_obj_t *
@@ -623,6 +645,14 @@ drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da)
 }
 
 void
+drmu_atomic_run_prop_commit_callbacks(const drmu_atomic_t * const da)
+{
+    if (da == NULL)
+        return;
+    aprop_hdr_committed(&da->props);
+}
+
+void
 drmu_atomic_run_commit_callbacks(const drmu_atomic_t * const da)
 {
     if (da == NULL)
@@ -921,7 +951,8 @@ drmu_atomic_commit_test(const drmu_atomic_t * const da, uint32_t flags, drmu_ato
         aprop_hdr_atomic_fill(&da->props, obj_ids, prop_counts, prop_ids, prop_values);
 
         rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &atomic);
-
+        if (rv == 0)
+            drmu_atomic_run_prop_commit_callbacks(da);
         drmu_atomic_run_commit_callbacks(da);
 
         if (rv  == 0 || !da_fail)

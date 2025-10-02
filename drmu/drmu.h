@@ -641,6 +641,9 @@ void drmu_atomic_clear_commit_callbacks(drmu_atomic_t * const da);
 // Run all commit callbacks on this atomic. Callbacks are not cleared.
 void drmu_atomic_run_commit_callbacks(const drmu_atomic_t * const da);
 
+// Run the property commit callbacks - only call on a successful commit
+void drmu_atomic_run_prop_commit_callbacks(const drmu_atomic_t * const da);
+
 typedef void drmu_prop_unref_fn(void * v);
 typedef void drmu_prop_ref_fn(void * v);
 typedef void drmu_prop_commit_fn(void * v, uint64_t value);
