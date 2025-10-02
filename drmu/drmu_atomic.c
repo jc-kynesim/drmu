@@ -876,19 +876,17 @@ commit_find_good(drmu_env_t * const du, const struct drm_mode_atomic * const ato
     while (a + 1 < b) {
         struct drm_mode_atomic at = *atomic;
         unsigned int n = (a + b) / 2;
-        int rv;
         uint32_t * undo_p = NULL;
         uint32_t undo_v = 0;
 
         at.flags = DRM_MODE_ATOMIC_TEST_ONLY | (DRM_MODE_ATOMIC_ALLOW_MODESET & atomic->flags);
         atomic_props_crop(&at, n, &undo_p, &undo_v);
+        assert(undo_p != NULL);
 
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &at)) == 0) {
+        if (drmu_ioctl(du, DRM_IOCTL_MODE_ATOMIC, &at) == 0)
             a = n;
-        }
-        else {
+        else
             b = n;
-        }
 
         *undo_p = undo_v;  // Should always be set
     }
