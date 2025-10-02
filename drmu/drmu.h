@@ -353,6 +353,10 @@ int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * con
 // Neither makes sense without the other so do together
 int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
 
+// List of supported writeback formats - no modifiers supported
+// *ppcount receives the count
+const uint32_t * drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount);
+
 // Connector might support some rotations - true if given rotation supported
 bool drmu_conn_has_rotation(const drmu_conn_t * const dn, const unsigned int rotation);
 
