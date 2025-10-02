@@ -37,19 +37,21 @@ typedef struct drmu_pool_callback_fns_s {
 drmu_pool_t * drmu_pool_new_alloc(struct drmu_env_s * const du, const unsigned int total_fbs_max,
                                   const drmu_pool_callback_fns_t * const cb_fns,
                                   void * const v);
-// Create a new pool of fb allocated from dumb objects
-// N.B. BOs are alloced from uncached memory so may be slow to do anything other
-// than copy into. (See drmu_dmabuf_ if you want cached data)
-struct drmu_fb_s * drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
+
 // Marks the pool as dead & unrefs this reference
 //   No allocs will succeed after this
 //   All free fbs are unrefed
 void drmu_pool_kill(drmu_pool_t ** const pppool);
 
+// Create a new pool of fb allocated from dumb objects
+// N.B. BOs are alloced from uncached memory so may be slow to do anything other
+// than copy into. (See drmu_dmabuf_ if you want cached data)
 drmu_pool_t * drmu_pool_new_dumb(struct drmu_env_s * const du, unsigned int total_fbs_max);
+
 // Allocate a fb from the pool
 // Allocations need not be all of the same size but no guarantees are made about
 // efficient memory use if this is the case
+struct drmu_fb_s * drmu_pool_fb_new(drmu_pool_t * const pool, uint32_t w, uint32_t h, const uint32_t format, const uint64_t mod);
 
 #ifdef __cplusplus
 }
