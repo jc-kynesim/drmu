@@ -330,7 +330,7 @@ static int atomic_run(const struct gbm *gbm, const struct egl *egl)
 
 	dump_perfcntrs(frames, elapsed_time);
 
-	return ret;
+	return 0;
 }
 
 /* Pick a plane.. something that at a minimum can be connected to
