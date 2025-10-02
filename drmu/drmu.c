@@ -3435,20 +3435,29 @@ void
 drmu_env_kill(drmu_env_t ** const ppdu)
 {
     drmu_env_t * du = *ppdu;
+    struct drmu_poll_env_s * pe;
+    bool old_kill;
 
     if (!du)
         return;
     *ppdu = NULL;
 
     pthread_mutex_lock(&du->lock);
+    old_kill = du->kill;
+    pe = du->poll_env;
     du->kill = true;
-    if (du->poll_env)
-        du->poll_destroy(&du->poll_env, du);
+    du->poll_env = NULL;
     pthread_mutex_unlock(&du->lock);
 
-    // If we had a poll env this should have already been done, if it has
-    // already been done this is a noop
-    drmu_env_int_restore(du);
+    if (!old_kill) {
+        // Only do these once and only outside env lock
+        if (pe != NULL)
+            du->poll_destroy(&pe, du);
+
+         // If we had a poll env this should have already been done, if it has
+         // already been done this is a noop
+         drmu_env_int_restore(du);
+    }
 
     drmu_env_unref(&du);
 }
