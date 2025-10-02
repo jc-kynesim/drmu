@@ -22,6 +22,9 @@
 // *** This module is a work in progress and its utility is strictly
 //     limited to testing.
 
+#include <stdatomic.h>
+#include "../subprojects/pollqueue/pollqueue.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -36,6 +39,7 @@
 #include "drmu_output.h"
 #include "drmu_scan.h"
 #include "drmu_util.h"
+#include "drmu_writeback.h"
 #include <drm_fourcc.h>
 
 #include "plane16.h"
@@ -267,6 +271,28 @@ fail:
     return rv;
 }
 
+typedef struct writeback_env_s {
+    drmu_writeback_env_t * wbe;
+    drmu_writeback_fb_t * wbq;
+    drmu_plane_t * p2;
+    drmu_output_t * dout2;
+    uint32_t xfmt;
+    drmu_rect_t dest_rect;
+} writeback_env_t;
+
+static void
+writeback_fb_done_cb(void * v, struct drmu_fb_s * fb)
+{
+    writeback_env_t * const wbe = v;
+    drmu_env_t *const du = drmu_output_env(wbe->dout2);
+    drmu_atomic_t * da = drmu_atomic_new(du);
+
+    drmu_atomic_plane_add_fb(da, wbe->p2, fb, wbe->dest_rect);
+
+    if (drmu_atomic_queue(&da) != 0)
+        printf("Atomic Q 1 failed\n");
+}
+
 static void
 drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl)
 {
@@ -321,6 +347,7 @@ int main(int argc, char *argv[])
 {
     drmu_env_t * du = NULL;
     drmu_output_t * dout = NULL;
+    drmu_output_t * dout2 = NULL;
     drmu_crtc_t * dc = NULL;
     drmu_conn_t * dn = NULL;
     drmu_plane_t * p1 = NULL;
@@ -355,7 +382,7 @@ int main(int argc, char *argv[])
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
-    int rv;
+    writeback_env_t wbe = {0};
 
     while ((c = getopt(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy")) != -1) {
         switch (c) {
@@ -511,10 +538,15 @@ int main(int argc, char *argv[])
     drmu_output_modeset_allow(dout, true);
 
     if (try_writeback) {
-        if (drmu_output_add_writeback(dout) != 0) {
-            fprintf(stderr, "Failed to add writeback\n");
-            goto fail;
+        if ((wbe.wbe = drmu_writeback_env_new(du)) == NULL) {
+            fprintf(stderr, "Failed to create writeback env\n");
+            return -1;
         }
+        if ((wbe.wbq = drmu_writeback_fb_new(wbe.wbe, NULL)) == NULL) {
+            fprintf(stderr, "Failed to get queue for writeback\n");
+            return -1;
+        }
+        dout = drmu_writeback_env_output(wbe.wbe);
     }
     else if (!conn_added) {
         if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
@@ -526,26 +558,24 @@ int main(int argc, char *argv[])
     drmu_output_max_bpc_allow(dout, hi_bpc);
 
     if (try_writeback) {
-        unsigned int rot = transpose ? DRMU_ROTATION_TRANSPOSE : DRMU_ROTATION_0;
-
         if (!mp.width || !mp.height) {
             mp.width = 1920;
             mp.height = 1080;
         }
         printf("Try writeback %dx%d%s\n", mp.width, mp.height, !transpose ? "" : " transposed");
 
-        if (!drmu_conn_has_rotation(dn, rot)) {
-            printf("Rotation not supported by connector\n");
+        wbe.dest_rect = drmu_rect_wh(mp.width, mp.height);
+        if ((wbe.dout2 = drmu_output_new(du)) == NULL) {
+            printf("Failed to create output 2\n");
             goto fail;
         }
-
-        if ((fb_out = drmu_fb_new_dumb(du, mp.width, mp.height, DRM_FORMAT_ARGB8888)) == NULL) {
-            printf("Failed to create fb-out\n");
+        if (drmu_output_add_output2(wbe.dout2, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0) {
+            printf("Failed to add conn to output 2\n");
             goto fail;
         }
-        if (drmu_atomic_output_add_writeback_fb_rotate(da, dout, fb_out, rot) != 0) {
-            printf("Failed to add writeback fb\n");
-            goto fail;
+        if ((wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt)) == NULL) {
+            fprintf(stderr, "Failed to get plane for writeback\n");
+            return -1;
         }
 
         if (transpose) {
@@ -691,15 +721,44 @@ int main(int argc, char *argv[])
     if (!try_writeback && drmu_atomic_output_add_connect(da, dout) != 0)
         fprintf(stderr, "Failed connection\n");
 
-    if (try_writeback) {
+    if (try_writeback && show_writeback) {
+        unsigned int req_rot = !transpose ? DRMU_ROTATION_0 : DRMU_ROTATION_TRANSPOSE;
+        unsigned int rot = drmu_writeback_fb_queue_rotation(wbe.wbq, req_rot);
+        drmu_rect_t rs = drmu_writeback_fb_queue_rect(wbe.wbq, wbe.dest_rect);
+
+        drmu_atomic_plane_add_rotation(da, p1, drmu_rotation_suba(req_rot, rot));
+
+        if (drmu_writeback_fb_queue(wbe.wbq, rs, rot, wbe.xfmt, writeback_fb_done_cb, &wbe, &da) != 0) {
+            fprintf(stderr, "Writeback FB Q fail\n");
+            goto fail;
+        }
+
+        getchar();
+    }
+
+    if (try_writeback && !show_writeback) {
+        printf("Writing writeback file NIF currently\n");
+#if 0
+#if 0
         if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
             fprintf(stderr, "Failed to commit writeback: %d (%s)\n", rv, strerror(-rv));
             drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
             goto fail;
         }
         drmu_atomic_unref(&da);
+#else
+        if ((rv = drmu_atomic_queue(&da)) != 0) {
+            fprintf(stderr, "Failed to queue writeback: %d (%s)\n", rv, strerror(-rv));
+            drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
+            goto fail;
+        }
 
-        rv = drmu_fb_out_fence_wait(fb_out, 1000);
+        while (!atomic_load(&wbe.commit_done)) {
+            usleep(20000);
+        }
+#endif
+
+        rv = drmu_fb_out_fence_wait(wbe.fb, 1000);
         if (rv == 1) {
             printf("Waited OK for writeback\n");
         }
@@ -713,25 +772,10 @@ int main(int argc, char *argv[])
 
         {
             FILE * f = fopen("wb.rgb", "wb");
-            fwrite(drmu_fb_data(fb_out, 0), drmu_fb_pitch(fb_out, 0), drmu_fb_height(fb_out), f);
+            fwrite(drmu_fb_data(wbe.fb, 0), drmu_fb_pitch(wbe.fb, 0), drmu_fb_height(wbe.fb), f);
             fclose(f);
         }
-
-        // *** Test fb contents - this is a bit primative
-        if (show_writeback)
-        {
-            drmu_output_t * dout2;
-            drmu_plane_t * p2;
-            if ((dout2 = drmu_output_new(du)) == NULL)
-                goto fail;
-            da = drmu_atomic_new(du);
-            if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
-                goto fail;
-            if ((p2 = drmu_output_plane_ref_format(dout, 0, drmu_fb_pixel_format(fb_out), drmu_fb_modifier(fb_out, 0))) == NULL)
-                goto fail;
-            drmu_atomic_plane_add_fb(da, p2, fb_out, drmu_rect_wh(drmu_fb_width(fb_out), drmu_fb_height(fb_out)));
-            printf("Output w/h = %dx%d\n", drmu_fb_width(fb_out), drmu_fb_height(fb_out));
-        }
+#endif
     }
 
     if (da) {
@@ -744,6 +788,7 @@ fail:
     drmu_fb_unref(&fb_out);
     drmu_fb_unref(&fb1);
     drmu_plane_unref(&p1);
+    drmu_output_unref(&dout2);
     drmu_output_unref(&dout);
     drmu_env_kill(&du);
     free(p16);
