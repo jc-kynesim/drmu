@@ -3339,7 +3339,7 @@ typedef struct drmu_env_s {
     // global atomic for restore op
     drmu_atomic_t * da_restore;
 
-    struct drmu_poll_env_s * poll_env;
+    struct drmu_queue_s * poll_env;
     drmu_poll_destroy_fn poll_destroy;
 
     drmu_env_post_delete_fn post_delete_fn;
@@ -3584,7 +3584,7 @@ void
 drmu_env_kill(drmu_env_t ** const ppdu)
 {
     drmu_env_t * du = *ppdu;
-    struct drmu_poll_env_s * pe;
+    struct drmu_queue_s * pe;
     bool old_kill;
 
     if (!du)
@@ -3717,7 +3717,7 @@ env_set_client_cap(drmu_env_t * const du, uint64_t cap_id, uint64_t cap_val)
 int
 drmu_env_int_poll_set(drmu_env_t * const du,
                   const drmu_poll_new_fn new_fn, const drmu_poll_destroy_fn destroy_fn,
-                  struct drmu_poll_env_s ** const ppPe)
+                  struct drmu_queue_s ** const ppPe)
 {
     int rv = 0;
 
@@ -3742,10 +3742,10 @@ drmu_env_int_poll_set(drmu_env_t * const du,
     return rv;
 }
 
-struct drmu_poll_env_s *
+struct drmu_queue_s *
 drmu_env_int_poll_get(drmu_env_t * const du)
 {
-    struct drmu_poll_env_s * pe;
+    struct drmu_queue_s * pe;
     pthread_mutex_lock(&du->lock);
     pe = du->poll_env;
     pthread_mutex_unlock(&du->lock);

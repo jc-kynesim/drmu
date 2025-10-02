@@ -546,9 +546,9 @@ struct drmu_log_env_s;
 // Poll environment maintenance functions used by drmu_poll.c
 // Could be use to set up custom polling functions. struct drmu_poll_env_s is
 // opaque to drmu.c
-struct drmu_poll_env_s;
-typedef struct drmu_poll_env_s * (* drmu_poll_new_fn)(drmu_env_t * du);
-typedef void (* drmu_poll_destroy_fn)(struct drmu_poll_env_s ** ppPoll_env, drmu_env_t * du);
+struct drmu_queue_s;
+typedef struct drmu_queue_s * (* drmu_poll_new_fn)(drmu_env_t * du);
+typedef void (* drmu_poll_destroy_fn)(struct drmu_queue_s ** ppPoll_env, drmu_env_t * du);
 // Get/set poll environment. Value returned in *ppPe
 // If du killed then *ppPe = NULL and rv = -EBUSY
 // If already set then value returned and rv == 0
@@ -556,9 +556,9 @@ typedef void (* drmu_poll_destroy_fn)(struct drmu_poll_env_s ** ppPoll_env, drmu
 // destroy_fn called when du killed
 int drmu_env_int_poll_set(drmu_env_t * const du,
                   const drmu_poll_new_fn new_fn, const drmu_poll_destroy_fn destroy_fn,
-                  struct drmu_poll_env_s ** const ppPe);
+                  struct drmu_queue_s ** const ppPe);
 // Return poll env. NULL if unset
-struct drmu_poll_env_s * drmu_env_int_poll_get(drmu_env_t * const du);
+struct drmu_queue_s * drmu_env_int_poll_get(drmu_env_t * const du);
 
 // Do ioctl - returns -errno on error, 0 on success
 // deals with recalling the ioctl when required
