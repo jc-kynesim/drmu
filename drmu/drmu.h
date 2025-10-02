@@ -406,6 +406,45 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
 #define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+static inline bool drmu_rotation_is_transposed(const unsigned int r)
+{
+    return (r & 4) != 0;
+}
+
+// Transpose r if c is transposed.
+// Probably not a useful user fn but used in +/-
+static inline unsigned int
+drmu_rotation_ctranspose(const unsigned int r, const unsigned int c)
+{
+    const unsigned int s = (c & 4) >> 2;
+    return (r & 4) | ((r & 2) >> s) | ((r & 1) << s);
+}
+
+// a then b
+// Beware a + b != b + a
+static inline unsigned int
+drmu_rotation_add(const unsigned int a, const unsigned int b)
+{
+    return drmu_rotation_ctranspose(a, b) ^ b;
+}
+
+// Returns value that if b is added to gets a
+// i.e. suba(a, b) + b = a
+static inline unsigned int
+drmu_rotation_suba(const unsigned int a, const unsigned int b)
+{
+    return drmu_rotation_ctranspose(a ^ b, b);
+}
+
+// Returns value that would need to be added to a to get b
+// i.e. a + subb(b, a) = b
+static inline unsigned int
+drmu_rotation_subb(const unsigned int b, const unsigned int a)
+{
+    return drmu_rotation_ctranspose(a, a ^ b) ^ b;
+}
+
+
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 
 int drmu_atomic_plane_add_chroma_siting(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const drmu_chroma_siting_t siting);
