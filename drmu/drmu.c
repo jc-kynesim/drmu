@@ -3544,6 +3544,9 @@ drmu_env_int_poll_set(drmu_env_t * const du,
 {
     int rv = 0;
 
+    if (du == NULL)
+        return -EINVAL;
+
     pthread_mutex_lock(&du->lock);
     if (du->kill) {
         rv = -EBUSY;
