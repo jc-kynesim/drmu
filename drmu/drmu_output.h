@@ -61,7 +61,15 @@ int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_n
 
 // Allow _add_output2 to add a disconnected connect & asign a compatible CRTC
 // Mode select and active will have to happen later
-#define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED 1
+
+// Search disconnected conns too; but prefer connected
+#define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED       1
+// Pick the first one we find; connected or disconnected
+#define DRMU_OUTPUT_FLAG_ADD_ANY                2
+// Only search disconnected
+#define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED_ONLY  4
+// Only search writeback connectors; otherwise only search output connectors
+#define DRMU_OUTPUT_FLAG_ADD_WRITEBACK          8
 
 // Experimental, more flexible version of _add_output
 int drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags);
