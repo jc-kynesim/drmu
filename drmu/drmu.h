@@ -273,12 +273,25 @@ int drmu_fb_write_end(drmu_fb_t * const dfb);
 int drmu_fb_read_start(drmu_fb_t * const dfb);
 int drmu_fb_read_end(drmu_fb_t * const dfb);
 
+// Called after commit succeeded and/or when atomic deleted
+//
+// On commit (with dfb != NULL, fd != -1) may possibly be called > once if
+// atomic copied or reused
+//
+// On delete (with dfb == NULL, fd == -1) will be called once after any commit
+// callbacks. If atomic deleted before commit or commit has error then commit
+// may never be called.
+typedef void drmu_fb_fence_fd_fn(void * v, int fd, drmu_fb_t * dfb);
+
 // Wait for data to become ready when fb used as destination of writeback
 // Returns:
 //  -ve   error
 //  0     timeout
 //  1     ready
 int drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms);
+
+// Take the fence fd. Resets fb fence fd. User is now responsible for closing it.
+int drmu_fb_out_fence_take_fd(drmu_fb_t * const fb);
 
 // Object Id
 
@@ -349,9 +362,12 @@ int drmu_atomic_conn_add_broadcast_rgb(struct drmu_atomic_s * const da, drmu_con
 // Add crtc id
 int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_crtc_t * const dc);
 
-// Add writeback fb & fence
+// Add writeback fb & fence with callback
 // Neither makes sense without the other so do together
-int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
+// If fn is null then no callback, user must wait
+int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da_out, drmu_conn_t * const dn,
+                                      drmu_fb_t * const dfb,
+                                      drmu_fb_fence_fd_fn * const fn, void * const v);
 
 // List of supported writeback formats - no modifiers supported
 // *ppcount receives the count
