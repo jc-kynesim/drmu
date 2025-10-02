@@ -63,6 +63,11 @@ struct drmprime_out_env_s {
     drmu_env_t * du;
     drmu_output_t * dout;
 
+    // Writeback stuff
+    drmu_writeback_env_t * wbe;
+    drmu_plane_t * dxp;
+    uint32_t xfmt;
+
     runticker_env_t * rte;
     runcube_env_t * rce;
 };
@@ -99,6 +104,9 @@ void drmprime_out_delete(drmprime_out_env_t *dpo)
 {
     drmprime_out_runticker_stop(dpo);
     drmprime_out_runcube_stop(dpo);
+
+    drmu_plane_unref(&dpo->dxp);
+    drmu_writeback_env_unref(&dpo->wbe);
 
     drmu_output_unref(&dpo->dout);
     drmu_env_kill(&dpo->du);
@@ -237,11 +245,6 @@ struct drmprime_video_env_s
     drmu_atomic_t * display_set;
 
     drmu_writeback_fb_t * wbq;
-
-    // Should be common?
-    drmu_writeback_env_t * wbe;
-    drmu_plane_t * dxp;
-    uint32_t xfmt;
 
     int mode_id;
     drmu_mode_simple_params_t picked;
@@ -394,8 +397,8 @@ writeback_fb_done_cb(void * v, struct drmu_fb_s * dfb)
         drmprime_video_env_t * const de = fe->de;
         drmu_atomic_t * da = drmu_atomic_new(de->du);
         drmu_atomic_output_add_props(da, de->dout);
-        drmu_atomic_plane_add_fb(da, de->dxp, dfb, fe->dest_rect);
-        drmu_atomic_plane_add_zpos(da, de->dxp, de->zpos);
+        drmu_atomic_plane_add_fb(da, de->dp, dfb, fe->dest_rect);
+        drmu_atomic_plane_add_zpos(da, de->dp, de->zpos);
         drmu_atomic_queue(&da);
     }
 
@@ -405,6 +408,7 @@ writeback_fb_done_cb(void * v, struct drmu_fb_s * dfb)
 int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
 {
     bool is_prime;
+    drmprime_out_env_t * const dpo = de->dpo;
 
     if ((src_frame->flags & AV_FRAME_FLAG_CORRUPT) != 0) {
         fprintf(stderr, "Discard corrupt frame: fmt=%d, ts=%" PRId64 "\n", src_frame->format, src_frame->pts);
@@ -483,22 +487,16 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             }
 
             // This should be global
-            if (de->wbe == NULL) {
-                unsigned int plane_type = de->zpos == 0 ? DRMU_PLANE_TYPE_PRIMARY : DRMU_PLANE_TYPE_OVERLAY;
-                if ((de->wbe = drmu_writeback_env_new(du)) == NULL) {
+            if (dpo->wbe == NULL) {
+                if ((dpo->wbe = drmu_writeback_env_new(du)) == NULL) {
                     fprintf(stderr, "Failed to create writeback env\n");
                     return -1;
                 }
-                // dxp is display plane
-                if ((de->dxp = drmu_writeback_env_fmt_plane(de->wbe, de->dout, plane_type, &de->xfmt)) == NULL) {
-                    fprintf(stderr, "Failed to get plane for writeback\n");
-                    return -1;
-                }
-                // dp is writeback plane
-                if (de->dp == NULL) {
-                    drmu_output_t * dxout = drmu_writeback_env_output(de->wbe);
-                    de->dp = drmu_output_plane_ref_format(dxout, DRMU_PLANE_TYPE_PRIMARY, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
-                    if (!de->dp) {
+                // dxp is writeback plane
+                if (dpo->dxp == NULL) {
+                    drmu_output_t * dxout = drmu_writeback_env_output(dpo->wbe);
+                    dpo->dxp = drmu_output_plane_ref_format(dxout, DRMU_PLANE_TYPE_PRIMARY, drmu_fb_pixel_format(dfb), drmu_fb_modifier(dfb, 0));
+                    if (!dpo->dxp) {
                         fprintf(stderr, "Failed to find plane for pixel format %s mod %#" PRIx64 "\n", drmu_log_fourcc(drmu_fb_pixel_format(dfb)), drmu_fb_modifier(dfb, 0));
                         drmu_atomic_unref(&da);
                         return AVERROR(EINVAL);
@@ -507,8 +505,14 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             }
 
             if (de->wbq == NULL) {
-                if ((de->wbq = drmu_writeback_fb_new(de->wbe, de->pic_pool)) == NULL) {
+                unsigned int plane_type = de->zpos == 0 ? DRMU_PLANE_TYPE_PRIMARY : DRMU_PLANE_TYPE_OVERLAY;
+                if ((de->wbq = drmu_writeback_fb_new(dpo->wbe, de->pic_pool)) == NULL) {
                     fprintf(stderr, "Failed to get queue for writeback\n");
+                    return -1;
+                }
+                // dp is display plane
+                if ((de->dp = drmu_writeback_env_fmt_plane(dpo->wbe, de->dout, plane_type, &dpo->xfmt)) == NULL) {
+                    fprintf(stderr, "Failed to get plane for writeback\n");
                     return -1;
                 }
             }
@@ -516,12 +520,12 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             rs = drmu_writeback_fb_queue_rect(de->wbq, rs);
             rot = drmu_writeback_fb_queue_rotation(de->wbq, de->rotation);
 
-            drmu_atomic_plane_add_fb(da, de->dp, dfb, drmu_rect_transpose(rs));
+            drmu_atomic_plane_add_fb(da, dpo->dxp, dfb, drmu_rect_transpose(rs));
             drmu_fb_unref(&dfb);
 
-            drmu_atomic_plane_add_rotation(da, de->dp, drmu_rotation_suba(de->rotation, rot));
+            drmu_atomic_plane_add_rotation(da, dpo->dxp, drmu_rotation_suba(de->rotation, rot));
 
-            if ((rv = drmu_writeback_fb_queue(de->wbq, rs, rot, de->xfmt, writeback_fb_done_cb, fe, &da)) != 0) {
+            if ((rv = drmu_writeback_fb_queue(de->wbq, rs, rot, dpo->xfmt, writeback_fb_done_cb, fe, &da)) != 0) {
                 fprintf(stderr, "Writeback FB Q fail\n");
                 return rv;
             }
@@ -632,9 +636,6 @@ void drmprime_video_delete(drmprime_video_env_t *de)
     drmu_pool_kill(&de->pic_pool);
 
     drmu_writeback_fb_unref(&de->wbq);
-    drmu_plane_unref(&de->dxp);
-    drmu_writeback_env_unref(&de->wbe);
-
     drmu_plane_unref(&de->dp);
     drmu_output_unref(&de->dout);
     if (de->prod_fd != -1)
@@ -648,6 +649,7 @@ drmprime_video_env_t* drmprime_video_new(drmprime_out_env_t * const dpo)
     if (de == NULL)
         return NULL;
 
+    de->dpo = dpo;
     de->mode_id = -1;
     de->prod_fd = -1;
     de->dout = drmu_output_ref(drmprime_out_drmu_output(dpo));
