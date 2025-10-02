@@ -537,6 +537,18 @@ aprop_hdr_props_count(const aprop_hdr_t * const ph)
     return n;
 }
 
+// Total props
+static bool
+aprop_hdr_props_is_empty(const aprop_hdr_t * const ph)
+{
+    unsigned int i;
+
+    for (i = 0; i != ph->n; ++i)
+        if (ph->objs[i].n != 0)
+            return false;
+    return true;
+}
+
 static unsigned int
 aprop_hdr_objs_count(const aprop_hdr_t * const ph)
 {
@@ -943,4 +955,9 @@ drmu_atomic_commit(const drmu_atomic_t * const da, uint32_t flags)
     return drmu_atomic_commit_test(da, flags, NULL);
 }
 
+bool
+drmu_atomic_is_empty(const drmu_atomic_t * const da)
+{
+    return da == NULL || aprop_hdr_props_is_empty(&da->props);
+}
 
