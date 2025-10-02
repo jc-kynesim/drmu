@@ -1885,7 +1885,7 @@ props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t
     int rv;
 
     for (;;) {
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &obj_props)) != 0) {
+        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &obj_props)) < 0) {
             drmu_err(du, "drmModeObjectGetProperties failed: %s", strerror(-rv));
             goto fail;
         }
@@ -1946,7 +1946,7 @@ props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
         drmu_propinfo_t * const inf = props->info + i;
 
         props->by_name[i] = inf;
-        if ((rv = propinfo_fill(du, inf, propids[i], values[i])) != 0)
+        if (propinfo_fill(du, inf, propids[i], values[i]) != 0)
             goto fail;
     }
 
@@ -3423,7 +3423,7 @@ env_restore(drmu_env_t * const du)
 {
     int rv;
     drmu_atomic_t * bad = drmu_atomic_new(du);
-    if ((rv = drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET, bad)) != 0) {
+    if (drmu_atomic_commit_test(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET, bad) != 0) {
         drmu_atomic_sub(du->da_restore, bad);
         if ((rv = drmu_atomic_commit(du->da_restore, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0)
             drmu_err(du, "Failed to restore old mode on exit: %s", strerror(-rv));
@@ -3672,18 +3672,18 @@ drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
     drmu_bo_env_init(&du->boe);
 
     // We need atomic for almost everything we do
-    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1)) != 0) {
+    if (env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1) != 0) {
         drmu_err(du, "Failed to set atomic cap");
         goto fail1;
     }
     // We want the primary plane for video
-    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1)) != 0)
+    if (env_set_client_cap(du, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) != 0)
         drmu_debug(du, "Failed to set universal planes cap");
     // We can understand AR info
-    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_ASPECT_RATIO, 1)) != 0)
+    if (env_set_client_cap(du, DRM_CLIENT_CAP_ASPECT_RATIO, 1) != 0)
         drmu_debug(du, "Failed to set AR cap");
     // We would like to see writeback connectors
-    if ((rv = env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1)) != 0)
+    if (env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1) != 0)
         drmu_debug(du, "Failed to set writeback cap");
 
     {
