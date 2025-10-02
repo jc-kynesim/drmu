@@ -140,7 +140,8 @@ drmu_pool_unref(drmu_pool_t ** const pppool)
 drmu_pool_t *
 drmu_pool_ref(drmu_pool_t * const pool)
 {
-    atomic_fetch_add(&pool->ref_count, 1);
+    if (pool != NULL)
+        atomic_fetch_add(&pool->ref_count, 1);
     return pool;
 }
 
