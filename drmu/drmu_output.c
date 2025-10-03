@@ -387,8 +387,7 @@ drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name
                 continue;
             dn = dn_t;
             dc = dc_t;
-            if ((flags & DRMU_OUTPUT_FLAG_ADD_ANY) != 0 || !try_disconnected)
-                break;
+            break;
         }
         else if (crtc_id == 0 && try_disconnected) {
             dc_t = output_add_find_crtc(du, dn_t);
