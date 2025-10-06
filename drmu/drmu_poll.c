@@ -147,6 +147,8 @@ struct drmu_atomic_q_s {
     atomic_int ref_count; // 0 - free, 1 - uniniting, 2 - one ref
 
     bool discard_last;
+    bool lock_on_commit;
+    bool locked;
     unsigned int retry_count;
     unsigned int qno; // Handy for debug
 
@@ -167,11 +169,15 @@ atomic_q_attempt_commit_next(drmu_atomic_q_t * const aq)
     uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET;
     int rv;
 
+    if (aq->locked)
+        return 0;
+
     if ((rv = drmu_atomic_commit(da, flags)) == 0) {
         if (aq->retry_count != 0)
             drmu_warn(du, "[%d]: Atomic commit OK: %p", aq->qno, da);
         aq->cur_flip = next_flip_pop_head(&aq->next);
         aq->retry_count = 0;
+        aq->locked = aq->lock_on_commit;
     }
     else if (rv == -EBUSY && ++aq->retry_count < 16 && aq->retry_task != NULL) {
         // This really shouldn't happen but we observe that the 1st commit after
@@ -642,6 +648,23 @@ void
 drmu_queue_keep_last_set(drmu_atomic_q_t * const aq, const bool keep_last)
 {
     aq->discard_last = !keep_last;
+}
+
+void
+drmu_queue_lock_on_commit_set(drmu_atomic_q_t * const aq, const bool lock)
+{
+    aq->lock_on_commit = lock;
+}
+
+int
+drmu_queue_unlock(drmu_atomic_q_t * const aq)
+{
+    pthread_mutex_lock(&aq->lock);
+    aq->locked = 0;
+    if (aq->cur_flip == NULL && !next_flip_is_empty(&aq->next))
+        atomic_q_attempt_commit_next(aq);
+    pthread_mutex_unlock(&aq->lock);
+    return 0;
 }
 
 int

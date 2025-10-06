@@ -58,6 +58,7 @@ drmu_writeback_env_new(struct drmu_env_s * const du)
         goto fail;
     }
     drmu_queue_keep_last_set(wbe->dq, false);
+    drmu_queue_lock_on_commit_set(wbe->dq, true);
 
     if ((wbe->dout = drmu_output_new(du)) == NULL) {
         drmu_err(du, "Cannot allocate output");
@@ -148,6 +149,7 @@ typedef struct wbq_ent_s {
     struct polltask * pt;
     drmu_writeback_fb_done_fn * done_fn;
     void * done_v;
+    drmu_atomic_q_t * dqueue;
 } wbq_ent_t;
 
 static void
@@ -160,9 +162,10 @@ wbq_ent_free(wbq_ent_t * const ent)
         ent->done_fn(ent->done_v, NULL);
 
     drmu_fb_unref(&ent->fb);
-    // In normal useg these two should alreasdty be unreffed
+    // In normal useg these two should already be unreffed
     polltask_delete(&ent->pt);
     pollqueue_unref(&ent->pq);
+    drmu_queue_unref(&ent->dqueue);
     free(ent);
 }
 
@@ -194,6 +197,8 @@ static void
 writeback_fb_ent_polltask_done(void * v, short revents)
 {
     wbq_ent_t * ent = v;
+
+    drmu_queue_unlock(ent->dqueue);
 
     close(drmu_fb_out_fence_take_fd(ent->fb));
     if (revents != 0) {
@@ -303,6 +308,7 @@ drmu_writeback_fb_queue(drmu_writeback_fb_t * wbq,
     ent->done_fn = done_fn;
     ent->done_v = v;
     ent->pq = pollqueue_ref(drmu_env_pollqueue(du));
+    ent->dqueue = drmu_queue_ref(wbe->dq);
 
     ent->fb = (wbq->pool == NULL) ?
         drmu_fb_new_dumb(du, dest_rect.w, dest_rect.h, fmt) :

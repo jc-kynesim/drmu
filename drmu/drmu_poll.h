@@ -56,11 +56,15 @@ int drmu_queue_wait(drmu_atomic_q_t * const aq);
 
 // Wait on default q
 int drmu_env_queue_wait(struct drmu_env_s * const du);
+int drmu_queue_unlock(drmu_atomic_q_t * const aq);
+
 
 // Keep a ref on the previous atomics until overwren by new atomics
 // Needed for most displays, not needed for writeback
 // Default queue keep_last state is true
 void drmu_queue_keep_last_set(drmu_atomic_q_t * const aq, const bool keep_last);
+
+void drmu_queue_lock_on_commit_set(drmu_atomic_q_t * const aq, const bool lock);
 
 struct pollqueue;
 struct pollqueue * drmu_env_pollqueue(struct drmu_env_s * const du);
