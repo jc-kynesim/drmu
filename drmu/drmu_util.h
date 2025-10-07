@@ -26,6 +26,12 @@ char * drmu_util_simple_param_to_mode_str(char * buf, size_t buflen, const struc
 
 #define drmu_util_simple_mode(p) drmu_util_simple_param_to_mode_str((char[64]){0}, 64, (p))
 
+// Take a string and return a drmu rotation value (DRMU_ROTATION_xxx)
+// Returns pointer to char after parsed string in *peos (c.f. strtol)
+// peos may be NULL if not required
+// N.B. There is no invalid return, rubbish will return ROTATION_0, *peos = s
+unsigned int drmu_util_str_to_rotation(const char * s, char ** peos);
+
 // Given width & height guess par. Spots Likely SD and returns 4:3 otherwise reduced w:h
 drmu_ufrac_t drmu_util_guess_par(const unsigned int w, const unsigned int h);
 // Get a par from simple_params. par can be zero & if so then guess

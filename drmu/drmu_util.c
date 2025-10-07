@@ -123,6 +123,42 @@ drmu_util_parse_mode(const char * s, unsigned int * pw, unsigned int * ph, unsig
     return r;
 }
 
+unsigned int
+drmu_util_str_to_rotation(const char * s, char ** peos)
+{
+    static const struct {
+        const char * str;
+        unsigned int rot;
+    } str_to_rot[] = {
+        {"0", DRMU_ROTATION_0},
+        {"X_FLIP", DRMU_ROTATION_X_FLIP},
+        {"X", DRMU_ROTATION_X_FLIP},
+        {"Y_FLIP", DRMU_ROTATION_Y_FLIP},
+        {"Y", DRMU_ROTATION_Y_FLIP},
+        {"180T", DRMU_ROTATION_180_TRANSPOSE},
+        {"180_TRANSPOSE", DRMU_ROTATION_180_TRANSPOSE},
+        {"180", DRMU_ROTATION_180},
+        {"TRANSPOSE", DRMU_ROTATION_TRANSPOSE},
+        {"T", DRMU_ROTATION_TRANSPOSE},
+        {"90", DRMU_ROTATION_90},
+        {"270", DRMU_ROTATION_270},
+        {NULL, 0},
+    };
+    unsigned int i;
+
+    for (i = 0; str_to_rot[i].str != NULL; ++i) {
+        size_t n = strlen(str_to_rot[i].str);
+        if (strncasecmp(s, str_to_rot[i].str, n) == 0) {
+            if (peos != NULL)
+                *peos = (char*)(s + n);
+            return str_to_rot[i].rot;
+        }
+    }
+    if (peos != NULL)
+        *peos = (char*)s;
+    return DRMU_ROTATION_0;
+}
+
 drmu_ufrac_t
 drmu_util_guess_par(const unsigned int w, const unsigned int h)
 {
