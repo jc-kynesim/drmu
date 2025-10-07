@@ -107,7 +107,7 @@ if with_all_common
 		dependencies : dep_common,
 		c_args : cube_c_args,
 		include_directories : drmu_incs,
-		link_with : [ drmu_base, drmu_gbm ],
+		link_with : [ drmu_base ],
 		install : true)
 
 	if with_gles3
