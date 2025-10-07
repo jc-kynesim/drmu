@@ -132,7 +132,6 @@ endif
 
 # Maybe shoudln't need gbm here but it is built into the headers
 
-#mesondefine HAS_RUNCUBE
 if dep_m.found() and dep_egl.found() and dep_gles2.found() and dep_gbm.found()
 	runcube_drmu = library('runcube_drmu',
 		'runcube.c',
@@ -158,7 +157,5 @@ if dep_m.found() and dep_egl.found() and dep_gles2.found() and dep_gbm.found()
 	conf_data.set10('HAS_RUNCUBE', true)
 else
 	message('Runcube library not built - not all required libs found')
-	runcube_opt = []
-	conf_data.set10('HAS_RUNCUBE', false)
 endif
 

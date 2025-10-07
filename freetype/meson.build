@@ -1,8 +1,6 @@
 freetype_dep = dependency('freetype2', required : false)
 
-#mesondefine HAS_RUNTICKER
 conf_data.set10('HAS_RUNTICKER', freetype_dep.found())
-runticker_opt = []
 
 if freetype_dep.found()
 	executable('example1', 'example1.c', 'runticker.c', 'ticker.c',

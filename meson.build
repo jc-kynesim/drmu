@@ -172,8 +172,19 @@ endif
 
 drmu_incs = include_directories('drmu')
 
-subdir('cube')
-subdir('freetype')
+#mesondefine HAS_RUNCUBE
+runcube_opt = []
+conf_data.set10('HAS_RUNCUBE', false)
+if get_option('cube').allowed()
+	subdir('cube')
+endif
+
+#mesondefine HAS_RUNTICKER
+runticker_opt = []
+conf_data.set10('HAS_RUNTICKER', false)
+if get_option('ticker').allowed()
+	subdir('freetype')
+endif
 
 executable(
 	'hello_drmu',
