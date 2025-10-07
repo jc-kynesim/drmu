@@ -11,7 +11,8 @@ conf_data = configuration_data()
 libavutil_dep = dependency('libavutil')
 threads_dep = dependency('threads')
 libdrm_dep = dependency('libdrm')
-pollqueue_dep = dependency('pollqueue')
+pollqueue_dep = dependency('pollqueue', version : '>=0.1.0',
+	not_found_message : 'pollqueue version incompatible; try "meson subprojects update"')
 
 xdri3_dep = dependency('xcb-dri3', required : get_option('xdri3'))
 #mesondefine HAS_XDRI3
