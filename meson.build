@@ -186,6 +186,14 @@ if get_option('ticker').allowed()
 	subdir('freetype')
 endif
 
+conf_file = configure_file(
+	output : 'config.h',
+	configuration : conf_data
+)
+conf_incs = include_directories('.')
+
+subdir('test')
+
 executable(
 	'hello_drmu',
 	'test/hello_drmu.c', 'test/player.c', 'test/drmprime_out.c',
@@ -202,17 +210,6 @@ executable(
 )
 
 executable(
-	'argbtest',
-	'test/argbtest.c',
-	include_directories : drmu_incs,
-	link_with : [ drmu_base ] + drmu_xlease_opt,
-	dependencies : [
-		threads_dep,
-		libdrm_dep,
-	],
-)
-
-executable(
 	'10bittest',
 	'test/10bittest.c', 'test/plane16.c',
 	include_directories : drmu_incs,
@@ -223,30 +220,3 @@ executable(
 	],
 )
 
-executable(
-	'resethdr',
-	'test/resethdr.c',
-	include_directories : drmu_incs,
-	link_with : [ drmu_base ] + drmu_xlease_opt,
-	dependencies : [
-		threads_dep,
-		libdrm_dep,
-	],
-)
-
-executable(
-	'rot_unit',
-	'test/rot_unit.c',
-	include_directories : drmu_incs,
-	link_with : [ drmu_base ],
-	dependencies : [
-		threads_dep,
-		libdrm_dep,
-	],
-)
-
-
-configure_file(
-	output : 'config.h',
-	configuration : conf_data
-)
