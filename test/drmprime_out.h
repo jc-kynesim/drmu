@@ -35,10 +35,6 @@ void drmprime_out_size(drmprime_out_env_t * const dpo, unsigned int *pW, unsigne
 void drmprime_video_delete(drmprime_video_env_t * dve);
 drmprime_video_env_t * drmprime_video_new(struct drmprime_out_env_s * dpo);
 
-// -1 if unmatched
-// *peos set to char after match (s if no match)
-int drmprime_str_to_rotation(const char * s, const char ** peos);
-
 void drmprime_out_delete(drmprime_out_env_t * dpo);
 drmprime_out_env_t * drmprime_out_new();
 drmprime_out_env_t * drmprime_out_new_fd(int fd);

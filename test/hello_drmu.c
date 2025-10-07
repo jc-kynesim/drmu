@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include "drmprime_out.h"
+#include "drmu_util.h"
 #include "player.h"
 
 #include <libavcodec/packet.h>
@@ -148,12 +149,12 @@ static int
 playlist_set_rot(playlist_t * const pl, const char * arg)
 {
     const char * p = arg;
-    int n = drmprime_str_to_rotation(arg, &p);
+    unsigned int n = drmu_util_str_to_rotation(arg, (char**)&p);
 
-    if (n < 0 || *p != '\0')
+    if (p == arg || *p != '\0')
         return -1;
 
-    pl->rotation = (unsigned int)n;
+    pl->rotation = n;
     return 0;
 }
 
@@ -250,6 +251,7 @@ void usage()
 "                      [--tile]\n"
 "                      <playlist0> [: <playlist1> [: ...]]\n"
 " <playlist> = [--win <w>x<h>@<x>,<y>]\n"
+"              [--rot 0|90|180|270|T|180T|X|Y]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
 "              <input file> [<input_file> ...]\n"

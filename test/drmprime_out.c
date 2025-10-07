@@ -676,37 +676,3 @@ fail:
     fprintf(stderr, ">>> %s: FAIL\n", __func__);
     return NULL;
 }
-
-int
-drmprime_str_to_rotation(const char * s, const char ** peos)
-{
-    static const struct {
-        const char * str;
-        unsigned int rot;
-    } str_to_rot[] = {
-        {"0", DRMU_ROTATION_0},
-        {"X", DRMU_ROTATION_X_FLIP},
-        {"Y", DRMU_ROTATION_Y_FLIP},
-        {"180T", DRMU_ROTATION_180_TRANSPOSE},
-        {"180", DRMU_ROTATION_180},
-        {"TRANSPOSE", DRMU_ROTATION_TRANSPOSE},
-        {"T", DRMU_ROTATION_TRANSPOSE},
-        {"90", DRMU_ROTATION_90},
-        {"270", DRMU_ROTATION_270},
-        {NULL, 0},
-    };
-    unsigned int i;
-
-    for (i = 0; str_to_rot[i].str != NULL; ++i) {
-        size_t n = strlen(str_to_rot[i].str);
-        if (strncasecmp(s, str_to_rot[i].str, n) == 0) {
-            if (peos != NULL)
-                *peos = s + n;
-            return str_to_rot[i].rot;
-        }
-    }
-    if (peos != NULL)
-        *peos = s;
-    return -1;
-}
-
