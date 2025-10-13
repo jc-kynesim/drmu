@@ -2592,6 +2592,7 @@ conn_uninit(drmu_conn_t * const dn)
     drmu_prop_range_delete(&dn->pid.max_bpc);
     drmu_prop_enum_delete(&dn->pid.colorspace);
     drmu_prop_enum_delete(&dn->pid.broadcast_rgb);
+    drmu_prop_bitmask_delete(&dn->pid.rotation);
 
     drmu_blob_unref(&dn->hdr_metadata_blob);
 
