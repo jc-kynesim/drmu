@@ -1,5 +1,6 @@
 project(
 	'drmu', 'c',
+	version: '0.2.0',
 	default_options: ['warning_level=3',
 		'werror=true',
 		'buildtype=debugoptimized',
