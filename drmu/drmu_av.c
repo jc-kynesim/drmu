@@ -5,6 +5,7 @@
 #include "drmu_log.h"
 
 #include <limits.h>
+#include <math.h>
 #include <libdrm/drm_mode.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext_drm.h>
@@ -281,12 +282,59 @@ fb_av_chroma_siting(const enum AVChromaLocation loc)
     return DRMU_CHROMA_SITING_UNSPECIFIED;
 }
 
+static inline double f2d(const int32_t x)
+{
+    return (double)x / 65536.0;
+}
+
+unsigned int
+orientation_from_matrix(const int32_t * const matrix)
+{
+    double a = f2d(matrix[0]);
+    double b = f2d(matrix[1]);
+    double c = f2d(matrix[3]);
+    double d = f2d(matrix[4]);
+    double rr;
+    unsigned int f = DRMU_ROTATION_0;
+    unsigned int r;
+
+    // Avoid 0/0
+    if ((matrix[0] == 0 && matrix[3] == 0) ||
+        (matrix[1] == 0 && matrix[4] == 0))
+        return DRMU_ROTATION_INVALID;
+
+    // Try to detect flip via signs
+    if ((matrix[0] > 0) ^ (matrix[1] < 0) ^ (matrix[3] > 0) ^ (matrix[4] > 0)) {
+        f = DRMU_ROTATION_H_FLIP;
+        a = -a;
+    }
+
+    rr = atan2(b / hypot(b, d), a / hypot(a, c));
+
+    // Pick nearest quadrant
+    if (rr < (-3.0 * M_PI / 4.0))
+        r = DRMU_ROTATION_180;
+    else if (rr < (-1.0 * M_PI / 4.0))
+        r = DRMU_ROTATION_270;
+    else if (rr < (1.0 * M_PI / 4.0))
+        r = DRMU_ROTATION_0;
+    else if (rr < (3.0 * M_PI / 4.0))
+        r = DRMU_ROTATION_90;
+    else
+        r = DRMU_ROTATION_180;
+
+    // Combine with flip
+    // * Flip still needs testing
+    return drmu_rotation_add(f, r);
+}
+
 int
 drmu_av_fb_frame_metadata_set(drmu_fb_t * const dfb, const AVFrame * const frame)
 {
     struct hdr_output_metadata meta;
     const AVFrameSideData * const side_disp = av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
     const AVFrameSideData * const side_light = av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    const AVFrameSideData * const display_matrix = av_frame_get_side_data(frame, AV_FRAME_DATA_DISPLAYMATRIX);
 
     drmu_fb_color_set(dfb,
                       fb_av_color_encoding(frame),
@@ -304,6 +352,9 @@ drmu_av_fb_frame_metadata_set(drmu_fb_t * const dfb, const AVFrame * const frame
             !side_disp ? NULL : (const AVMasteringDisplayMetadata *)side_disp->data,
             !side_light ? NULL : (const AVContentLightMetadata *)side_light->data) == 0)
         drmu_fb_hdr_metadata_set(dfb, &meta);
+
+    if (display_matrix && display_matrix->size >= 9 * sizeof(int32_t))
+        drmu_fb_orientation_set(dfb, orientation_from_matrix((const int32_t *)display_matrix->data));
 
     return 0;
 }
