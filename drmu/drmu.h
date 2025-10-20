@@ -257,6 +257,16 @@ const struct drmu_fmt_info_s * drmu_fb_format_info_get(const drmu_fb_t * const d
 void drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta);
 int drmu_fb_int_make(drmu_fb_t *const dfb);
 
+// Set FB orientation.
+// Orienation is the orintatin of the FB i.e. the inverse of the rotation
+// required to display on an unrotated display
+int drmu_fb_orientation_set(drmu_fb_t *const dfb, const unsigned int orientation);
+// Get orientation
+unsigned int drmu_fb_orientation_get(const drmu_fb_t *const dfb);
+// Get rotation required on this fb for a display rotated dest_rot
+// helper fn - equivalent to _subb(dest_rot, orientation)
+unsigned int drmu_fb_rotation(const drmu_fb_t *const dfb, const unsigned int dest_rot);
+
 // Cached fb sync ops
 int drmu_fb_write_start(drmu_fb_t * const dfb);
 int drmu_fb_write_end(drmu_fb_t * const dfb);
@@ -395,6 +405,8 @@ bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t forma
 // Get mask of rotations supported by this plane
 // Will return a mask with only _ROTATION_0 set if the property isn't supported
 unsigned int drmu_plane_rotation_mask(const drmu_plane_t * const dp);
+// Is rot a valid rotation for this plane?
+bool drmu_plane_rotation_valid(const drmu_plane_t * const dp, const unsigned int rot);
 
 // Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
 #define DRMU_PLANE_ALPHA_UNSET                  (-1)
@@ -424,6 +436,11 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 static inline bool drmu_rotation_is_transposed(const unsigned int r)
 {
     return (r & 4) != 0;
+}
+
+static inline bool drmu_rotation_is_valid(const unsigned int r)
+{
+    return (r & ~7) == 0;
 }
 
 // Transpose r if c is transposed.

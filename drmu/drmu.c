@@ -1034,6 +1034,7 @@ typedef struct drmu_fb_s {
 
     int8_t layer_obj[4];
 
+    unsigned int orientation;  // Orientation of FB i.e. inverse of rot to 0
     drmu_color_encoding_t color_encoding; // Assumed to be constant strings that don't need freeing
     drmu_color_range_t    color_range;
     drmu_colorspace_t     colorspace;
@@ -1301,6 +1302,27 @@ void
 drmu_fb_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting)
 {
     dfb->chroma_siting   = siting;
+}
+
+int
+drmu_fb_orientation_set(drmu_fb_t *const dfb, const unsigned int orientation)
+{
+    if (!drmu_rotation_is_valid(orientation))
+        return -EINVAL;
+    dfb->orientation = orientation;
+    return 0;
+}
+
+unsigned int
+drmu_fb_orientation_get(const drmu_fb_t *const dfb)
+{
+    return dfb->orientation;
+}
+
+unsigned int
+drmu_fb_rotation(const drmu_fb_t *const dfb, const unsigned int dest_rot)
+{
+    return drmu_rotation_subb(dest_rot, dfb->orientation);
 }
 
 void
@@ -2963,6 +2985,12 @@ unsigned int
 drmu_plane_rotation_mask(const drmu_plane_t * const dp)
 {
     return dp->rot_mask;
+}
+
+bool
+drmu_plane_rotation_valid(const drmu_plane_t * const dp, const unsigned int rot)
+{
+    return drmu_rotation_is_valid(rot) && ((dp->rot_mask >> rot) & 1) != 0;
 }
 
 bool
