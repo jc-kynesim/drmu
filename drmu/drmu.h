@@ -344,7 +344,11 @@ int drmu_atomic_conn_add_crtc(struct drmu_atomic_s * const da, drmu_conn_t * con
 int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, drmu_fb_t * const dfb);
 
 // Connector might support some rotations - true if given rotation supported
-bool drmu_conn_has_rotation(drmu_conn_t * const dn, const unsigned int rotation);
+bool drmu_conn_has_rotation(const drmu_conn_t * const dn, const unsigned int rotation);
+
+// Get mask of rotations supported by this conn
+// Will return a mask with only _ROTATION_0 set if the property isn't supported
+unsigned int drmu_conn_rotation_mask(const drmu_conn_t * const dn);
 
 // Add rotation to connector
 int drmu_atomic_conn_add_rotation(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const unsigned int rotation);
@@ -388,6 +392,10 @@ unsigned int drmu_plane_type(const drmu_plane_t * const dp);
 const uint32_t * drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount);
 bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, const uint64_t modifier);
 
+// Get mask of rotations supported by this plane
+// Will return a mask with only _ROTATION_0 set if the property isn't supported
+unsigned int drmu_plane_rotation_mask(const drmu_plane_t * const dp);
+
 // Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
 #define DRMU_PLANE_ALPHA_UNSET                  (-1)
 #define DRMU_PLANE_ALPHA_TRANSPARENT            0
@@ -406,6 +414,9 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 #define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
 #define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+
+#define DRMU_ROTATION_INVALID             ~0U
+
 static inline bool drmu_rotation_is_transposed(const unsigned int r)
 {
     return (r & 4) != 0;
@@ -425,7 +436,7 @@ drmu_rotation_ctranspose(const unsigned int r, const unsigned int c)
 static inline unsigned int
 drmu_rotation_add(const unsigned int a, const unsigned int b)
 {
-    return drmu_rotation_ctranspose(a, b) ^ b;
+    return ((a | b) & ~7) != 0 ? DRMU_ROTATION_INVALID : drmu_rotation_ctranspose(a, b) ^ b;
 }
 
 // Returns value that if b is added to gets a
@@ -433,7 +444,7 @@ drmu_rotation_add(const unsigned int a, const unsigned int b)
 static inline unsigned int
 drmu_rotation_suba(const unsigned int a, const unsigned int b)
 {
-    return drmu_rotation_ctranspose(a ^ b, b);
+    return ((a | b) & ~7) != 0 ? DRMU_ROTATION_INVALID : drmu_rotation_ctranspose(a ^ b, b);
 }
 
 // Returns value that would need to be added to a to get b
@@ -441,9 +452,14 @@ drmu_rotation_suba(const unsigned int a, const unsigned int b)
 static inline unsigned int
 drmu_rotation_subb(const unsigned int b, const unsigned int a)
 {
-    return drmu_rotation_ctranspose(a, a ^ b) ^ b;
+    return ((a | b) & ~7) != 0 ? DRMU_ROTATION_INVALID : drmu_rotation_ctranspose(a, a ^ b) ^ b;
 }
 
+// Find a rotation that exists in mask_a which when combined with a rotation
+// in mask_b gives req_rot. If req_rot exists in mask_a then the return value
+// will be req_rot. If no such value exists _INVALID will be returned
+// Use _subb(return_value, req_rot) to get rotation required in b
+unsigned int drmu_rotation_find(const unsigned int req_rot, const unsigned int mask_a, const unsigned int mask_b);
 
 int drmu_atomic_plane_add_rotation(struct drmu_atomic_s * const da, const drmu_plane_t * const dp, const int rot);
 

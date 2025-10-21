@@ -2034,14 +2034,16 @@ drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const
 //
 // Rotation util
 
-static void
+static unsigned int
 rotation_make_array(drmu_prop_bitmask_t * const pid, uint64_t values[8])
 {
     uint64_t r0;
+    unsigned int i;
+    unsigned int mask = 0;
 
     memset(values, 0, sizeof(values[0]) * 8);
     if (pid == NULL)
-        return;
+        return (1 << DRMU_ROTATION_0);
 
     r0 = drmu_prop_bitmask_value(pid, "rotate-0");
     if (r0 != 0) {
@@ -2060,6 +2062,11 @@ rotation_make_array(drmu_prop_bitmask_t * const pid, uint64_t values[8])
         values[DRMU_ROTATION_180] = values[DRMU_ROTATION_X_FLIP] | values[DRMU_ROTATION_Y_FLIP];
     values[DRMU_ROTATION_90] = drmu_prop_bitmask_value(pid, "rotate-90");
     values[DRMU_ROTATION_270] = drmu_prop_bitmask_value(pid, "rotate-270");
+
+    for (i = 0; i != 8; ++i)
+        if (values[i] != 0)
+            mask |= (1 << i);
+    return mask;
 }
 
 //----------------------------------------------------------------------------
@@ -2429,6 +2436,7 @@ struct drmu_conn_s {
         uint32_t writeback_pixel_formats;
     } pid;
 
+    unsigned int rot_mask;
     uint64_t rot_vals[8];
     drmu_blob_t * hdr_metadata_blob;
 
@@ -2497,11 +2505,17 @@ drmu_atomic_conn_add_crtc(drmu_atomic_t * const da, drmu_conn_t * const dn, drmu
 }
 
 bool
-drmu_conn_has_rotation(drmu_conn_t * const dn, const unsigned int rotation)
+drmu_conn_has_rotation(const drmu_conn_t * const dn, const unsigned int rotation)
 {
     return rotation < 8 && dn != NULL &&
         (dn->rot_vals[rotation] != 0 ||
             (!dn->pid.rotation && rotation == DRMU_ROTATION_0));
+}
+
+unsigned int
+drmu_conn_rotation_mask(const drmu_conn_t * const dn)
+{
+    return dn->rot_mask;
 }
 
 int
@@ -2692,7 +2706,7 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         dn->pid.writeback_pixel_formats = props_name_to_id(props, "WRITEBACK_PIXEL_FORMATS");  // Blob of fourccs (no modifier info)
         props_free(props);
 
-        rotation_make_array(dn->pid.rotation, dn->rot_vals);
+        dn->rot_mask = rotation_make_array(dn->pid.rotation, dn->rot_vals);
     }
 
     return 0;
@@ -2764,6 +2778,30 @@ drmu_conn_claim_ref(drmu_conn_t * const dn)
 
 //----------------------------------------------------------------------------
 //
+// Rotation functions
+
+unsigned int
+drmu_rotation_find(const unsigned int req_rot, const unsigned int mask_a, const unsigned int mask_b)
+{
+    unsigned int i;
+    unsigned int b;
+
+    for (i = 0, b = mask_b & 0xff; b != 0; ++i, b >>= 1) {
+        unsigned int r;
+
+        if ((b & 1) == 0)
+            continue;
+
+        r = drmu_rotation_suba(req_rot, i);
+        if (((mask_a >> r) & 1) != 0)
+            return r;
+    }
+    return DRMU_ROTATION_INVALID;
+}
+
+
+//----------------------------------------------------------------------------
+//
 // Plane fns
 
 typedef struct drmu_plane_s {
@@ -2802,8 +2840,9 @@ typedef struct drmu_plane_s {
         drmu_prop_range_t * chroma_siting_v;
         drmu_prop_range_t * zpos;
     } pid;
-    uint64_t rot_vals[8];
 
+    unsigned int rot_mask;
+    uint64_t rot_vals[8];
 } drmu_plane_t;
 
 static int
@@ -2918,6 +2957,12 @@ drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount)
 {
     *pCount = dp->fmts_hdr->count_formats;
     return (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
+}
+
+unsigned int
+drmu_plane_rotation_mask(const drmu_plane_t * const dp)
+{
+    return dp->rot_mask;
 }
 
 bool
@@ -3124,7 +3169,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
     dp->pid.zpos             = drmu_prop_range_new(du, props_name_to_id(props, "zpos"));
 
-    rotation_make_array(dp->pid.rotation, dp->rot_vals);
+    dp->rot_mask = rotation_make_array(dp->pid.rotation, dp->rot_vals);
 
     {
         const drmu_propinfo_t * const pinfo = props_name_to_propinfo(props, "type");
