@@ -2049,17 +2049,17 @@ rotation_make_array(drmu_prop_bitmask_t * const pid, uint64_t values[8])
     if (r0 != 0) {
         values[DRMU_ROTATION_0] = r0;
         // Flips MUST be combined with a rotate
-        if ((values[DRMU_ROTATION_X_FLIP] = drmu_prop_bitmask_value(pid, "reflect-x")) != 0)
-            values[DRMU_ROTATION_X_FLIP] |= r0;
-        if ((values[DRMU_ROTATION_Y_FLIP] = drmu_prop_bitmask_value(pid, "reflect-y")) != 0)
-            values[DRMU_ROTATION_Y_FLIP] |= r0;
+        if ((values[DRMU_ROTATION_H_FLIP] = drmu_prop_bitmask_value(pid, "reflect-x")) != 0)
+            values[DRMU_ROTATION_H_FLIP] |= r0;
+        if ((values[DRMU_ROTATION_V_FLIP] = drmu_prop_bitmask_value(pid, "reflect-y")) != 0)
+            values[DRMU_ROTATION_V_FLIP] |= r0;
         // Transpose counts as a Flip
         if ((values[DRMU_ROTATION_TRANSPOSE] = drmu_prop_bitmask_value(pid, "transpose")) != 0)
             values[DRMU_ROTATION_TRANSPOSE] |= r0;
     }
     values[DRMU_ROTATION_180] = drmu_prop_bitmask_value(pid, "rotate-180");
-    if (!values[DRMU_ROTATION_180] && values[DRMU_ROTATION_X_FLIP] && values[DRMU_ROTATION_Y_FLIP])
-        values[DRMU_ROTATION_180] = values[DRMU_ROTATION_X_FLIP] | values[DRMU_ROTATION_Y_FLIP];
+    if (!values[DRMU_ROTATION_180] && values[DRMU_ROTATION_H_FLIP] && values[DRMU_ROTATION_V_FLIP])
+        values[DRMU_ROTATION_180] = values[DRMU_ROTATION_H_FLIP] | values[DRMU_ROTATION_V_FLIP];
     values[DRMU_ROTATION_90] = drmu_prop_bitmask_value(pid, "rotate-90");
     values[DRMU_ROTATION_270] = drmu_prop_bitmask_value(pid, "rotate-270");
 

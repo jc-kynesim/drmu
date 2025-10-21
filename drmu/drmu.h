@@ -406,14 +406,18 @@ int drmu_atomic_plane_add_zpos(struct drmu_atomic_s * const da, const drmu_plane
 
 // X, Y & TRANSPOSE can be ORed to get all others
 #define DRMU_ROTATION_0                   0
-#define DRMU_ROTATION_X_FLIP              1
-#define DRMU_ROTATION_Y_FLIP              2
+#define DRMU_ROTATION_H_FLIP              1  // Horizontal flip (x -> -x)
+#define DRMU_ROTATION_V_FLIP              2  // Vertical flip (y -> -y)
 #define DRMU_ROTATION_180                 3
 // *** These don't exist on Pi - no inherent transpose
 #define DRMU_ROTATION_TRANSPOSE           4
-#define DRMU_ROTATION_90                  5  // Rotate 90 clockwise
-#define DRMU_ROTATION_270                 6  // Rotate 90 anti-cockwise
+#define DRMU_ROTATION_270                 5  // Rotate 90 anti-cockwise
+#define DRMU_ROTATION_90                  6  // Rotate 90 clockwise
 #define DRMU_ROTATION_180_TRANSPOSE       7  // Rotate 180 & transpose
+
+// Aliases that mirror (IMHO confusing) DRM naming
+#define DRMU_ROTATION_REFLECT_X           DRMU_ROTATION_H_FLIP
+#define DRMU_ROTATION_REFLECT_Y           DRMU_ROTATION_V_FLIP
 
 #define DRMU_ROTATION_INVALID             ~0U
 
