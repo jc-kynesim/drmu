@@ -273,7 +273,6 @@ fail:
 
 typedef struct writeback_env_s {
     drmu_writeback_env_t * wbe;
-    drmu_writeback_fb_t * wbq;
     drmu_plane_t * p2;
     drmu_output_t * dout2;
     drmu_atomic_t * da;
@@ -334,6 +333,7 @@ usage()
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
            "-W  as -w but display the result onscreen too"
+           "-WW Use single FB writeback rather than whole atomic"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -374,8 +374,8 @@ int main(int argc, char *argv[])
     bool hi_bpc = true;
     bool dofrac = false;
     bool try_writeback = false;
-    bool show_writeback = false;
-    bool transpose = false;
+    unsigned int show_writeback = 0;
+    unsigned int rotation = DRMU_ROTATION_0;
     bool multi = false;
     bool conn_added = false;
     int verbose = 0;
@@ -456,7 +456,7 @@ int main(int argc, char *argv[])
                 test_siting = true;
                 break;
             case 'T':
-                transpose = true;
+                rotation = DRMU_ROTATION_TRANSPOSE;
                 break;
             case 'F':
                 dofrac = true;
@@ -477,7 +477,7 @@ int main(int argc, char *argv[])
                 hi_bpc = false;
                 break;
             case 'W':
-                show_writeback = true;
+                ++show_writeback;
                 /* FALLTHROUGH */
             case 'w':
                 try_writeback = true;
@@ -543,10 +543,6 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Failed to create writeback env\n");
             return -1;
         }
-        if ((wbe.wbq = drmu_writeback_fb_new(wbe.wbe, NULL)) == NULL) {
-            fprintf(stderr, "Failed to get queue for writeback\n");
-            return -1;
-        }
         dout = drmu_writeback_env_output(wbe.wbe);
     }
     else if (!conn_added) {
@@ -563,7 +559,7 @@ int main(int argc, char *argv[])
             mp.width = 1920;
             mp.height = 1080;
         }
-        printf("Try writeback %dx%d%s\n", mp.width, mp.height, !transpose ? "" : " transposed");
+        printf("Try writeback %dx%d %s\n", mp.width, mp.height, drmu_util_rotation_to_str(rotation));
 
         wbe.dest_rect = drmu_rect_wh(mp.width, mp.height);
         if ((wbe.dout2 = drmu_output_new(du)) == NULL) {
@@ -579,7 +575,7 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        if (transpose) {
+        if (drmu_rotation_is_transposed(rotation)) {
             unsigned int t = mp.width;
             mp.width = mp.height;
             mp.height = t;
@@ -720,17 +716,25 @@ int main(int argc, char *argv[])
     if (!try_writeback && drmu_atomic_output_add_connect(da, dout) != 0)
         fprintf(stderr, "Failed connection\n");
 
-    if (try_writeback && show_writeback) {
-        unsigned int req_rot = !transpose ? DRMU_ROTATION_0 : DRMU_ROTATION_TRANSPOSE;
+    if (show_writeback == 2) {
+        drmu_writeback_fb_t * wbq;
 
-        // ***** Da should contaion stuff on display but we have wrong dn
+        // *** We would like to use da but it uses wb crtc currently
         drmu_atomic_unref(&da);
-//        wbe.da = drmu_atomic_move(&da);
 
-        if (drmu_writeback_fb_queue(wbe.wbq, wbe.dest_rect, req_rot, wbe.xfmt, writeback_fb_done_cb, &wbe, fb1) != 0) {
+        // In a real app this would be allocated along with the wbe and kept around
+        // rather than being used as a one-shot
+        if ((wbq = drmu_writeback_fb_new(wbe.wbe, NULL)) == NULL) {
+            fprintf(stderr, "Failed to get queue for writeback\n");
+            return -1;
+        }
+
+        if (drmu_writeback_fb_queue(wbq, wbe.dest_rect, rotation, wbe.xfmt, writeback_fb_done_cb, &wbe, fb1) != 0) {
             fprintf(stderr, "Writeback FB Q fail\n");
             goto fail;
         }
+
+        drmu_writeback_fb_unref(&wbq);
 
         getchar();
     }
@@ -739,29 +743,35 @@ int main(int argc, char *argv[])
         drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
     }
 
-    if (try_writeback && !show_writeback) {
-        printf("Writing writeback file NIF currently\n");
-#if 0
-#if 0
-        if ((rv = drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET)) != 0) {
-            fprintf(stderr, "Failed to commit writeback: %d (%s)\n", rv, strerror(-rv));
-            drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
+    if (try_writeback && show_writeback < 2) {
+        drmu_rect_t dest_rect = drmu_rect_wh(1920, 1080);
+        drmu_fb_t * fb2 = drmu_fb_new_dumb(du, dest_rect.w, dest_rect.h, wbe.xfmt);
+//        unsigned int tag = drmu_writeback_env_tag_new(wbe.wbe);
+        int rv;
+
+        if (fb2 == NULL) {
+            fprintf(stderr, "Failed to allocate writeback destination frame buffer\n");
             goto fail;
         }
+
+        if (drmu_atomic_output_add_writeback_fb_rotate(da, dout, fb2, rotation) != 0)
+        {
+            fprintf(stderr, "Failed to add writeback fb\n");
+            goto fail;
+        }
+
+#if 1
+        // Ignore the Q associated with the wbe
+        drmu_atomic_commit(da, DRM_MODE_ATOMIC_ALLOW_MODESET);
         drmu_atomic_unref(&da);
 #else
-        if ((rv = drmu_atomic_queue(&da)) != 0) {
-            fprintf(stderr, "Failed to queue writeback: %d (%s)\n", rv, strerror(-rv));
-            drmu_atomic_dump_lvl(da, DRMU_LOG_LEVEL_DEBUG);
-            goto fail;
-        }
-
-        while (!atomic_load(&wbe.commit_done)) {
-            usleep(20000);
-        }
+        drmu_queue_queue_tagged(drmu_writeback_env_queue(wbe.wbe), tag, DRMU_QUEUE_MERGE_QUEUE, &da);
+        // Wait Q idle - very crude sync - should fold this into fence_wait somehow
+        // but have to wait for commit to finish to get fence fd
+        drmu_queue_wait(drmu_writeback_env_queue(wbe.wbe));
 #endif
 
-        rv = drmu_fb_out_fence_wait(wbe.fb, 1000);
+        rv = drmu_fb_out_fence_wait(fb2, 1000);
         if (rv == 1) {
             printf("Waited OK for writeback\n");
         }
@@ -774,11 +784,23 @@ int main(int argc, char *argv[])
         }
 
         {
-            FILE * f = fopen("wb.rgb", "wb");
-            fwrite(drmu_fb_data(wbe.fb, 0), drmu_fb_pitch(wbe.fb, 0), drmu_fb_height(wbe.fb), f);
+            const char * wb_filename = "wb.rgb";
+            FILE * f = fopen(wb_filename, "wb");
+            if (f == NULL) {
+                fprintf(stderr, "Failed to open %s for output: %s\n", wb_filename, strerror(errno));
+                goto fail;
+            }
+            fwrite(drmu_fb_data(fb2, 0), drmu_fb_pitch(fb2, 0), drmu_fb_height(fb2), f);
             fclose(f);
+            printf("Writeback buffer written to %s\n", wb_filename);
         }
-#endif
+
+        if (show_writeback) {
+            da = drmu_atomic_new(du);
+            drmu_atomic_plane_add_fb(da, wbe.p2, fb2, dest_rect);
+        }
+
+        drmu_fb_unref(&fb2);
     }
 
     if (da) {
