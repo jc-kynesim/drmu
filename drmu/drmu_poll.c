@@ -334,7 +334,7 @@ drmu_queue_new(struct drmu_env_s * const du)
 {
     drmu_queue_t * const aq = calloc(1, sizeof(*aq));
     pthread_condattr_t condattr;
-    static atomic_int qcount = ATOMIC_VAR_INIT(0);
+    static atomic_uint qcount = 0;
 
     if (aq == NULL)
         return NULL;
