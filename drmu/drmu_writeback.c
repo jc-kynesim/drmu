@@ -49,8 +49,8 @@ writeback_env_free(drmu_writeback_env_t * const wbe)
 }
 
 // Get a "unique" non-zero tag no
-static unsigned int
-writeback_env_tag_new(drmu_writeback_env_t * const wbe)
+unsigned int
+drmu_writeback_env_tag_new(drmu_writeback_env_t * const wbe)
 {
     unsigned int n;
     while ((n = atomic_fetch_add(&wbe->tag_n, 1)) == 0)
@@ -150,6 +150,12 @@ struct drmu_output_s *
 drmu_writeback_env_output(const drmu_writeback_env_t * const wbe)
 {
     return wbe == NULL ? NULL : wbe->dout;
+}
+
+struct drmu_queue_s *
+drmu_writeback_env_queue(const drmu_writeback_env_t * const wbe)
+{
+    return wbe == NULL ? NULL : wbe->dq;
 }
 
 drmu_plane_t *
@@ -297,7 +303,7 @@ drmu_writeback_fb_new(drmu_writeback_env_t * const wbe, drmu_pool_t * const fb_p
 
     wbq->wbe = drmu_writeback_env_ref(wbe);
     wbq->pool = drmu_pool_ref(fb_pool);
-    wbq->q_tag = writeback_env_tag_new(wbe);
+    wbq->q_tag = drmu_writeback_env_tag_new(wbe);
     wbq->q_merge = DRMU_QUEUE_MERGE_REPLACE;
 
     return wbq;

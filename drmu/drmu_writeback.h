@@ -14,6 +14,7 @@ struct drmu_fb_s;
 struct drmu_output_s;
 struct drmu_plane_s;
 struct drmu_pool_s;
+struct drmu_queue_s;
 
 struct drmu_writeback_env_s;
 typedef struct drmu_writeback_env_s drmu_writeback_env_t;
@@ -26,6 +27,12 @@ void drmu_writeback_env_finish(drmu_writeback_env_t ** const ppwbe);
 
 // Output associated with Q (and therefore conn & crtc)
 struct drmu_output_s * drmu_writeback_env_output(const drmu_writeback_env_t * const wbe);
+
+// Atomic queue used by this env
+struct drmu_queue_s * drmu_writeback_env_queue(const drmu_writeback_env_t * const wbe);
+
+// Get a "unique" non-zero tag no
+unsigned int drmu_writeback_env_tag_new(drmu_writeback_env_t * const wbe);
 
 // Find and ref a plane in dest_dout that is compatible with a format that the
 // writeback connector can produce. The format is returned in *pFmt
