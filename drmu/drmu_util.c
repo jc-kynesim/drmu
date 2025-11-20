@@ -131,6 +131,7 @@ drmu_util_str_to_rotation(const char * s, char ** peos)
         unsigned int rot;
     } str_to_rot[] = {
         {"0", DRMU_ROTATION_0},
+        {"NONE", DRMU_ROTATION_0},
         {"H_FLIP", DRMU_ROTATION_H_FLIP},
         {"H", DRMU_ROTATION_H_FLIP},
         {"V_FLIP", DRMU_ROTATION_V_FLIP},
@@ -157,6 +158,22 @@ drmu_util_str_to_rotation(const char * s, char ** peos)
     if (peos != NULL)
         *peos = (char*)s;
     return DRMU_ROTATION_0;
+}
+
+const char *
+drmu_util_rotation_to_str(const unsigned int rot)
+{
+    static const char *rot_to_str[8] = {
+        [DRMU_ROTATION_0] = "none",
+        [DRMU_ROTATION_H_FLIP] = "H_flip",
+        [DRMU_ROTATION_V_FLIP] = "V_flip",
+        [DRMU_ROTATION_180_TRANSPOSE] = "180_Transpose",
+        [DRMU_ROTATION_180] = "180",
+        [DRMU_ROTATION_TRANSPOSE] = "Transpose",
+        [DRMU_ROTATION_90] = "90",
+        [DRMU_ROTATION_270] = "270"
+    };
+    return rot > 7 ? "???" : rot_to_str[rot];
 }
 
 drmu_ufrac_t
