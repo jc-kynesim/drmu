@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 			device = optarg;
 			break;
 		case 'f': {
-			char fourcc[4] = "    ";
+			char fourcc[4] = {'-', '-', '-', '-'};
 			int length = strlen(optarg);
 			if (length > 0)
 				fourcc[0] = optarg[0];
