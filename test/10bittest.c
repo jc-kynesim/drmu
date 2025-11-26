@@ -562,18 +562,26 @@ int main(int argc, char *argv[])
         printf("Try writeback %dx%d %s\n", mp.width, mp.height, drmu_util_rotation_to_str(rotation));
 
         wbe.dest_rect = drmu_rect_wh(mp.width, mp.height);
-        if ((wbe.dout2 = drmu_output_new(du)) == NULL) {
-            printf("Failed to create output 2\n");
-            goto fail;
+
+        if (show_writeback != 0) {
+            if ((wbe.dout2 = drmu_output_new(du)) == NULL) {
+                printf("Failed to create output 2\n");
+                goto fail;
+            }
+            if (drmu_output_add_output2(wbe.dout2, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0) {
+                printf("Failed to add conn to output 2\n");
+                goto fail;
+            }
         }
-        if (drmu_output_add_output2(wbe.dout2, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0) {
-            printf("Failed to add conn to output 2\n");
-            goto fail;
-        }
-        if ((wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt)) == NULL) {
-            fprintf(stderr, "Failed to get plane for writeback\n");
+
+        wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt);
+        if (wbe.xfmt == 0) {
+            fprintf(stderr, "Failed to get plane/format for writeback\n");
             return -1;
         }
+
+        if (verbose != 0)
+            printf("Choose format %s for writeback output\n", drmu_log_fourcc(wbe.xfmt));
 
         if (drmu_rotation_is_transposed(rotation)) {
             unsigned int t = mp.width;
