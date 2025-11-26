@@ -175,6 +175,12 @@ drmu_writeback_env_fmt_plane(drmu_writeback_env_t * const wbe,
         if (fmt == DRM_FORMAT_BGR888 || fmt == DRM_FORMAT_RGB888)
             continue;
 
+        // If no output given then just fill in the first format found
+        if (dest_dout == NULL) {
+            *pFmt = fmts[i];
+            return NULL;
+        }
+
         drmu_plane_t * const dp = drmu_output_plane_ref_format(dest_dout, types, fmt, 0);
 
         if (dp != NULL) {

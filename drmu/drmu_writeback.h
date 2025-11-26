@@ -37,8 +37,10 @@ unsigned int drmu_writeback_env_tag_new(drmu_writeback_env_t * const wbe);
 // Find and ref a plane in dest_dout that is compatible with a format that the
 // writeback connector can produce. The format is returned in *pFmt
 // Types is a bit field of acceptable plane types (DRMU_PLANE_TYPE_xxx), 0 => any
+// If dest_dout is NULL then will return NULL for the plane but will fill in
+// *pFmt with the first usable format on the writeback output.
 // cf. drmu_output_plane_ref_format
-// Returns NULL if nothing compatible found
+// Returns NULL, *pFmt == 0 if nothing compatible found
 struct drmu_plane_s * drmu_writeback_env_fmt_plane(drmu_writeback_env_t * const wbe,
                                                    struct drmu_output_s * const dest_dout, const unsigned int types,
                                                    uint32_t * const pFmt);
