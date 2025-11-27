@@ -343,9 +343,6 @@ drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name
         unsigned int a = 0;
         unsigned int b = pen->n;
 
-        if (name == NULL)
-            return NULL;
-
         while (a < b) {
             const int r = strcmp(name, pen->enums[i].name);
 
