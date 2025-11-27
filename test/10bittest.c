@@ -7,6 +7,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <getopt.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -251,6 +252,56 @@ fail:
     return rv;
 }
 
+static int
+alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
+             unsigned int dw, unsigned int dh)
+{
+    drmu_env_t * const du = drmu_atomic_env(da);
+    unsigned int i, j;
+    unsigned int w = 16;
+    unsigned int h = 16;
+    const unsigned int s16_stride = w * sizeof(uint64_t);
+    uint8_t * s16 = malloc(h * s16_stride);
+
+    for (i = 0; i != 2; ++i) {
+        for (j = 0; j != 2; ++j) {
+            drmu_plane_t * plane = drmu_output_plane_ref_other(dout);
+            drmu_fb_t * fb = drmu_fb_new_dumb(du, w, h, DRM_FORMAT_ABGR8888);
+            uint64_t col;
+
+            switch (i * 2 + j) {
+                case 0:
+                    col = p16val(0x80 << 8, 0, 0, 0xff << 8);
+                    break;
+                case 1:
+                    col = p16val(0x80 << 8, 0, 0xff << 8, 0);
+                    break;
+                case 2:
+                    col = p16val(0x80 << 8, 0xff << 8, 0, 0);
+                    break;
+                case 3:
+                    col = p16val(0x80 << 8, 0xff << 8, 0xff << 8, 0xff << 8);
+                    break;
+            }
+
+            plane16_fill(s16, w, h, s16_stride, col);
+            plane16_to_abgr8888(drmu_fb_data(fb, 0), drmu_fb_pitch(fb, 0), s16, s16_stride, w, h);
+            drmu_fb_pixel_blend_mode_set(fb, DRMU_FB_PIXEL_BLEND_COVERAGE);
+
+            drmu_atomic_plane_add_fb(da, plane, fb, (drmu_rect_t){
+                            .x = dw / 8 + i * (dw / 4),
+                            .y = dh / 8 + j * (dh / 4),
+                            .w = dw / 2,
+                            .h = dh / 2});
+            drmu_fb_unref(&fb);
+            // * We would like to unref plane but that isn't currently refed in the atomic
+        }
+    }
+
+    free(s16);
+    return 0;
+}
+
 typedef struct writeback_env_s {
     drmu_writeback_env_t * wbe;
     drmu_plane_t * p2;
@@ -309,7 +360,7 @@ usage()
            "-8  keep max_bpc 8\n"
            "-P  pixel format fourcc\n"
            "-M  drm module name, default: " DRM_MODULE "\n"
-           "-T  if using writeback transpose the result through the connector"
+           "-T  if using writeback transpose the result through the connector\n"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
            "-W  as -w but display the result onscreen too"
@@ -323,6 +374,32 @@ usage()
            "wider on repeat\n");
     exit(1);
 }
+
+static const struct option longopts[] =
+{
+#define OPT_ALPHA 256
+    {
+        .name = "alpha",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_ALPHA
+    },
+    {
+        .name = NULL,
+        .has_arg = 0,
+        .flag = NULL,
+        .val = 0
+    }
+};
+
+enum test_type_e {
+    TEST_STRIPES = 0,
+    TEST_SOLID,
+    TEST_PIN,
+    TEST_GREY,
+    TEST_SITING,
+    TEST_ALPHA
+};
 
 int main(int argc, char *argv[])
 {
@@ -345,10 +422,7 @@ int main(int argc, char *argv[])
     drmu_color_range_t range = NULL;
     drmu_color_range_t default_range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
     drmu_broadcast_rgb_t broadcast_rgb = NULL;
-    bool grey_only = false;
-    bool fill_pin = false;
-    bool fill_solid = false;
-    bool test_siting = false;
+    enum test_type_e test_type = TEST_STRIPES;
     bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
@@ -365,8 +439,11 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     writeback_env_t wbe = {0};
 
-    while ((c = getopt(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy")) != -1) {
+    while ((c = getopt_long(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
+            case OPT_ALPHA:
+                test_type = TEST_ALPHA;
+                break;
             case 'C':
                 conn_name = optarg;
                 break;
@@ -388,7 +465,7 @@ int main(int argc, char *argv[])
                 break;
             }
             case 'g':
-                grey_only = true;
+                test_type = TEST_GREY;
                 break;
             case 'M':
                 drm_device = optarg;
@@ -397,7 +474,7 @@ int main(int argc, char *argv[])
                 multi = true;
                 break;
             case 'p':
-                fill_pin = true;
+                test_type = TEST_PIN;
                 break;
             case 'P':
                 if (strlen(optarg) != 4) {
@@ -433,7 +510,7 @@ int main(int argc, char *argv[])
                 break;
             }
             case 's':
-                test_siting = true;
+                test_type = TEST_SITING;
                 break;
             case 'T':
                 rotation = DRMU_ROTATION_TRANSPOSE;
@@ -640,15 +717,31 @@ int main(int argc, char *argv[])
     // Start with grey fill
     plane16_fill(p16, mp.width, mp.height, p16_stride, fillval);
 
-    if (fill_pin)
-        fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
-    else if (grey_only)
-        fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
-    else if (test_siting) {
-        if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac))
+    switch (test_type) {
+        case TEST_PIN:
+            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            break;
+        case TEST_GREY:
+            fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            break;
+        case TEST_SITING:
+            if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac))
+                goto fail;
+            break;
+        case TEST_SOLID:
+            break;
+        case TEST_STRIPES:
+            fillgraduated10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            break;
+        case TEST_ALPHA:
+            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            if (alpha_test(da, dout, mp.width, mp.height))
+                goto fail;
+            break;
+        default:
+            fprintf(stderr, "Unexpected test number: %d\n", test_type);
             goto fail;
-    } else if (!fill_solid)
-        fillgraduated10(p16, mp.width, mp.height, p16_stride, is_yuv);
+    }
 
     if (is_yuv)
         plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
