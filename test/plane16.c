@@ -1,7 +1,76 @@
 #include <errno.h>
 #include <stdlib.h>
 
+#include <stdio.h>
+#include <memory.h>
+
 #include "plane16.h"
+
+typedef struct pel_info_s {
+    uint8_t chan;
+    uint8_t bits;
+    uint8_t off;
+} pel_info_t;
+
+typedef struct pixel_info_s {
+    struct chan_info_s {
+        uint8_t sx, sy;
+    } chans[4];
+    struct plane_info_s {
+        uint8_t bpg;
+        uint8_t xdiv, ydiv;
+        pel_info_t pels[9]; // Finish with 0,0
+    } planes[4];
+} pixel_info_t;
+
+void
+plane16_to_generic(
+        uint8_t * const dst_datas[4], const unsigned int dst_strides[4],
+        const pixel_info_t * const px,
+        const uint8_t * const src_data, const unsigned int src_stride,
+        const unsigned int w, const unsigned int h)
+{
+    unsigned int y;
+    unsigned int x;
+    unsigned int plane;
+    for (plane = 0; plane != 4 && px->planes[plane].bpg != 0; ++plane) {
+        const struct plane_info_s * const pi = px->planes + plane;
+        unsigned int ty[4] = {0};
+
+        for (y = 0; y != h / pi->ydiv; ++y) {
+            uint8_t * d = dst_datas[plane] + ty[plane] * dst_strides[plane];
+            unsigned int tx[4] = {0};
+
+            for (x = 0; x != w / pi->xdiv; ++x) {
+                uint64_t a = 0;
+
+                for (const pel_info_t *p = pi->pels; p->bits != 0; ++p) {
+                    unsigned int c = p->chan;
+
+                    if (c < 4) {
+                        unsigned int v = (tx[c] >= w) ? 0x8000 :
+                            *(uint16_t *)(src_data + 8 * tx[c] + src_stride * ty[c] + c * 2);
+                        a |= (v >> (16 - p->bits)) << p->off;
+                        tx[c] += px->chans[c].sx;
+                    }
+                    else if (c == 4) {
+                        a |= (0xffff >> (16 - p->bits)) << p->off;
+                    }
+                }
+
+                for (unsigned int i = 0; i != pi->bpg; ++i) {
+                    *d++ = a & 0xff;
+                    a >>= 8;
+                }
+            }
+
+            for (unsigned int i = 0; i != 4; ++i) {
+                ty[i] += px->chans[i].sy;
+            }
+        }
+    }
+}
+
 
 // v0 -> A(2), v1 -> R(10), v2 -> G(10), v3 -> B(10)
 void
@@ -39,6 +108,31 @@ plane16_to_abgr2101010(uint8_t * const dst_data, const unsigned int dst_stride,
                 (((*s >> (32 +  6)) & 0x3ff) <<  0) |
                 (((*s >> (16 +  6)) & 0x3ff) << 10) |
                 (((*s >> (0  +  6)) & 0x3ff) << 20);
+        }
+    }
+
+    {
+        uint8_t * d = calloc(h, dst_stride);
+        static const pixel_info_t px = {
+            .chans = {{1, 1}, {1, 1}, {1, 1}, {1, 1}},
+            .planes = {
+                {
+                    .bpg = 4,
+                    .xdiv = 1,
+                    .ydiv = 1,
+                    .pels = {{2, 10, 0}, {1, 10, 10}, {0, 10, 20}, {3, 2, 30}}
+                }
+            }
+        };
+        uint8_t * datas[4] = {d};
+        unsigned int strides[4] = {dst_stride};
+        plane16_to_generic(datas, strides, &px,
+                           src_data, src_stride, w, h);
+
+        for (i = 0; i != h; ++i) {
+            if (memcmp(dst_data + i * dst_stride, d + i * dst_stride, w * 4) != 0) {
+                fprintf(stderr, "Compare fail @ line %d\n", i);
+            }
         }
     }
 }
@@ -167,8 +261,6 @@ plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
         }
     }
 }
-
-
 
 void
 plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,

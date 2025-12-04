@@ -17,15 +17,41 @@
 
 // Format properties
 
+typedef struct pel_info_s {
+    uint8_t chan;
+    uint8_t bits;
+    uint8_t off;
+} pel_info_t;
+
+typedef struct pixel_info_s {
+    struct chan_info_s {
+        uint8_t sx, sy;
+    } chans[4];
+    struct plane_info_s {
+        uint8_t bpg; // Bytes per group
+        uint8_t xdiv, ydiv; // w / xdiv = groups
+        pel_info_t pels[9]; // Finish with 0,0
+    } planes[4];
+} pixel_info_t;
+
+
 typedef struct drmu_fmt_info_s {
     uint32_t fourcc;
     uint8_t  bpp;  // For dumb BO alloc
     uint8_t  bit_depth;  // For display
     uint8_t  plane_count;
+
     struct {
-        uint8_t wdiv;
-        uint8_t hdiv;
+        uint8_t sx;
+        uint8_t sy;
+    } chans[4];
+
+    struct {
+        uint8_t bpg; // Bytes per group
+        uint8_t xdiv, ydiv; // w / xdiv = groups
+        pel_info_t pels[9]; // Finish with 0,0
     } planes[4];
+
     drmu_chroma_siting_t chroma_siting;  // Default for this format (YUV420 = (0.0, 0.5), otherwise (0, 0)
 } drmu_fmt_info_t;
 
@@ -39,59 +65,105 @@ typedef struct drmu_fmt_info_s {
 #define P_YUV422    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}}
 #define P_YUV444    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
 
+#define C_444       {{.sx = 1, .sy = 1}, {.sx = 1, .sy = 1}, {.sx = 1, .sy = 1}, {.sx = 1, .sy = 1}}
+#define C_422       {{.sx = 1, .sy = 1}, {.sx = 2, .sy = 1}, {.sx = 2, .sy = 1}, {.sx = 1, .sy = 1}}
+#define C_420       {{.sx = 1, .sy = 1}, {.sx = 2, .sy = 2}, {.sx = 2, .sy = 2}, {.sx = 1, .sy = 1}}
+
+#define CHAN_B         0
+#define CHAN_G         1
+#define CHAN_R         2
+#define CHAN_A         3
+#define CHAN_X         4
+
+#define PEL(_C, _bits, _off) {.chan = CHAN_##_C, .bits = _bits, .off = _off}
+#define R5(off) PEL(R, 5, off)
+#define G5(off) PEL(G, 5, off)
+#define B5(off) PEL(B, 5, off)
+#define A1(off) PEL(A, 1, off)
+#define X1(off) PEL(X, 1, off)
+
+#define  FMT_ONE_4(CA, CB, CC, CD, NA, NB, NC, ND)\
+    { .fourcc = DRM_FORMAT_##CA##CB##CC##CD##NA##NB##NC##ND,\
+      .bpp = (NA + NB + NC + ND),\
+      .bit_depth = (NA > ND ? NA : ND),\
+      .plane_count = 1,\
+      .chans = C_444,\
+      .planes = {{\
+            .bpg = (NA + NB + NC + ND) / 8,\
+            .xdiv = 1, .ydiv = 1,\
+            .pels = {PEL(CD, ND, 0), PEL(CC, NC, ND), PEL(CB, NB, ND + NC), PEL(CA, NA, ND + NC + NB)}}}}
+
+#define  FMT_ONE_3(CA, CB, CC, NA, NB, NC)\
+    { .fourcc = DRM_FORMAT_##CA##CB##CC##NA##NB##NC,\
+      .bpp = (NA + NB + NC),\
+      .bit_depth = NA,\
+      .plane_count = 1,\
+      .chans = C_444,\
+      .planes = {{\
+            .bpg = (NA + NB + NC) / 8,\
+            .xdiv = 1, .ydiv = 1,\
+            .pels = {PEL(CC, NC, 0), PEL(CB, NB, NC), PEL(CA, NA, NC + NB)}}}}
+
+
 static
 // Not const when creating the sorted version 'cos we sort in place
 #if !BUILD_MK_SORTED_FMTS_H
 const
 #endif
 drmu_fmt_info_t format_info[] = {
-    { .fourcc = DRM_FORMAT_XRGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XBGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRX5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ARGB1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ABGR1555, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBA5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRA5551, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGR565, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGB565, .bpp = 16, .bit_depth = 5, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_4(X, R, G, B, 1, 5, 5, 5),
+    FMT_ONE_4(X, B, G, R, 1, 5, 5, 5),
+    FMT_ONE_4(R, G, B, X, 5, 5, 5, 1),
+    FMT_ONE_4(B, G, R, X, 5, 5, 5, 1),
 
-    { .fourcc = DRM_FORMAT_RGB888, .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGR888, .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_4(A, R, G, B, 1, 5, 5, 5),
+    FMT_ONE_4(A, B, G, R, 1, 5, 5, 5),
+    FMT_ONE_4(R, G, B, A, 5, 5, 5, 1),
+    FMT_ONE_4(B, G, R, A, 5, 5, 5, 1),
 
-    { .fourcc = DRM_FORMAT_XRGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XBGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRX8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ARGB8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ABGR8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRA8888, .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_3(B, G, R, 5, 6, 5),
+    FMT_ONE_3(R, G, B, 5, 6, 5),
 
-    { .fourcc = DRM_FORMAT_XRGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XBGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRX1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ARGB2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_ABGR2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_RGBA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_BGRA1010102, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_3(B, G, R, 8, 8, 8),
+    FMT_ONE_3(R, G, B, 8, 8, 8),
 
-    { .fourcc = DRM_FORMAT_AYUV,        .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XYUV8888,    .bpp = 32, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_VUY888,      .bpp = 24, .bit_depth = 8, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XVYU2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_4(X, R, G, B, 8, 8, 8, 8),
+    FMT_ONE_4(X, B, G, R, 8, 8, 8, 8),
+    FMT_ONE_4(R, G, B, X, 8, 8, 8, 8),
+    FMT_ONE_4(B, G, R, X, 8, 8, 8, 8),
 
-    { .fourcc = DRM_FORMAT_XVYU12_16161616, .bpp = 64, .bit_depth = 12, .plane_count = 1, .planes = P_ONE},
-    { .fourcc = DRM_FORMAT_XVYU16161616, .bpp = 64, .bit_depth = 16, .plane_count = 1, .planes = P_ONE},
+    FMT_ONE_4(A, R, G, B, 8, 8, 8, 8),
+    FMT_ONE_4(A, B, G, R, 8, 8, 8, 8),
+    FMT_ONE_4(R, G, B, A, 8, 8, 8, 8),
+    FMT_ONE_4(B, G, R, A, 8, 8, 8, 8),
 
-    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = P_ONE,
+    FMT_ONE_4(X, R, G, B, 2, 10, 10, 10),
+    FMT_ONE_4(X, B, G, R, 2, 10, 10, 10),
+    FMT_ONE_4(R, G, B, X, 10, 10, 10, 2),
+    FMT_ONE_4(B, G, R, X, 10, 10, 10, 2),
+
+    FMT_ONE_4(A, R, G, B, 2, 10, 10, 10),
+    FMT_ONE_4(A, B, G, R, 2, 10, 10, 10),
+    FMT_ONE_4(R, G, B, A, 10, 10, 10, 2),
+    FMT_ONE_4(B, G, R, A, 10, 10, 10, 2),
+
+
+#if 0
+    { .fourcc = DRM_FORMAT_AYUV,        .bpp = 32, .bit_depth = 8, .plane_count = 1, .chans = C_444},
+    { .fourcc = DRM_FORMAT_XYUV8888,    .bpp = 32, .bit_depth = 8, .plane_count = 1, .chans = C_444},
+    { .fourcc = DRM_FORMAT_VUY888,      .bpp = 24, .bit_depth = 8, .plane_count = 1, .chans = C_444},
+    { .fourcc = DRM_FORMAT_XVYU2101010, .bpp = 32, .bit_depth = 10, .plane_count = 1, .chans = C_444},
+
+    { .fourcc = DRM_FORMAT_XVYU12_16161616, .bpp = 64, .bit_depth = 12, .plane_count = 1, .chans = C_444},
+    { .fourcc = DRM_FORMAT_XVYU16161616, .bpp = 64, .bit_depth = 16, .plane_count = 1, .chans = C_444},
+
+    { .fourcc = DRM_FORMAT_YUYV, .bpp = 16, .bit_depth = 8, .plane_count = 1, .chans = C_444,
         .chroma_siting = DRMU_CHROMA_SITING_TOP_LEFT_I },
-    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = P_ONE,
+    { .fourcc = DRM_FORMAT_YVYU, .bpp = 16, .bit_depth = 8, .plane_count = 1, .chans = C_444,
         .chroma_siting = DRMU_CHROMA_SITING_TOP_LEFT_I },
-    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = P_ONE,
+    { .fourcc = DRM_FORMAT_VYUY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .chans = C_444,
         .chroma_siting = DRMU_CHROMA_SITING_TOP_LEFT_I },
-    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .planes = P_ONE,
+    { .fourcc = DRM_FORMAT_UYVY, .bpp = 16, .bit_depth = 8, .plane_count = 1, .chans = C_444,
         .chroma_siting = DRMU_CHROMA_SITING_TOP_LEFT_I },
 
     { .fourcc = DRM_FORMAT_NV12,   .bpp = 8,  .bit_depth = 8,  .plane_count = 2, .planes = P_YC420,
@@ -127,6 +199,7 @@ drmu_fmt_info_t format_info[] = {
       .planes = {{.wdiv = 3, .hdiv = 1}, {.wdiv = 3, .hdiv = 2}},
       .chroma_siting = DRMU_CHROMA_SITING_LEFT_I },
 
+#endif
     { .fourcc = 0 }
 };
 #endif
