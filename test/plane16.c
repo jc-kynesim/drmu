@@ -17,8 +17,8 @@ typedef struct pixel_info_s {
         uint8_t sx, sy;
     } chans[4];
     struct plane_info_s {
-        uint8_t bpg;
-        uint8_t xdiv, ydiv;
+        uint8_t bpg; // Bytes per group
+        uint8_t xdiv, ydiv; // w / xdiv = groups
         pel_info_t pels[9]; // Finish with 0,0
     } planes[4];
 } pixel_info_t;
