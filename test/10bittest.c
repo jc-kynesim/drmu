@@ -16,6 +16,7 @@
 
 #include "config.h"
 #include "drmu.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include "drmu_scan.h"
@@ -412,6 +413,7 @@ int main(int argc, char *argv[])
     drmu_fb_t * fb1 = NULL;
     drmu_fb_t * fb_out = NULL;
     drmu_atomic_t * da = NULL;
+    const drmu_fmt_info_t * fi = NULL;
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
@@ -477,11 +479,16 @@ int main(int argc, char *argv[])
                 test_type = TEST_PIN;
                 break;
             case 'P':
-                if (strlen(optarg) != 4) {
-                    printf("Pixel FourCC expected to have 4 chars\n");
+                fi = NULL;
+                if (strlen(optarg) == 4)
+                    fi = drmu_fmt_info_find_fmt(fourcc_code(optarg[0], optarg[1], optarg[2], optarg[3]));
+                if (fi == NULL)
+                    fi = drmu_fmt_info_find_name(optarg);
+                if (fi == NULL) {
+                    printf("Unrecognised format '%s'\n", optarg);
                     exit(1);
                 }
-                p1fmt = fourcc_code(optarg[0], optarg[1], optarg[2], optarg[3]);
+                p1fmt = drmu_fmt_info_fourcc(fi);
                 break;
             case 'r': {
                 const char * s = optarg;
@@ -756,15 +763,29 @@ int main(int argc, char *argv[])
     else if (p1fmt == DRM_FORMAT_ABGR8888)
         plane16_to_abgr8888(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
+#if 0
     else if (p1fmt == DRM_FORMAT_NV12) {
         plane16_to_y8(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
                                p16, p16_stride, mp.width, mp.height);
         plane16_to_uv8_420(drmu_fb_data(fb1, 1), drmu_fb_pitch(fb1, 1),
                                p16, p16_stride, mp.width, mp.height);
     }
+#endif
     else {
-        fprintf(stderr, "Unexpected p1fmt converting from p16\n");
-        goto fail;
+        const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(p1fmt);
+        uint8_t * dst_datas[4];
+        unsigned int dst_strides[4];
+
+        if (fi == NULL) {
+            fprintf(stderr, "Unexpected p1fmt converting from p16\n");
+            goto fail;
+        }
+
+        for (unsigned int i = 0; i != 4; ++i) {
+            dst_datas[i] = drmu_fb_data(fb1, i);
+            dst_strides[i] = drmu_fb_pitch(fb1, i);
+        }
+        plane16_to_generic(dst_datas, dst_strides, fi, p16, p16_stride, mp.width, mp.height);
     }
 
     static const struct hdr_output_metadata meta = {

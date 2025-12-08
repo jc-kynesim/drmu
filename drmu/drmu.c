@@ -28,7 +28,7 @@
 
 #include <linux/dma-buf.h>
 
-#define TRACE_PROP_NEW 0
+#define TRACE_PROP_NEW 1
 
 #ifndef OPT_IO_CALLOC
 #define OPT_IO_CALLOC 0
@@ -3313,6 +3313,11 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
             .fmt = ((uint32_t*)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset))[i],
             .idx = i};
     qsort(dp->fmt_idxs, dp->fmts_hdr->count_formats, sizeof(*dp->fmt_idxs), fmt_idx_cmp);
+    for (i = 0; i != dp->fmts_hdr->count_formats; ++i) {
+        drmu_info(du, "Format %s [%d] %s", drmu_log_fourcc(dp->fmt_idxs[i].fmt), dp->fmt_idxs[i].idx,
+                  drmu_fmt_info_name(drmu_fmt_info_find_fmt(dp->fmt_idxs[i].fmt)));
+    }
+
 
     dp->pid.alpha            = drmu_prop_range_new(du, props_name_to_id(props, "alpha"));
     dp->pid.color_encoding   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_ENCODING"));
