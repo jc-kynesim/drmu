@@ -385,6 +385,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_ALPHA
     },
+#define OPT_WBFMT 257
+    {
+        .name = "wbfmt",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_WBFMT
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -432,6 +439,7 @@ int main(int argc, char *argv[])
     bool try_writeback = false;
     unsigned int show_writeback = 0;
     unsigned int rotation = DRMU_ROTATION_0;
+    uint32_t wbfmt = 0;
     bool multi = false;
     bool conn_added = false;
     int verbose = 0;
@@ -445,6 +453,15 @@ int main(int argc, char *argv[])
         switch (c) {
             case OPT_ALPHA:
                 test_type = TEST_ALPHA;
+                break;
+            case OPT_WBFMT:
+                fi = drmu_fmt_info_find_name(optarg);
+                if (fi == NULL) {
+                    printf("Unrecognised format '%s'\n", optarg);
+                    exit(1);
+                }
+                wbfmt = drmu_fmt_info_fourcc(fi);
+                break;
                 break;
             case 'C':
                 conn_name = optarg;
@@ -479,11 +496,7 @@ int main(int argc, char *argv[])
                 test_type = TEST_PIN;
                 break;
             case 'P':
-                fi = NULL;
-                if (strlen(optarg) == 4)
-                    fi = drmu_fmt_info_find_fmt(fourcc_code(optarg[0], optarg[1], optarg[2], optarg[3]));
-                if (fi == NULL)
-                    fi = drmu_fmt_info_find_name(optarg);
+                fi = drmu_fmt_info_find_name(optarg);
                 if (fi == NULL) {
                     printf("Unrecognised format '%s'\n", optarg);
                     exit(1);
@@ -638,10 +651,24 @@ int main(int argc, char *argv[])
             }
         }
 
-        wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt);
-        if (wbe.xfmt == 0) {
-            fprintf(stderr, "Failed to get plane/format for writeback\n");
-            return -1;
+        if (wbfmt == 0) {
+            wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt);
+            if (wbe.xfmt == 0) {
+                fprintf(stderr, "Failed to get plane/format for writeback\n");
+                return -1;
+            }
+        }
+        else {
+            if (!drmu_conn_has_writeback_format(drmu_output_conn(drmu_writeback_env_output(wbe.wbe), 0), wbfmt)) {
+                fprintf(stderr, "Writeback connector doesn't support format\n");
+                goto fail;
+            }
+            if (wbe.dout2 != NULL &&
+                (wbe.p2 = drmu_output_plane_ref_format(wbe.dout2, 0, wbfmt, 0)) == NULL) {
+                fprintf(stderr, "Cannot get plane for writeback format\n");
+                goto fail;
+            }
+            wbe.xfmt = wbfmt;
         }
 
         if (verbose != 0)

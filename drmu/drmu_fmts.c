@@ -1,6 +1,7 @@
 #include "drmu_fmts.h"
 
 #include <stddef.h>
+#include <ctype.h>
 #include <string.h>
 
 #include <libdrm/drm_fourcc.h>
@@ -361,11 +362,24 @@ drmu_fmt_info_find_fmt(const uint32_t fourcc)
 const drmu_fmt_info_t *
 drmu_fmt_info_find_name(const char * const name)
 {
-    if (name == NULL)
+    char buf[32];
+    const drmu_fmt_info_t * fi;
+    unsigned int i;
+
+    if (name == NULL || name[0] == 0)
         return NULL;
 
+    for (i = 0; name[i] != 0 && i < sizeof(buf) - 1; ++i)
+        buf[i] = toupper(name[i]);
+    buf[i] = 0;
+
+    if (i == 4) {
+        if ((fi = drmu_fmt_info_find_fmt(fourcc_code(name[0], name[1], name[2], name[3]))) != NULL)
+            return fi;
+    }
+
     for (const drmu_fmt_info_t *p = format_info; p->fourcc; ++p) {
-        if (strcasecmp(p->name, name) == 0)
+        if (strcmp(p->name, name) == 0)
             return p;
     }
     return NULL;

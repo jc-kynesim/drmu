@@ -372,6 +372,8 @@ int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da_out, drmu_
 // List of supported writeback formats - no modifiers supported
 // *ppcount receives the count
 const uint32_t * drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount);
+// Test if fmt is a valid writeback format
+bool drmu_conn_has_writeback_format(drmu_conn_t * const dn, const uint32_t fmt);
 
 // Connector might support some rotations - true if given rotation supported
 bool drmu_conn_has_rotation(const drmu_conn_t * const dn, const unsigned int rotation);
