@@ -28,7 +28,7 @@ plane16_to_generic(
             for (x = 0; x != w / pi->xdiv; ++x) {
                 uint64_t a = 0;
 
-                for (const pel_info_t *p = pi->pels; p->bits != 0; ++p) {
+                for (const struct drmu_fmt_pel_info_s *p = pi->pels; p->bits != 0; ++p) {
                     unsigned int c = p->chan;
 
                     if (c < 4) {

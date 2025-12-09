@@ -25,18 +25,22 @@
 #ifndef DRM_FORMAT_S016
 #define DRM_FORMAT_S016	fourcc_code('S', '0', '1', '6') /* 2x2 subsampled Cb (1) and Cr (2) planes 16 bits per channel */
 #endif
+#ifndef DRM_FORMAT_P210
+#define DRM_FORMAT_P210 fourcc_code('P', '2', '1', '0')
+#endif
+#ifndef DRM_FORMAT_P212
+#define DRM_FORMAT_P212 fourcc_code('P', '2', '1', '2')
+#endif
+#ifndef DRM_FORMAT_P410
+#define DRM_FORMAT_P410 fourcc_code('P', '4', '1', '0')
+#endif
+#ifndef DRM_FORMAT_P412
+#define DRM_FORMAT_P412 fourcc_code('P', '4', '1', '2')
+#endif
 
 // Format properties
 
 #if BUILD_MK_SORTED_FMTS_H || !HAS_SORTED_FMTS
-
-#define P_ONE       {{.wdiv = 1, .hdiv = 1}}
-#define P_YC420     {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 2}}
-#define P_YC422     {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
-#define P_YC444     {{.wdiv = 2, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}  // Assumes doubled .bpp
-#define P_YUV420    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 2}, {.wdiv = 2, .hdiv = 2}}
-#define P_YUV422    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}, {.wdiv = 2, .hdiv = 1}}
-#define P_YUV444    {{.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}, {.wdiv = 1, .hdiv = 1}}
 
 #define C_XY(_sx,_sy)   {{.sx = 1, .sy = 1}, {.sx = (_sx), .sy = (_sy)}, {.sx = (_sx), .sy = (_sy)}, {.sx = 1, .sy = 1}}
 #define C_444           C_XY(1,1)
@@ -52,21 +56,26 @@
 #define CHAN_A         3
 #define CHAN_X         4
 
+#define CTST_B         0
+#define CTST_Y         1
+#define CTST_G         0
+#define CTST_U         1
+#define CTST_R         0
+#define CTST_V         1
+#define CTST_A         0
+#define CTST_X         0
+
 #define SITING_SY_1     DRMU_CHROMA_SITING_TOP_LEFT_I
 #define SITING_SY_2     DRMU_CHROMA_SITING_LEFT_I
 
 #define PEL(_C, _bits, _off) {.chan = CHAN_##_C, .bits = _bits, .off = _off}
-#define R5(off) PEL(R, 5, off)
-#define G5(off) PEL(G, 5, off)
-#define B5(off) PEL(B, 5, off)
-#define A1(off) PEL(A, 1, off)
-#define X1(off) PEL(X, 1, off)
 
 #define FMT_ONE_422_NAMED_PKLO(_name, CA, CB, CC, CD, bits, pk)\
     { .fourcc = DRM_FORMAT_##_name,\
       .bpp = (pk) * 2,\
       .bit_depth = (bits),\
       .plane_count = 1,\
+      .is_yuv = 1,\
       .chans = C_422,\
       .planes = {{\
             .bpg = ((pk) / 8) * 4,\
@@ -82,6 +91,7 @@
       .bpp = (NA + NB + NC + ND),\
       .bit_depth = (NA > ND ? NA : ND),\
       .plane_count = 1,\
+      .is_yuv = CTST_##CA || CTST_##CB || CTST_##CC || CTST_##CD,\
       .chans = C_444,\
       .planes = {{\
             .bpg = (NA + NB + NC + ND) / 8,\
@@ -97,6 +107,7 @@
       .bpp = (NA + NB + NC),\
       .bit_depth = NA,\
       .plane_count = 1,\
+      .is_yuv = CTST_##CA || CTST_##CB || CTST_##CC,\
       .chans = C_444,\
       .planes = {{\
             .bpg = (NA + NB + NC) / 8,\
@@ -107,16 +118,17 @@
     }
 #define  FMT_ONE_3(CA, CB, CC, NA, NB, NC) FMT_ONE_3_NAMED(CA##CB##CC##NA##NB##NC, CA, CB, CC, NA, NB, NC)
 
-#define  FMT_NV_PKHI(_name, CB, CC, bits, _sx, _sy, pk)\
+#define  FMT_NV_PKHI(_name, CA, CB, CC, bits, _sx, _sy, pk)\
     { .fourcc = DRM_FORMAT_##_name,\
       .bpp = (pk),\
       .bit_depth = (bits),\
       .plane_count = 2,\
       .chans = C_XY((_sx), (_sy)),\
+      .is_yuv = CTST_##CA || CTST_##CB || CTST_##CC,\
       .planes = {{\
           .bpg = (pk) / 8,\
           .xdiv = 1, .ydiv = 1,\
-          .pels = {PEL(Y, (bits), (pk) - (bits))}},\
+          .pels = {PEL(CA, (bits), (pk) - (bits))}},\
       {\
           .bpg = ((pk) / 8) * 2,\
           .xdiv = (_sx), .ydiv = (_sy),\
@@ -125,13 +137,14 @@
       .chroma_siting = SITING_SY_##_sy,\
       .name=#_name,\
     }
-#define  FMT_NV(name, CA, CB, bits, SX, SY) FMT_NV_PKHI(name, CA, CB, (bits), SX, SY, (((bits) + 7) & ~7))
+#define  FMT_NV(name, CB, CC, bits, SX, SY) FMT_NV_PKHI(name, Y, CB, CC, (bits), SX, SY, (((bits) + 7) & ~7))
 
 #define  FMT_TRI_PKLO(_name, CA, CB, CC, bits, _sx, _sy, pk)\
     { .fourcc = DRM_FORMAT_##_name,\
       .bpp = (pk),\
       .bit_depth = (bits),\
       .plane_count = 3,\
+      .is_yuv = CTST_##CA || CTST_##CB || CTST_##CC,\
       .chans = C_XY((_sx), (_sy)),\
       .planes = {{\
           .bpg = (pk) / 8,\
@@ -216,6 +229,10 @@ drmu_fmt_info_t format_info[] = {
     FMT_NV(P010, U, V, 10, 2, 2),
     FMT_NV(P012, U, V, 12, 2, 2),
     FMT_NV(P016, U, V, 16, 2, 2),
+    FMT_NV(P210, U, V, 10, 2, 1),
+    FMT_NV(P212, U, V, 12, 2, 1),
+    FMT_NV(P410, U, V, 10, 1, 1),
+    FMT_NV(P412, U, V, 12, 1, 1),
 
     FMT_TRI(YUV420, Y, U, V, 8, 2, 2),
     FMT_TRI(YVU420, Y, V, U, 8, 2, 2),
@@ -299,14 +316,14 @@ main(int argc, char * argv[])
     for (i = 0; i != format_count; ++i) {
         const drmu_fmt_info_t * x = format_info + i;
         unsigned int j;
-        fprintf(f, "{%#"PRIx32",%d,%d,%d,.chans={", x->fourcc, x->bpp, x->bit_depth, x->plane_count);
+        fprintf(f, "{.fourcc=%#"PRIx32",.bpp=%d,.bit_depth=%d,.plane_count=%d,.is_yuv=%d,.chans={", x->fourcc, x->bpp, x->bit_depth, x->plane_count, x->is_yuv);
         for (j = 0; j != sizeof(x->planes)/sizeof(x->planes[0]); ++j) {
             fprintf(f, "{%d,%d},", x->chans[j].sx, x->chans[j].sy);
         }
         fprintf(f, "},.planes={");
         for (j = 0; j != sizeof(x->planes)/sizeof(x->planes[0]); ++j) {
             unsigned int k;
-            fprintf(f, "{%d,%d,%d,{", x->planes[j].bpg, x->planes[j].xdiv, x->planes[j].ydiv);
+            fprintf(f, "{.bpg=%d,.xdiv=%d,.ydiv=%d,.pels={", x->planes[j].bpg, x->planes[j].xdiv, x->planes[j].ydiv);
             for (k = 0; k != sizeof(x->planes[0].pels)/sizeof(x->planes[0].pels[0]); ++k) {
                 fprintf(f, "{%d,%d,%d},", x->planes[j].pels[k].chan, x->planes[j].pels[k].bits, x->planes[j].pels[k].off);
             }
@@ -369,17 +386,22 @@ drmu_fmt_info_find_name(const char * const name)
     if (name == NULL || name[0] == 0)
         return NULL;
 
-    for (i = 0; name[i] != 0 && i < sizeof(buf) - 1; ++i)
+    // Uppercase the given name
+    for (i = 0; name[i] != 0 && i < sizeof(buf); ++i)
         buf[i] = toupper(name[i]);
+    if (i >= sizeof(buf))
+        return NULL;
     buf[i] = 0;
 
+    // If a 4 char name passed then 1st check it as a 4cc (case sensitive)
     if (i == 4) {
         if ((fi = drmu_fmt_info_find_fmt(fourcc_code(name[0], name[1], name[2], name[3]))) != NULL)
             return fi;
     }
 
+    // Not a 4cc look for name
     for (const drmu_fmt_info_t *p = format_info; p->fourcc; ++p) {
-        if (strcmp(p->name, name) == 0)
+        if (strcmp(p->name, buf) == 0)
             return p;
     }
     return NULL;
@@ -405,6 +427,10 @@ unsigned int drmu_fmt_info_pixel_bits(const drmu_fmt_info_t * const fmt_info)
 unsigned int drmu_fmt_info_plane_count(const drmu_fmt_info_t * const fmt_info)
 {
     return !fmt_info ? 0 : fmt_info->plane_count;
+}
+bool drmu_fmt_info_is_yuv(const drmu_fmt_info_t * const fmt_info)
+{
+    return fmt_info != NULL && fmt_info->is_yuv;
 }
 unsigned int drmu_fmt_info_wdiv(const drmu_fmt_info_t * const fmt_info, const unsigned int plane_n)
 {

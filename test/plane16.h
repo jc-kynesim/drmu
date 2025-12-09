@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+struct drmu_fmt_info_s;
+
 // v0 -> A(2), v1 -> R(10), v2 -> G(10), v3 -> B(10)
 void plane16_to_argb2101010(uint8_t * const dst_data, const unsigned int dst_stride,
                        const uint8_t * const src_data, const unsigned int src_stride,
@@ -38,6 +40,19 @@ void plane16_to_sand30(uint8_t * const dst_data_y, const unsigned int dst_stride
 void plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsigned int stride,
              const uint64_t grey);
 
+// Use format info to do the conversion. Works on whole frame.
+// Should work (slowly) for all linear formats.
+void plane16_to_generic(
+        uint8_t * const dst_datas[4], const unsigned int dst_strides[4],
+        const struct drmu_fmt_info_s * const px,
+        const uint8_t * const src_data, const unsigned int src_stride,
+        const unsigned int w, const unsigned int h);
+
+int plane16_fmt_to_generic(
+        uint8_t * const dst_datas[4], const unsigned int dst_strides[4],
+        const uint32_t fmt,
+        const uint8_t * const src_data, const unsigned int src_stride,
+        const unsigned int w, const unsigned int h);
 
 // vN -> Y(8)
 // decimate by wdiv, hdiv
