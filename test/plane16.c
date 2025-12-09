@@ -144,9 +144,9 @@ plane16_to_sand30_y(uint8_t * const dst_data, const unsigned int dst_stride2,
         uint32_t * d = (uint32_t *)(dst_data + i * dst_stride1);
         for (j = 0; j < w; j += cw) {
             for (k = j; k != j + cw; k += 3, s += 3, d += 1) {
-                uint32_t a = (k + 0 >= w) ? 0x200 : (uint32_t)((s[0] >> (32 + 6)) & 0x3ff);
-                uint32_t b = (k + 1 >= w) ? 0x200 : (uint32_t)((s[1] >> (32 + 6)) & 0x3ff);
-                uint32_t c = (k + 2 >= w) ? 0x200 : (uint32_t)((s[2] >> (32 + 6)) & 0x3ff);
+                uint32_t a = (k + 0 >= w) ? 0x200 : (uint32_t)((s[0] >> (0 + 6)) & 0x3ff);
+                uint32_t b = (k + 1 >= w) ? 0x200 : (uint32_t)((s[1] >> (0 + 6)) & 0x3ff);
+                uint32_t c = (k + 2 >= w) ? 0x200 : (uint32_t)((s[2] >> (0 + 6)) & 0x3ff);
                 *d = a | (b << 10) | (c << 20);
             }
             d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
@@ -173,11 +173,11 @@ plane16_to_sand30_c(uint8_t * const dst_data, const unsigned int dst_stride2,
         for (j = 0; j < w; j += cw) {
             for (k = j; k < j + cw; k += 6, s += 6, d += 1) {
                 uint64_t a = (k + 0 >= w) ? grey :
-                    (uint64_t)(((s[0] >> (16 + 6)) & 0x3ff) | (((s[0] >> (6)) & 0x3ff) << 10));
+                    (uint64_t)(((s[0] >> (16 + 6)) & 0x3ff) | (((s[0] >> (32 + 6)) & 0x3ff) << 10));
                 uint64_t b = (k + 2 >= w) ? grey :
-                    (uint64_t)(((s[2] >> (16 + 6)) & 0x3ff) | (((s[2] >> (6)) & 0x3ff) << 10));
+                    (uint64_t)(((s[2] >> (16 + 6)) & 0x3ff) | (((s[2] >> (32 + 6)) & 0x3ff) << 10));
                 uint64_t c = (k + 4 >= w) ? grey :
-                    (uint64_t)(((s[4] >> (16 + 6)) & 0x3ff) | (((s[4] >> (6)) & 0x3ff) << 10));
+                    (uint64_t)(((s[4] >> (16 + 6)) & 0x3ff) | (((s[4] >> (32 + 6)) & 0x3ff) << 10));
                 *d = a | ((b & 0x3ff) << 20) | ((b & 0xffc00) << 22) | (c << 42);
             }
             d += (dst_stride2 - 1) * dst_stride1 / sizeof(*d);
@@ -203,7 +203,7 @@ plane16_to_8(uint8_t * const dst_data, const unsigned int dst_stride,
                   const unsigned int n, const unsigned int wdiv, const unsigned int hdiv)
 {
     unsigned int i, j;
-    const unsigned int shift = n * 16 + 8;
+    const unsigned int shift = 56 - n * 16;
     uint8_t * d2 = dst_data;
 
     for (i = 0; i < h; i += hdiv, d2 += dst_stride) {
@@ -215,7 +215,7 @@ plane16_to_8(uint8_t * const dst_data, const unsigned int dst_stride,
 }
 
 // Only copies (sx % 2) == 0 && (sy % 2) == 0
-// v2 -> U(8), v3 -> V(8)
+// v2 -> U(8), v1 -> V(8)
 // w, h are src dimensions
 void
 plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
@@ -228,7 +228,7 @@ plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
         uint8_t * d = dst_data + (i / 2) * dst_stride;
         for (j = 0; j < w; j += 2) {
             *d++ = ((*s >> (16 + 8)) & 0xff);
-            *d++ = ((*s >> (0  + 8)) & 0xff);
+            *d++ = ((*s >> (32  + 8)) & 0xff);
             s += 2;
         }
     }

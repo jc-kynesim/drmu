@@ -19,13 +19,13 @@ plane16_to_abgr8888(uint8_t * const dst_data, const unsigned int dst_stride,
                     const uint8_t * const src_data, const unsigned int src_stride,
                     const unsigned int w, const unsigned int h);
 
-// v1 -> Y(10)
+// v3 -> Y(10)
 void plane16_to_sand30_y(uint8_t * const dst_data, const unsigned int dst_stride2,
                   const uint8_t * const src_data, const unsigned int src_stride,
                   const unsigned int w, const unsigned int h);
 
 // Only copies (sx % 2) == 0 && (sy % 2) == 0
-// v2 -> U(10), v3 -> V(10)
+// v2 -> U(10), v1 -> V(10)
 // w, h are src dimensions
 void plane16_to_sand30_c(uint8_t * const dst_data, const unsigned int dst_stride2,
                   const uint8_t * const src_data, const unsigned int src_stride,
@@ -60,16 +60,16 @@ void plane16_to_8(uint8_t * const dst_data, const unsigned int dst_stride,
                   const uint8_t * const src_data, const unsigned int src_stride,
                   const unsigned int w, const unsigned int h,
                   const unsigned int n, const unsigned int wdiv, const unsigned int hdiv);
-// v1 -> Y(8)
+// v3 -> Y(8)
 static inline void plane16_to_y8(uint8_t * const dst_data, const unsigned int dst_stride,
                   const uint8_t * const src_data, const unsigned int src_stride,
                   const unsigned int w, const unsigned int h)
 {
-    plane16_to_8(dst_data, dst_stride, src_data, src_stride, w, h, 1, 1, 1);
+    plane16_to_8(dst_data, dst_stride, src_data, src_stride, w, h, 3, 1, 1);
 }
 
 // Only copies (sx % 2) == 0 && (sy % 2) == 0
-// v2 -> U(8), v3 -> V(8)
+// v2 -> U(8), v1 -> V(8)
 // w, h are src dimensions
 void plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
                   const uint8_t * const src_data, const unsigned int src_stride,
@@ -78,6 +78,8 @@ void plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
 
 int plane16_parse_val(const char * s, char ** const ps, uint64_t * const pval);
 
+// Typically v0=A, v1=R, v2=G, v3=B or v0=A, v1=V, v2=U, v3=Y
+// Giving BGRA and YUVA in memory order
 static inline uint64_t
 p16val(unsigned int v0, unsigned int v1, unsigned int v2, unsigned int v3)
 {

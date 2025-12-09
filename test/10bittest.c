@@ -151,31 +151,66 @@ fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stri
     }
 }
 
+static int
+plane16_to_fb_generic(drmu_fb_t * const fb,
+              const uint8_t * src, unsigned int stride)
+{
+    const drmu_fmt_info_t * fi = drmu_fb_format_info_get(fb);
+
+    uint8_t * dst_datas[4];
+    unsigned int dst_strides[4];
+
+    if (fi == NULL) {
+        fprintf(stderr, "FB has unknown format\n");
+        return -EINVAL;
+    }
+
+    if (drmu_fmt_info_fourcc(fi) == DRM_FORMAT_P030 && drmu_fb_pitch2(fb, 0) != 0)
+    {
+        plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
+                          drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
+                          src, stride,
+                          drmu_fb_width(fb), drmu_fb_height(fb));
+        return 0;
+    }
+
+    for (unsigned int i = 0; i != 4; ++i) {
+        dst_datas[i] = drmu_fb_data(fb, i);
+        dst_strides[i] = drmu_fb_pitch(fb, i);
+    }
+
+    plane16_to_generic(dst_datas, dst_strides, fi, src, stride,
+                       drmu_fb_width(fb), drmu_fb_height(fb));
+    return 0;
+}
+
 #define BT2020_RGB_Y(r, g, b) ((double)(r)*0.2627+(double)(g)*0.6780+(double)(b)*0.0593)
 #define BT2020_RGB_Cb(r, g, b) (((double)(b)-BT2020_RGB_Y((r),(g),(b)))/1.8814)
 #define BT2020_RGB_Cr(r, g, b) (((double)(r)-BT2020_RGB_Y((r),(g),(b)))/1.4746)
-#define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Y((r),(g),(b)), BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5)
+#define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Y((r),(g),(b)))
 
 static int
 color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
              uint8_t * const p16, unsigned int dw, unsigned int dh, unsigned int p16_stride,
-             const bool dofrac)
+             const bool dofrac, const uint32_t rfmt)
 {
     drmu_env_t * du = drmu_atomic_env(da);
     drmu_plane_t * planes[7] = {NULL};
     drmu_fb_t * fb = NULL;
     unsigned int i;
     int rv = 0;
-    const uint32_t fmt = DRM_FORMAT_P030;
-    const uint64_t mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+    uint32_t fmt = DRM_FORMAT_P030;
+    uint64_t mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
     const unsigned int w = 18; // 16 puts the TL on an odd number so don't do that
     const unsigned int h = 18;
-    const uint64_t bk = p16val(~0, 0x6000, 0x8000, 0x8000);
-    const uint64_t fg = BT2020_RGB_P16(0, 0, 230*256);
+    const uint64_t bk = p16val(~0, 0x8000, 0x8000, 0x6000);
+    const uint64_t fgh = BT2020_RGB_P16(0, 0, 230*256);
+    const uint64_t fgv = BT2020_RGB_P16(230*256, 0, 0);
     const unsigned int s16_stride = w * sizeof(uint64_t);
     uint8_t * s16 = malloc(h * s16_stride);
     const unsigned int patch_wh = dh / 4;
     const unsigned int patch_gap = (dh - patch_wh * 3) / 4;
+    const drmu_fmt_info_t * fi = drmu_fmt_info_find_fmt(rfmt);
 
     static const struct {
         drmu_chroma_siting_t color_siting;
@@ -192,6 +227,14 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
 
     (void)dw;
 
+    if (drmu_fmt_info_is_yuv(fi)) {
+        fmt = rfmt;
+        mod = DRM_FORMAT_MOD_LINEAR;
+    }
+    else {
+        printf("Using sand30 for color siting\n");
+    }
+
     if (s16 == NULL) {
         fprintf(stderr, "Failed malloc for plane16 fb\n");
         rv = -ENOMEM;
@@ -199,8 +242,8 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
     }
 
     plane16_fill(s16, w, h, s16_stride, bk);
-    plane16_fill(p16pos(s16, s16_stride, 0, (h / 2 - 1)), w, 2, s16_stride, fg);
-    plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fg);
+    plane16_fill(p16pos(s16, s16_stride, 0, (h / 2 - 1)), w, 2, s16_stride, fgh);
+    plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fgv);
 
     for (i = 0; i != 7; ++i) {
         if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
@@ -220,9 +263,10 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
     if (dofrac)
         drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
 
-    plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
-                      drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
-                      s16, s16_stride, w, h);
+    plane16_to_fb_generic(fb, s16, s16_stride);
+//    plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
+//                      drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
+//                      s16, s16_stride, w, h);
 
     for (i = 0; i != 7; ++i) {
         const unsigned int x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap);
@@ -255,7 +299,7 @@ fail:
 
 static int
 alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
-             unsigned int dw, unsigned int dh)
+             unsigned int dw, unsigned int dh, const uint32_t fmt)
 {
     drmu_env_t * const du = drmu_atomic_env(da);
     unsigned int i, j;
@@ -267,7 +311,7 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
     for (i = 0; i != 2; ++i) {
         for (j = 0; j != 2; ++j) {
             drmu_plane_t * plane = drmu_output_plane_ref_other(dout);
-            drmu_fb_t * fb = drmu_fb_new_dumb(du, w, h, DRM_FORMAT_ABGR8888);
+            drmu_fb_t * fb = drmu_fb_new_dumb(du, w, h, fmt);
             uint64_t col;
 
             switch (i * 2 + j) {
@@ -286,7 +330,7 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
             }
 
             plane16_fill(s16, w, h, s16_stride, col);
-            plane16_to_abgr8888(drmu_fb_data(fb, 0), drmu_fb_pitch(fb, 0), s16, s16_stride, w, h);
+            plane16_to_fb_generic(fb, s16, s16_stride);
             drmu_fb_pixel_blend_mode_set(fb, DRMU_FB_PIXEL_BLEND_COVERAGE);
 
             drmu_atomic_plane_add_fb(da, plane, fb, (drmu_rect_t){
@@ -759,7 +803,7 @@ int main(int argc, char *argv[])
             fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
             break;
         case TEST_SITING:
-            if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac))
+            if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac, p1fmt))
                 goto fail;
             break;
         case TEST_SOLID:
@@ -769,7 +813,7 @@ int main(int argc, char *argv[])
             break;
         case TEST_ALPHA:
             fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
-            if (alpha_test(da, dout, mp.width, mp.height))
+            if (alpha_test(da, dout, mp.width, mp.height, p1fmt))
                 goto fail;
             break;
         default:
@@ -799,20 +843,8 @@ int main(int argc, char *argv[])
     }
 #endif
     else {
-        const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(p1fmt);
-        uint8_t * dst_datas[4];
-        unsigned int dst_strides[4];
-
-        if (fi == NULL) {
-            fprintf(stderr, "Unexpected p1fmt converting from p16\n");
+        if (plane16_to_fb_generic(fb1, p16, p16_stride) != 0)
             goto fail;
-        }
-
-        for (unsigned int i = 0; i != 4; ++i) {
-            dst_datas[i] = drmu_fb_data(fb1, i);
-            dst_strides[i] = drmu_fb_pitch(fb1, i);
-        }
-        plane16_to_generic(dst_datas, dst_strides, fi, p16, p16_stride, mp.width, mp.height);
     }
 
     static const struct hdr_output_metadata meta = {
