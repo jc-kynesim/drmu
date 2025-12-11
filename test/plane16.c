@@ -272,4 +272,71 @@ plane16_parse_val(const char * s, char ** const ps, uint64_t * const pval)
     return 0;
 }
 
+#define VA 3
+#define VR 2
+#define VG 1
+#define VB 0
+
+#define VY 0
+#define VU 1
+#define VV 2
+
+static inline uint16_t p16_clampd(double x)
+{
+    int i = x * 0x10000;
+    return i < 0 ? 0 : i > 0xffff ? 0xffff : i;
+}
+
+void
+plane16_rgb_to_yuv(uint8_t * data, unsigned int const stride, const unsigned int w, const unsigned int h,
+                   enum plane16_cenc cenc, bool full_rgb, bool full_yuv)
+{
+    unsigned int x, y_pos;
+
+    static const double mbt601[3]  = { 0.299,  0.587,  0.114  };
+    static const double mbt709[3]  = { 0.2126, 0.7152, 0.0722 };
+    static const double mbt2020[3] = { 0.2627, 0.6780, 0.0593 };
+
+    const double *m;
+
+    switch (cenc) {
+    case PLANE16_BT_601:
+        m = mbt601;
+        break;
+    case PLANE16_BT_709:
+        m = mbt709;
+        break;
+    case PLANE16_BT_2020:
+        m = mbt2020;
+        break;
+    default:
+        return;
+    }
+
+    for (y_pos = 0; y_pos != h; ++y_pos) {
+        uint16_t * p = (uint16_t *)(data + y_pos * stride);
+        for (x = 0; x != w; ++x, p += 4) {
+            double r = p[VR] / (double)0x10000;
+            double g = p[VG] / (double)0x10000;
+            double b = p[VB] / (double)0x10000;
+            double y, u, v;
+            if (!full_rgb) {
+                r = (r - 16.0 / 256.0) * 256.0 / 219.0;
+                g = (g - 16.0 / 256.0) * 256.0 / 219.0;
+                b = (b - 16.0 / 256.0) * 256.0 / 219.0;
+            }
+            y = r * m[0] + g * m[1] + b * m[2];
+            v = (r - y) / ((1.0 - m[0]) * 2.0);
+            u = (b - y) / ((1.0 - m[2]) * 2.0);
+            if (!full_yuv) {
+                y = (y * 219.0 / 256.0) + 16.0 / 256.0;
+                u = (u * 224.0 / 256.0);
+                v = (v * 224.0 / 256.0);
+            }
+            p[VY] = p16_clampd(y);
+            p[VU] = p16_clampd(u + 0.5);
+            p[VV] = p16_clampd(v + 0.5);
+        }
+    }
+}
 

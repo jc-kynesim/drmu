@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 
 struct drmu_fmt_info_s;
@@ -77,6 +78,16 @@ void plane16_to_uv8_420(uint8_t * const dst_data, const unsigned int dst_stride,
 
 
 int plane16_parse_val(const char * s, char ** const ps, uint64_t * const pval);
+
+
+enum plane16_cenc {
+    PLANE16_BT_601 = 1,
+    PLANE16_BT_709 = 2,
+    PLANE16_BT_2020 = 3,
+};
+
+void plane16_rgb_to_yuv(uint8_t * data, unsigned int const stride, const unsigned int w, const unsigned int h,
+                        enum plane16_cenc cenc, bool full_rgb, bool full_yuv);
 
 // Typically v0=A, v1=R, v2=G, v3=B or v0=A, v1=V, v2=U, v3=Y
 // Giving BGRA and YUVA in memory order

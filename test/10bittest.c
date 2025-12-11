@@ -72,7 +72,7 @@ fillpin16(uint8_t * const p,
 
 
 static void
-fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
     const unsigned int vstripes = 4;
@@ -87,9 +87,7 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
             uint8_t * const p2 = p1  + j * 2 * stripestride;
             uint64_t inc10 = p16val(0, (i & 4) << 4, (i & 2) << 5, (i & 1) << 6);
             uint64_t inc8  = inc10 << 2;
-            const uint64_t base10 = is_yuv ?
-                p16val(~0U, (i & 4) ? 0 : 0x8000, (i & 2) ? 0 : 0x8000, (i & 1) ? 0 : 0x8000) :
-                p16val(~0U, 0, 0, 0);
+            const uint64_t base10 = p16val(~0U, 0, 0, 0);
             uint64_t val0 =  base10 | (inc10 * w * j);
             fillstripe16(p2,
                        w / 4, h, stride, 4 * k,
@@ -103,7 +101,7 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
 }
 
 static void
-fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int j;
     const unsigned int vstripes = 16;
@@ -111,8 +109,8 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
     const unsigned int k = dw / w;
     const unsigned int h = dh / (vstripes * 2);
     const unsigned int stripestride = h * stride;
-    const uint64_t base10 = is_yuv ? p16val(~0U, 0, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
-    const uint64_t inc10 = is_yuv ? p16val(0, 1 << 6, 0, 0) : p16val(0, 1 << 6, 1 << 6, 1 << 6);
+    const uint64_t base10 = p16val(~0U, 0, 0, 0);
+    const uint64_t inc10 = p16val(0, 1 << 6, 1 << 6, 1 << 6);
     const uint64_t inc8  = inc10 << 2;
 
     for (j = 0; j != vstripes; ++j) {
@@ -129,24 +127,24 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
 }
 
 static void
-fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
     const unsigned int vstripes = 8;
     const unsigned int h = dh / (vstripes * 7);
     const unsigned int stripestride = h * stride;
-    const uint64_t grey = is_yuv ? p16val(~0U, 16, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
-    unsigned int v0a = is_yuv ? (16 << 8) : 0;
+    const uint64_t grey = p16val(~0U, 0, 0, 0);
+    unsigned int v0a = 0;
     unsigned int v1a = 0x8000;
-    unsigned int v0b = is_yuv ? 0x8000 : 0;
-    unsigned int v1b = is_yuv ? (235 << 8) : 0x8000;
+    unsigned int v0b = 0;
+    unsigned int v1b = 0x8000;
 
     for (i = 0; i != vstripes; ++i) {
         uint8_t * const p1 = p + i * 7 * stripestride;
         for (j = 1; j != 8; ++j) {
             uint8_t * const p2 = p1 + (j - 1) * stripestride;
             uint64_t val0 = p16val(~0U, (j & 4) ? v1a : v0a, (j & 2) ? v1b : v0b, (j & 1) ? v1b : v0b);
-            fillpin16(p2, dw, h, stride, is_yuv ? (i + 1) * 2 : i + 2, val0, grey);
+            fillpin16(p2, dw, h, stride, i + 2, val0, grey);
         }
     }
 }
@@ -476,7 +474,6 @@ int main(int argc, char *argv[])
     drmu_color_range_t default_range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
     drmu_broadcast_rgb_t broadcast_rgb = NULL;
     enum test_type_e test_type = TEST_STRIPES;
-    bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
     bool dofrac = false;
@@ -486,6 +483,7 @@ int main(int argc, char *argv[])
     uint32_t wbfmt = 0;
     bool multi = false;
     bool conn_added = false;
+    bool hdr_block = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -493,7 +491,7 @@ int main(int argc, char *argv[])
     unsigned int p16_stride = 0;
     writeback_env_t wbe = {0};
 
-    while ((c = getopt_long(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
             case OPT_ALPHA:
                 test_type = TEST_ALPHA;
@@ -529,6 +527,9 @@ int main(int argc, char *argv[])
             }
             case 'g':
                 test_type = TEST_GREY;
+                break;
+            case 'H':
+                hdr_block = true;
                 break;
             case 'M':
                 drm_device = optarg;
@@ -591,8 +592,6 @@ int main(int argc, char *argv[])
             case 'y':
                 p1fmt = DRM_FORMAT_P030;
                 p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
-                default_range = DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE;
-                is_yuv = true;
                 break;
             case '8':
                 hi_bpc = false;
@@ -790,17 +789,17 @@ int main(int argc, char *argv[])
     }
 
     drmu_fb_color_set(fb1, encoding, range, colorspace);
-    printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
+    printf("%s encoding: %s, range %s\n", drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1)) ? "YUV" : "RGB", encoding, range);
 
     // Start with grey fill
     plane16_fill(p16, mp.width, mp.height, p16_stride, fillval);
 
     switch (test_type) {
         case TEST_PIN:
-            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillpin10(p16, mp.width, mp.height, p16_stride);
             break;
         case TEST_GREY:
-            fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillgradgrey10(p16, mp.width, mp.height, p16_stride);
             break;
         case TEST_SITING:
             if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac, p1fmt))
@@ -809,10 +808,10 @@ int main(int argc, char *argv[])
         case TEST_SOLID:
             break;
         case TEST_STRIPES:
-            fillgraduated10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillgraduated10(p16, mp.width, mp.height, p16_stride);
             break;
         case TEST_ALPHA:
-            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillpin10(p16, mp.width, mp.height, p16_stride);
             if (alpha_test(da, dout, mp.width, mp.height, p1fmt))
                 goto fail;
             break;
@@ -821,48 +820,52 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    if (is_yuv)
-        plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
-                          drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
-                          p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ARGB2101010)
-        plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ABGR2101010)
-        plane16_to_abgr2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ABGR8888)
-        plane16_to_abgr8888(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-#if 0
-    else if (p1fmt == DRM_FORMAT_NV12) {
-        plane16_to_y8(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-        plane16_to_uv8_420(drmu_fb_data(fb1, 1), drmu_fb_pitch(fb1, 1),
-                               p16, p16_stride, mp.width, mp.height);
-    }
-#endif
-    else {
-        if (plane16_to_fb_generic(fb1, p16, p16_stride) != 0)
-            goto fail;
+    if (0) {
+        uint16_t t16[] = {235 * 256, 0, 0, 0,  0, 235 * 256, 0, 0,  0, 0, 235 * 256, 0};
+        plane16_rgb_to_yuv((uint8_t*)t16, 12 * 2,
+                           3, 1,
+                           PLANE16_BT_601,
+                           true,
+                           true);
+        exit(1);
     }
 
-    static const struct hdr_output_metadata meta = {
-        .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-        .hdmi_metadata_type1 = {
-            .eotf = HDMI_EOTF_SMPTE_ST2084,
-            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-            .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
-            .white_point = {15635,16450},
-            .max_display_mastering_luminance = 1000,
-            .min_display_mastering_luminance = 5,
-            .max_cll = 1000,
-            .max_fall = 400
-        }
-    };
-    if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
-        fprintf(stderr, "Failed metadata set");
+    {
+        const drmu_color_encoding_t d_enc = drmu_fb_color_encoding_get(fb1);
+        const drmu_color_encoding_t d_range = drmu_fb_color_range_get(fb1);
+        enum plane16_cenc enc = PLANE16_BT_2020;
+        if (drmu_color_encoding_eq(d_enc, DRMU_COLOR_ENCODING_BT601))
+            enc = PLANE16_BT_601;
+        else if (drmu_color_encoding_eq(d_enc, DRMU_COLOR_ENCODING_BT709))
+            enc = PLANE16_BT_709;
+        plane16_rgb_to_yuv(p16, p16_stride,
+                           drmu_fb_width(fb1), drmu_fb_height(fb1),
+                           enc,
+                           true,
+                           drmu_color_range_is_full(d_range));
+    }
+
+    if (plane16_to_fb_generic(fb1, p16, p16_stride) != 0)
         goto fail;
+
+    if (hdr_block) {
+        static const struct hdr_output_metadata meta = {
+            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+            .hdmi_metadata_type1 = {
+                .eotf = HDMI_EOTF_SMPTE_ST2084,
+                .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+                .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
+                .white_point = {15635,16450},
+                .max_display_mastering_luminance = 1000,
+                .min_display_mastering_luminance = 5,
+                .max_cll = 1000,
+                .max_fall = 400
+            }
+        };
+        if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
+            fprintf(stderr, "Failed metadata set");
+            goto fail;
+        }
     }
     if (drmu_atomic_conn_add_colorspace(da, dn, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
