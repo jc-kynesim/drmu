@@ -28,7 +28,7 @@
 
 #include <linux/dma-buf.h>
 
-#define TRACE_PROP_NEW 1
+#define TRACE_PROP_NEW 0
 
 #ifndef OPT_IO_CALLOC
 #define OPT_IO_CALLOC 0

@@ -260,6 +260,7 @@ drmu_fmt_info_t format_info[] = {
       .bpp = 32,\
       .bit_depth = 10,\
       .plane_count = 2,\
+      .is_yuv = 1,\
       .chans = C_420,\
       .planes = {{\
           .bpg = 4,\

@@ -293,6 +293,7 @@ plane16_rgb_to_yuv(uint8_t * data, unsigned int const stride, const unsigned int
 {
     unsigned int x, y_pos;
 
+    // ER, EG, EB -> EY matrix; ECr, ECb derived directly from this
     static const double mbt601[3]  = { 0.299,  0.587,  0.114  };
     static const double mbt709[3]  = { 0.2126, 0.7152, 0.0722 };
     static const double mbt2020[3] = { 0.2627, 0.6780, 0.0593 };

@@ -387,27 +387,39 @@ usage()
 {
     printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8]\n"
            "                 [-C <conn name>] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
-           "-g  grey blocks only, otherwise colour stripes\n"
-           "-p  pinstripes\n"
-           "-f  solid a, b, c 10-bit values\n"
-           "-s  colour siting\n"
-           "-F  make siting patch .5 pixel smaller\n"
-           "-y  Use YUV plane (same vals as for RGB - no conv)\n"
-           "-m  Use multiple buffers when constructing the (YUV) FB\n"
-           "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
-           "-r  YUV range full, limited (default)\n"
-           "-R  Broadcast RGB: auto, full (default), limited\n"
-           "    if -r set then defaults to that\n"
-           "-C  Use connection name\n"
-           "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
-           "-P  pixel format fourcc\n"
-           "-M  drm module name, default: " DRM_MODULE "\n"
+           "--alpha\n"
+           "    Alpha blend test\n"
+           "-C <conn name>\n"
+           "    Use connection name\n"
+           "-c  set con colorspace to (string) <colourspace>\n"
+           "-e <encoding>\n"
+           "    set encoding of frame buffer (YUV only): 609, 709, 2020 (default)\n"
+           "-f <a>,<b>,<c>,<d>\n"
+           "    solid a, b, c 10-bit values\n"
+           "-F  make siting patch .5 pixel smaller\n"
+           "-g  grey blocks only, otherwise colour stripes\n"
+           "-H  set HDR medadata (default: don't)\n"
+           "-m  Use 1 buffer per plane when constructing the FB\n"
+           "-M <module name>\n"
+           "    drm module name, default: " DRM_MODULE "\n"
+           "-p  pinstripes\n"
+           "-P <fmt>\n"
+           "    pixel format fourcc or name\n"
+           "-s  colour siting test\n"
+           "-r <range>\n"
+           "    YUV range (YUV only): full, limited (default)\n"
+           "-R <range>\n"
+           "    Broadcast RGB: auto, full (default), limited\n"
+           "    if -r set then defaults to that\n"
            "-T  if using writeback transpose the result through the connector\n"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
-           "-W  as -w but display the result onscreen too"
-           "-WW Use single FB writeback rather than whole atomic"
+           "-W  as -w but display the result onscreen too\n"
+           "-WW Use single FB writeback rather than whole atomic\n"
+           "--wbfmt <fmt>\n"
+           "    Set writeback buffer format (fourcc or name)\n"
+           "-y  Use SAND30 frame buffer\n"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -820,17 +832,7 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    if (0) {
-        uint16_t t16[] = {235 * 256, 0, 0, 0,  0, 235 * 256, 0, 0,  0, 0, 235 * 256, 0};
-        plane16_rgb_to_yuv((uint8_t*)t16, 12 * 2,
-                           3, 1,
-                           PLANE16_BT_601,
-                           true,
-                           true);
-        exit(1);
-    }
-
-    {
+    if (drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1))) {
         const drmu_color_encoding_t d_enc = drmu_fb_color_encoding_get(fb1);
         const drmu_color_encoding_t d_range = drmu_fb_color_range_get(fb1);
         enum plane16_cenc enc = PLANE16_BT_2020;
