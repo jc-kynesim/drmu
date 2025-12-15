@@ -222,8 +222,8 @@ typedef const char * drmu_color_range_t;
 #define DRMU_COLOR_RANGE_YCBCR_FULL_RANGE       "YCbCr full range"
 #define DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE    "YCbCr limited range"
 static inline bool drmu_color_range_is_set(const drmu_color_range_t x) {return x != NULL;}
-static inline bool drmu_color_range_is_full(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_FULL_RANGE);}
-static inline bool drmu_color_range_is_limited(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE);}
+static inline bool drmu_color_range_is_full(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_FULL_RANGE) == 0;}
+static inline bool drmu_color_range_is_limited(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE) == 0;}
 typedef const char * drmu_colorspace_t;
 #define DRMU_COLORSPACE_UNSET                   NULL
 #define DRMU_COLORSPACE_DEFAULT                 "Default"
@@ -377,7 +377,7 @@ int drmu_atomic_conn_add_writeback_fb(struct drmu_atomic_s * const da_out, drmu_
 
 // List of supported writeback formats - no modifiers supported
 // *ppcount receives the count
-const uint32_t * drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount);
+const uint32_t * drmu_conn_writeback_formats(drmu_conn_t * const dn, unsigned int * const ppcount);
 // Test if fmt is a valid writeback format
 bool drmu_conn_has_writeback_format(drmu_conn_t * const dn, const uint32_t fmt);
 
