@@ -432,6 +432,46 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
     return 0;
 }
 
+static void
+planes_print_fmts(const unsigned int n1, const unsigned int n2, const uint32_t * fmts, const unsigned int fcnt)
+{
+    unsigned int i;
+
+    if (n1 >= n2)
+        return;
+    printf("Planes %d -> %d:\n", n1, n2);
+
+    for (i = 0; i != fcnt; ++i) {
+        const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(fmts[i]);
+        printf("%4d: %s (%s)\n", i, drmu_log_fourcc(fmts[i]), drmu_fmt_info_name(fi));
+    }
+}
+
+static void
+list_fmts(drmu_env_t * const du)
+{
+    unsigned int n = 0;
+    drmu_plane_t * dp;
+    const uint32_t * prev_fmts = NULL;
+    unsigned int prev_fcnt = 0;
+    unsigned int prev_n = 0;
+
+    for (n = 0; (dp = drmu_env_plane_find_n(du, n)) != NULL; ++n) {
+        unsigned int fcnt = 0;
+        const uint32_t * fmts = drmu_plane_formats(dp, &fcnt);
+
+        if (fcnt == prev_fcnt && memcmp(fmts, prev_fmts, sizeof(*fmts) * fcnt) == 0)
+            continue;
+
+        planes_print_fmts(prev_n, n, prev_fmts, prev_fcnt);
+        prev_fmts = fmts;
+        prev_fcnt = fcnt;
+        prev_n = n;
+    }
+    planes_print_fmts(prev_n, n, prev_fmts, prev_fcnt);
+}
+
+
 typedef struct writeback_env_s {
     drmu_writeback_env_t * wbe;
     drmu_plane_t * p2;
@@ -484,10 +524,13 @@ usage()
            "    set encoding of frame buffer (YUV only): 609, 709, 2020 (default)\n"
            "-f <a>,<b>,<c>,<d>\n"
            "    solid a, b, c 10-bit values\n"
+           "--formats\n"
+           "    list supported formats\n"
            "-F  make siting patch .5 pixel smaller\n"
            "-g  grey blocks only, otherwise colour stripes\n"
            "-H  set HDR medadata (default: don't)\n"
            "-m  Use 1 buffer per plane when constructing the FB\n"
+           "    rather than 1 buffer with offsets (the default)\n"
            "-M <module name>\n"
            "    drm module name, default: " DRM_MODULE "\n"
            "-p  pinstripes\n"
@@ -540,6 +583,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_SCALEUP
     },
+#define OPT_LIST_FORMATS 259
+    {
+        .name = "formats",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_LIST_FORMATS
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -556,6 +606,7 @@ enum test_type_e {
     TEST_SITING,
     TEST_ALPHA,
     TEST_SCALEUP,
+    TEST_LIST_FORMATS,
 };
 
 int main(int argc, char *argv[])
@@ -614,6 +665,9 @@ int main(int argc, char *argv[])
                 }
                 wbfmt = drmu_fmt_info_fourcc(fi);
                 break;
+                break;
+            case OPT_LIST_FORMATS:
+                test_type = TEST_LIST_FORMATS;
                 break;
             case 'C':
                 conn_name = optarg;
@@ -756,6 +810,11 @@ int main(int argc, char *argv[])
 #endif
             (du = drmu_env_new_open(drm_device, &log)) == NULL)
             goto fail;
+    }
+
+    if (test_type == TEST_LIST_FORMATS) {
+        list_fmts(du);
+        goto done_du_dout;
     }
 
     drmu_env_restore_enable(du);
@@ -1083,6 +1142,7 @@ fail:
     drmu_fb_unref(&fb1);
     drmu_plane_unref(&p1);
     drmu_output_unref(&dout2);
+done_du_dout:
     drmu_output_unref(&dout);
     drmu_env_kill(&du);
     free(p16);
