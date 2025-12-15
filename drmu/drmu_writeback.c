@@ -163,12 +163,12 @@ drmu_writeback_env_fmt_plane(drmu_writeback_env_t * const wbe,
                              drmu_output_t * const dest_dout, const unsigned int types,
                              uint32_t * const pFmt)
 {
-    size_t fmt_count = 1;
+    unsigned int fmt_count = 1;
     const uint32_t * fmts = drmu_conn_writeback_formats(drmu_output_conn(wbe->dout, 0), &fmt_count);
 
     // This is a simple & stupid search.
     // We expect the 1st format we try to be both "good enough" and compatible with the dest dout
-    for (size_t i = 0; i != fmt_count; ++i) {
+    for (unsigned int i = 0; i != fmt_count; ++i) {
         const uint32_t fmt = fmts[i];
 
         // *** Kludge for Pi not supporting rotation on this

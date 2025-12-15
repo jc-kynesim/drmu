@@ -154,7 +154,7 @@ plane16_to_fb_generic(drmu_fb_t * const fb,
               const uint8_t * src, unsigned int stride)
 {
     const drmu_fmt_info_t * fi = drmu_fb_format_info_get(fb);
-
+    const drmu_rect_t a = drmu_fb_active(fb);
     uint8_t * dst_datas[4];
     unsigned int dst_strides[4];
 
@@ -167,8 +167,7 @@ plane16_to_fb_generic(drmu_fb_t * const fb,
     {
         plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
                           drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
-                          src, stride,
-                          drmu_fb_width(fb), drmu_fb_height(fb));
+                          src, stride, a.w, a.h);
         return 0;
     }
 
@@ -177,8 +176,38 @@ plane16_to_fb_generic(drmu_fb_t * const fb,
         dst_strides[i] = drmu_fb_pitch(fb, i);
     }
 
-    plane16_to_generic(dst_datas, dst_strides, fi, src, stride,
-                       drmu_fb_width(fb), drmu_fb_height(fb));
+    plane16_to_generic(dst_datas, dst_strides, fi, src, stride, a.w, a.h);
+    return 0;
+}
+
+int
+fb_dump_to_file(const char * fname, drmu_fb_t * const fb)
+{
+    unsigned int n = 0;
+    const drmu_fmt_info_t * const fi = drmu_fb_fmt_info(fb);
+    FILE * ff = fopen(fname, "wb");
+
+    if (ff == NULL)
+        return -errno;
+
+    drmu_fb_read_start(fb);
+    for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
+        const uint8_t * data = drmu_fb_data(fb, n);
+        const drmu_rect_t a = drmu_fb_active(fb);
+        const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
+        const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
+        const unsigned int line_len = (a.w + wdiv - 1) / wdiv;
+        const unsigned int h = (a.h + hdiv - 1) / hdiv;
+        const unsigned int stride = drmu_fb_pitch(fb, n);
+        unsigned int y;
+
+        for (y = 0; y != h; ++y) {
+            fwrite(data + stride * y, drmu_fmt_info_pixel_bits(fi) / 8, line_len, ff);
+        }
+    }
+    drmu_fb_read_end(fb);
+
+    fclose(ff);
     return 0;
 }
 
@@ -312,10 +341,10 @@ static drmu_fb_t *
 mk_3x3(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
        const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
 {
-    uint64_t p[3][3];
+    uint64_t p[4][4];
     const drmu_fmt_info_t * fi;
 
-    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, 3, 3, fmt, mod);
+    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, 4, 4, fmt, mod);
     if (fb == NULL)
         return NULL;
     drmu_fb_chroma_siting_set(fb, DRMU_CHROMA_SITING_TOP_LEFT);
@@ -323,21 +352,31 @@ mk_3x3(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
     p[0][0] = tl;
     p[0][1] = p16_avg2(tl, tr);
     p[0][2] = tr;
+    p[0][3] = p[0][2];
     p[1][0] = p16_avg2(tl, bl);
     p[1][1] = p16_avg2(p16_avg2(tl, bl), p16_avg2(tr, br));
     p[1][2] = p16_avg2(tr, br);
+    p[1][3] = p[1][2];
     p[2][0] = bl;
     p[2][1] = p16_avg2(bl, br);
     p[2][2] = br;
+    p[2][3] = p[2][2];
+    p[3][0] = p[2][0];
+    p[3][1] = p[2][1];
+    p[3][2] = p[2][2];
+    p[3][3] = p[2][3];
 
     fi = drmu_fb_fmt_info(fb);
     if (drmu_fmt_info_is_yuv(fi)) {
-        plane16_rgb_to_yuv((uint8_t*)p, sizeof(p[0]), 3, 3,
-                           drmu_fmt_info_fourcc(fi),
+        plane16_rgb_to_yuv((uint8_t*)p, sizeof(p[0]), 4, 4,
+                           PLANE16_BT_709,  // default for dumb
                            true,
                            drmu_color_range_is_full(drmu_fb_color_range_get(fb)));
     }
     plane16_to_fb_generic(fb, (const uint8_t*)p, sizeof(p[0]));
+    drmu_fb_crop_frac_set(fb, drmu_rect_shl16(drmu_rect_wh(3, 3)));
+
+    fb_dump_to_file("3x3", fb);
 
     return fb;
 }
@@ -433,13 +472,19 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
 }
 
 static void
-planes_print_fmts(const unsigned int n1, const unsigned int n2, const uint32_t * fmts, const unsigned int fcnt)
+planes_print_fmts(const char * const name, const unsigned int n1, const unsigned int n2,
+                  const uint32_t * fmts, const unsigned int fcnt)
 {
     unsigned int i;
 
     if (n1 >= n2)
         return;
-    printf("Planes %d -> %d:\n", n1, n2);
+    printf("%s %d -> %d:\n", name, n1, n2 - 1);
+
+    if (fcnt == 0) {
+        printf("  None\n");
+        return;
+    }
 
     for (i = 0; i != fcnt; ++i) {
         const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(fmts[i]);
@@ -452,6 +497,7 @@ list_fmts(drmu_env_t * const du)
 {
     unsigned int n = 0;
     drmu_plane_t * dp;
+    drmu_conn_t * dc;
     const uint32_t * prev_fmts = NULL;
     unsigned int prev_fcnt = 0;
     unsigned int prev_n = 0;
@@ -463,12 +509,27 @@ list_fmts(drmu_env_t * const du)
         if (fcnt == prev_fcnt && memcmp(fmts, prev_fmts, sizeof(*fmts) * fcnt) == 0)
             continue;
 
-        planes_print_fmts(prev_n, n, prev_fmts, prev_fcnt);
+        planes_print_fmts("Render: Planes", prev_n, n, prev_fmts, prev_fcnt);
         prev_fmts = fmts;
         prev_fcnt = fcnt;
         prev_n = n;
     }
-    planes_print_fmts(prev_n, n, prev_fmts, prev_fcnt);
+    planes_print_fmts("Render: Planes", prev_n, n, prev_fmts, prev_fcnt);
+
+    for (n = 0; (dc = drmu_env_conn_find_n(du, n)) != NULL; ++n) {
+        unsigned int fcnt = 0;
+        const uint32_t * fmts = drmu_conn_writeback_formats(dc, &fcnt);
+
+        if (fcnt == prev_fcnt && memcmp(fmts, prev_fmts, sizeof(*fmts) * fcnt) == 0)
+            continue;
+
+        planes_print_fmts("Writeback: Conns", prev_n, n, prev_fmts, prev_fcnt);
+        prev_fmts = fmts;
+        prev_fcnt = fcnt;
+        prev_n = n;
+    }
+    planes_print_fmts("Writeback: Conns", prev_n, n, prev_fmts, prev_fcnt);
+
 }
 
 

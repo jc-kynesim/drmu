@@ -2532,7 +2532,7 @@ struct drmu_conn_s {
     drmu_blob_t * hdr_metadata_blob;
 
     uint32_t * writeback_fmts;
-    size_t writeback_fmts_count;
+    unsigned int writeback_fmts_count;
 
     char name[32];
 };
@@ -2658,7 +2658,7 @@ fail:
 }
 
 const uint32_t *
-drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount)
+drmu_conn_writeback_formats(drmu_conn_t * const dn, unsigned int * const ppcount)
 {
     *ppcount = dn->writeback_fmts_count;
     return dn->writeback_fmts;
