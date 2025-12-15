@@ -1280,7 +1280,12 @@ drmu_fb_int_fmt_size_set(drmu_fb_t *const dfb, uint32_t fmt, uint32_t w, uint32_
     dfb->fb.height       = h;
     dfb->active          = active;
     dfb->crop            = drmu_rect_shl16(active);
+    // This may be later set by _chroma_siting_set but it is good to have defaults
     dfb->chroma_siting   = drmu_fmt_info_chroma_siting(dfb->fmt_info);
+    // These may be later set bu _color_set but it is good to have defaults
+    dfb->color_encoding  = DRMU_COLOR_ENCODING_BT709;
+    dfb->color_range     = drmu_fmt_info_is_yuv(dfb->fmt_info) ? DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE : DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
+    dfb->colorspace      = DRMU_COLORSPACE_DEFAULT;
 }
 
 void
