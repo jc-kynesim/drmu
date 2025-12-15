@@ -21,11 +21,11 @@ plane16_to_generic(
         const struct drmu_fmt_plane_info_s * const pi = px->planes + plane;
         unsigned int ty[4] = {0};
 
-        for (y = 0; y != h / pi->ydiv; ++y) {
+        for (y = 0; y != (h + pi->ydiv - 1) / pi->ydiv; ++y) {
             uint8_t * d = dst_datas[plane] + y * dst_strides[plane];
             unsigned int tx[4] = {0};
 
-            for (x = 0; x != w / pi->xdiv; ++x) {
+            for (x = 0; x != (w + pi->xdiv - 1) / pi->xdiv; ++x) {
                 uint64_t a = 0;
 
                 for (const struct drmu_fmt_pel_info_s *p = pi->pels; p->bits != 0; ++p) {

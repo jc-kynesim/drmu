@@ -262,9 +262,6 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
         drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
 
     plane16_to_fb_generic(fb, s16, s16_stride);
-//    plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
-//                      drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
-//                      s16, s16_stride, w, h);
 
     for (i = 0; i != 7; ++i) {
         const unsigned int x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap);
@@ -292,6 +289,96 @@ fail:
         drmu_plane_unref(planes + i);
     drmu_fb_unref(&fb);
     free(s16);
+    return rv;
+}
+
+static inline unsigned int
+p16_vn(uint64_t a, unsigned int n)
+{
+    return (a >> ((3 - n) * 16)) & 0xffff;
+}
+
+static uint64_t
+p16_avg2(uint64_t a, uint64_t b)
+{
+    return p16val(
+        (p16_vn(a, 0) + p16_vn(b, 0) + 1) / 2,
+        (p16_vn(a, 1) + p16_vn(b, 1) + 1) / 2,
+        (p16_vn(a, 2) + p16_vn(b, 2) + 1) / 2,
+        (p16_vn(a, 3) + p16_vn(b, 3) + 1) / 2);
+}
+
+static drmu_fb_t *
+mk_3x3(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
+       const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    uint64_t p[3][3];
+    const drmu_fmt_info_t * fi;
+
+    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, 3, 3, fmt, mod);
+    if (fb == NULL)
+        return NULL;
+    drmu_fb_chroma_siting_set(fb, DRMU_CHROMA_SITING_TOP_LEFT);
+
+    p[0][0] = tl;
+    p[0][1] = p16_avg2(tl, tr);
+    p[0][2] = tr;
+    p[1][0] = p16_avg2(tl, bl);
+    p[1][1] = p16_avg2(p16_avg2(tl, bl), p16_avg2(tr, br));
+    p[1][2] = p16_avg2(tr, br);
+    p[2][0] = bl;
+    p[2][1] = p16_avg2(bl, br);
+    p[2][2] = br;
+
+    fi = drmu_fb_fmt_info(fb);
+    if (drmu_fmt_info_is_yuv(fi)) {
+        plane16_rgb_to_yuv((uint8_t*)p, sizeof(p[0]), 3, 3,
+                           drmu_fmt_info_fourcc(fi),
+                           true,
+                           drmu_color_range_is_full(drmu_fb_color_range_get(fb)));
+    }
+    plane16_to_fb_generic(fb, (const uint8_t*)p, sizeof(p[0]));
+
+    return fb;
+}
+
+static int
+scaleup_alpha(drmu_atomic_t * const da, drmu_output_t * const dout,
+              unsigned int dw, unsigned int dh, const uint32_t fmt)
+{
+    drmu_env_t * const du = drmu_atomic_env(da);
+    drmu_plane_t * planes[7] = {NULL};
+    drmu_fb_t * fb;
+    int rv = 0;
+    unsigned int i = 0;
+    unsigned int j = 0;
+
+    for (i = 0; i != 7; ++i) {
+        if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
+            fprintf(stderr, "Color siting test needs 8 planes, only got %d\nMaybe don't run from X?\n", i + 1);
+            rv = -ENOENT;
+            goto fail;
+        }
+    }
+
+    i = 0;
+    j = 0;
+
+    fb = mk_3x3(du,fmt, DRM_FORMAT_MOD_LINEAR,
+                p16val(0xffff, 0xffff, 0, 0),
+                p16val(0xffff, 0, 0xffff, 0),
+                p16val(0xffff, 0, 0, 0xffff),
+                p16val(0xffff, 0xffff, 0xffff, 0xffff));
+
+    drmu_atomic_plane_add_fb(da, planes[0], fb, (drmu_rect_t){
+                    .x = dw / 8 + i * (dw / 4),
+                    .y = dh / 8 + j * (dh / 4),
+                    .w = dw / 2,
+                    .h = dh / 2});
+
+    return 0;
+
+fail:
     return rv;
 }
 
@@ -446,6 +533,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_WBFMT
     },
+#define OPT_SCALEUP 258
+    {
+        .name = "scaleup",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_SCALEUP
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -460,7 +554,8 @@ enum test_type_e {
     TEST_PIN,
     TEST_GREY,
     TEST_SITING,
-    TEST_ALPHA
+    TEST_ALPHA,
+    TEST_SCALEUP,
 };
 
 int main(int argc, char *argv[])
@@ -507,6 +602,9 @@ int main(int argc, char *argv[])
         switch (c) {
             case OPT_ALPHA:
                 test_type = TEST_ALPHA;
+                break;
+            case OPT_SCALEUP:
+                test_type = TEST_SCALEUP;
                 break;
             case OPT_WBFMT:
                 fi = drmu_fmt_info_find_name(optarg);
@@ -825,6 +923,11 @@ int main(int argc, char *argv[])
         case TEST_ALPHA:
             fillpin10(p16, mp.width, mp.height, p16_stride);
             if (alpha_test(da, dout, mp.width, mp.height, p1fmt))
+                goto fail;
+            break;
+        case TEST_SCALEUP:
+            fillpin10(p16, mp.width, mp.height, p16_stride);
+            if (scaleup_alpha(da, dout, mp.width, mp.height, p1fmt))
                 goto fail;
             break;
         default:
