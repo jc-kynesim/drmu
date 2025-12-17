@@ -328,53 +328,82 @@ p16_vn(uint64_t a, unsigned int n)
 }
 
 static uint64_t
-p16_avg2(uint64_t a, uint64_t b)
+p16_avgx(unsigned int n, unsigned int d, uint64_t a, uint64_t b)
 {
+    unsigned int r = d / 2;
+    unsigned int m = d - n;
+
+    if (n == 0)
+        return a;
+
     return p16val(
-        (p16_vn(a, 0) + p16_vn(b, 0) + 1) / 2,
-        (p16_vn(a, 1) + p16_vn(b, 1) + 1) / 2,
-        (p16_vn(a, 2) + p16_vn(b, 2) + 1) / 2,
-        (p16_vn(a, 3) + p16_vn(b, 3) + 1) / 2);
+        (p16_vn(a, 0) * m + p16_vn(b, 0) * n + r) / d,
+        (p16_vn(a, 1) * m + p16_vn(b, 1) * n + r) / d,
+        (p16_vn(a, 2) * m + p16_vn(b, 2) * n + r) / d,
+        (p16_vn(a, 3) * m + p16_vn(b, 3) * n + r) / d);
 }
 
+static void
+grad_fill(uint8_t * const p16, const unsigned int stride,
+          const unsigned int w, const unsigned int h,
+          const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    unsigned int x;
+    unsigned int y;
+
+    for (y = 0; y != h; ++y) {
+        uint64_t * d = (uint64_t *)(p16 + stride * y);
+
+        for (x = 0; x != w; ++x, ++d) {
+            *d = p16_avgx(y, h - 1,
+                            p16_avgx(x, w - 1, tl, tr),
+                            p16_avgx(x, w - 1, bl, br));
+        }
+    }
+}
+
+
 static drmu_fb_t *
-mk_3x3(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
+mk_wxh(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
+       const unsigned int w, const unsigned int h,
        const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
 {
-    uint64_t p[4][4];
+    const unsigned int ww = (w + 1) & ~1;
+    const unsigned int hh = (h + 1) & ~1;
+    const unsigned int p16_stride = ww * sizeof(uint64_t);
+    uint8_t * const p16 = malloc(p16_stride * hh);
     const drmu_fmt_info_t * fi;
 
-    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, 4, 4, fmt, mod);
+    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, ww, hh, fmt, mod);
     if (fb == NULL)
         return NULL;
     drmu_fb_chroma_siting_set(fb, DRMU_CHROMA_SITING_TOP_LEFT);
 
-    p[0][0] = tl;
-    p[0][1] = p16_avg2(tl, tr);
-    p[0][2] = tr;
-    p[0][3] = p[0][2];
-    p[1][0] = p16_avg2(tl, bl);
-    p[1][1] = p16_avg2(p16_avg2(tl, bl), p16_avg2(tr, br));
-    p[1][2] = p16_avg2(tr, br);
-    p[1][3] = p[1][2];
-    p[2][0] = bl;
-    p[2][1] = p16_avg2(bl, br);
-    p[2][2] = br;
-    p[2][3] = p[2][2];
-    p[3][0] = p[2][0];
-    p[3][1] = p[2][1];
-    p[3][2] = p[2][2];
-    p[3][3] = p[2][3];
+    grad_fill(p16, p16_stride, w, h, tl, tr, bl, br);
+
+    // Edge fill if we happen to have an odd width/height so it is clearly
+    // legit to crop 420/422 to this size
+    if (w != ww) {
+        for (unsigned int i = 0; i != h; ++i) {
+            uint64_t * d = (uint64_t *)(p16 + p16_stride * i) + w;
+            d[0] = d[-1];
+        }
+    }
+    if (h != hh)
+        memcpy(p16 + p16_stride * h, p16 + p16_stride * (h - 1), p16_stride);
 
     fi = drmu_fb_fmt_info(fb);
     if (drmu_fmt_info_is_yuv(fi)) {
-        plane16_rgb_to_yuv((uint8_t*)p, sizeof(p[0]), 4, 4,
+        plane16_rgb_to_yuv(p16, p16_stride, ww, hh,
                            PLANE16_BT_709,  // default for dumb
                            true,
                            drmu_color_range_is_full(drmu_fb_color_range_get(fb)));
     }
-    plane16_to_fb_generic(fb, (const uint8_t*)p, sizeof(p[0]));
-    drmu_fb_crop_frac_set(fb, drmu_rect_shl16(drmu_rect_wh(3, 3)));
+
+    plane16_to_fb_generic(fb, p16, p16_stride);
+    free(p16);
+
+    drmu_fb_crop_frac_set(fb, drmu_rect_shl16(drmu_rect_wh(w, h)));
 
     fb_dump_to_file("3x3", fb);
 
@@ -386,13 +415,13 @@ scaleup_alpha(drmu_atomic_t * const da, drmu_output_t * const dout,
               unsigned int dw, unsigned int dh, const uint32_t fmt)
 {
     drmu_env_t * const du = drmu_atomic_env(da);
-    drmu_plane_t * planes[7] = {NULL};
+    drmu_plane_t * planes[8] = {NULL};
     drmu_fb_t * fb;
     int rv = 0;
-    unsigned int i = 0;
-    unsigned int j = 0;
+    unsigned int nw = 4;
+    unsigned int nh = 2;
 
-    for (i = 0; i != 7; ++i) {
+    for (unsigned int i = 0; i != 8; ++i) {
         if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
             fprintf(stderr, "Color siting test needs 8 planes, only got %d\nMaybe don't run from X?\n", i + 1);
             rv = -ENOENT;
@@ -400,20 +429,32 @@ scaleup_alpha(drmu_atomic_t * const da, drmu_output_t * const dout,
         }
     }
 
-    i = 0;
-    j = 0;
+    for (unsigned int ny = 0; ny != nh; ++ny) {
+        for (unsigned int nx = 0; nx != nw; ++nx) {
+            unsigned int n = nx + ny * nw;
 
-    fb = mk_3x3(du,fmt, DRM_FORMAT_MOD_LINEAR,
-                p16val(0xffff, 0xffff, 0, 0),
-                p16val(0xffff, 0, 0xffff, 0),
-                p16val(0xffff, 0, 0, 0xffff),
-                p16val(0xffff, 0xffff, 0xffff, 0xffff));
+            unsigned int w3 = dw / (3 * nw + 1);
+            unsigned int h3 = dh / (3 * nh + 1);
 
-    drmu_atomic_plane_add_fb(da, planes[0], fb, (drmu_rect_t){
-                    .x = dw / 8 + i * (dw / 4),
-                    .y = dh / 8 + j * (dh / 4),
-                    .w = dw / 2,
-                    .h = dh / 2});
+            fb = mk_wxh(du, fmt, DRM_FORMAT_MOD_LINEAR,
+                        n + 1, n + 1,
+                        p16val(0xffff, 0xffff, 0, 0),
+                        p16val(0xffff, 0, 0xffff, 0),
+                        p16val(0xffff, 0, 0, 0xffff),
+                        p16val(0xffff, 0xffff, 0xffff, 0xffff));
+            if (fb == NULL) {
+                fprintf(stderr, "Failed to create patch %d\n", n);
+                continue;
+            }
+
+            drmu_atomic_plane_add_fb(da, planes[n], fb, (drmu_rect_t){
+                            .x = w3 * (nx * 3 + 1),
+                            .y = h3 * (ny * 3 + 1),
+                            .w = w3 * 2,
+                            .h = h3 * 2});
+            drmu_fb_unref(&fb);
+        }
+    }
 
     return 0;
 
@@ -1174,14 +1215,10 @@ int main(int argc, char *argv[])
 
         {
             const char * wb_filename = "wb.rgb";
-            FILE * f = fopen(wb_filename, "wb");
-            if (f == NULL) {
-                fprintf(stderr, "Failed to open %s for output: %s\n", wb_filename, strerror(errno));
-                goto fail;
-            }
-            fwrite(drmu_fb_data(fb2, 0), drmu_fb_pitch(fb2, 0), drmu_fb_height(fb2), f);
-            fclose(f);
-            printf("Writeback buffer written to %s\n", wb_filename);
+            if ((rv = fb_dump_to_file(wb_filename, fb2)) != 0)
+                fprintf(stderr, "Failed to write writeback file '%s': %s\n", wb_filename, strerror(-rv));
+            else
+                printf("Writeback buffer written to %s\n", wb_filename);
         }
 
         if (show_writeback) {
