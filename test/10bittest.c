@@ -343,6 +343,7 @@ p16_avgx(unsigned int n, unsigned int d, uint64_t a, uint64_t b)
         (p16_vn(a, 3) * m + p16_vn(b, 3) * n + r) / d);
 }
 
+#if 0
 static void
 grad_fill(uint8_t * const p16, const unsigned int stride,
           const unsigned int w, const unsigned int h,
@@ -361,7 +362,28 @@ grad_fill(uint8_t * const p16, const unsigned int stride,
         }
     }
 }
+#endif
 
+#define P(a,b) p[(((y) >> 1) + (b)) & 1][(((x) >> 1) + (a)) & 1]
+static void
+blob_fill(uint8_t * const p16, const unsigned int stride,
+          const unsigned int w, const unsigned int h,
+          const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    const uint64_t p[2][2] = {{tl, tr}, {bl, br}};
+    unsigned int x, y;
+
+    for (y = 0; y != h; ++y) {
+        uint64_t * d = (uint64_t *)(p16 + stride * y);
+
+        for (x = 0; x != w; ++x, ++d) {
+            *d = p16_avgx(y & 1, 2,
+                          p16_avgx(x & 1, 2, P(0,0), P(1,0)),
+                          p16_avgx(x & 1, 2, P(1,0), P(1,1)));
+        }
+    }
+}
+#undef P
 
 static drmu_fb_t *
 mk_wxh(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
@@ -379,8 +401,10 @@ mk_wxh(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
         return NULL;
     drmu_fb_chroma_siting_set(fb, DRMU_CHROMA_SITING_TOP_LEFT);
 
-    grad_fill(p16, p16_stride, w, h, tl, tr, bl, br);
-
+#if 1
+    blob_fill(p16, p16_stride, ww, hh, tl, tr, bl, br);
+#else
+    grad_fill(p16, p16_stride, ww, hh, tl, tr, bl, br);
     // Edge fill if we happen to have an odd width/height so it is clearly
     // legit to crop 420/422 to this size
     if (w != ww) {
@@ -391,6 +415,7 @@ mk_wxh(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
     }
     if (h != hh)
         memcpy(p16 + p16_stride * h, p16 + p16_stride * (h - 1), p16_stride);
+#endif
 
     fi = drmu_fb_fmt_info(fb);
     if (drmu_fmt_info_is_yuv(fi)) {
