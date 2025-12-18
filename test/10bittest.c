@@ -461,12 +461,22 @@ scaleup_alpha(drmu_atomic_t * const da, drmu_output_t * const dout,
             unsigned int w3 = dw / (3 * nw + 1);
             unsigned int h3 = dh / (3 * nh + 1);
 
+#if 1
             fb = mk_wxh(du, fmt, DRM_FORMAT_MOD_LINEAR,
                         n + 1, n + 1,
                         p16val(0xffff, 0xffff, 0, 0),
                         p16val(0xffff, 0, 0xffff, 0),
                         p16val(0xffff, 0, 0, 0xffff),
                         p16val(0xffff, 0xffff, 0xffff, 0xffff));
+#else
+            fb = mk_wxh(du, fmt, DRM_FORMAT_MOD_LINEAR,
+                        1, 1,
+                        p16val(0xffff, n & 1 ? 0xffff : 0, n & 2 ? 0xffff : 0, n & 4 ? 0xffff : 0),
+                        p16val(0xffff, 0, 0xffff, 0),
+                        p16val(0xffff, 0, 0, 0xffff),
+                        p16val(0xffff, 0xffff, 0xffff, 0xffff));
+#endif
+
             if (fb == NULL) {
                 fprintf(stderr, "Failed to create patch %d\n", n);
                 continue;
@@ -717,6 +727,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_LIST_FORMATS
     },
+#define OPT_SIZE 260
+    {
+        .name = "size",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_SIZE
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -775,6 +792,8 @@ int main(int argc, char *argv[])
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
     writeback_env_t wbe = {0};
+    drmu_rect_t size_rect;
+    long size_scale = 100;
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
@@ -796,9 +815,29 @@ int main(int argc, char *argv[])
             case OPT_LIST_FORMATS:
                 test_type = TEST_LIST_FORMATS;
                 break;
-            case 'C':
-                conn_name = optarg;
+            case OPT_SIZE:
+            {
+                char * p;
+                if (drmu_parse_rect(optarg, &p, &size_rect) == 0) {
+                    size_scale = 0;
+                }
+                else if (*p == '%') {
+                    size_scale = strtol(optarg, &p, 0);
+                    if (size_scale <= 0 || *p != '%') {
+                        fprintf(stderr, "Bad size percentage '%s'\n", optarg);
+                        goto fail;
+                    }
+                    ++p;
+                }
+                if (*p != 0) {
+                    fprintf(stderr, "Bad size string '%s'\n", optarg);
+                    goto fail;
+                }
                 break;
+            }
+            case 'C':
+                    conn_name = optarg;
+                    break;
             case 'c':
                 colorspace = optarg;
                 break;
@@ -1065,6 +1104,16 @@ int main(int argc, char *argv[])
             goto fail;
         }
     }
+
+    // Set render size if not given explictly
+    if (size_scale != 0) {
+        size_rect.w = mp.width * size_scale / 100;
+        size_rect.h = mp.height * size_scale / 100;
+        size_rect.x = 0;
+        size_rect.y = 0;
+    }
+    printf("Render to %dx%d@%d,%d\n", size_rect.w, size_rect.h, size_rect.x, size_rect.y);
+
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
     printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
@@ -1195,7 +1244,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
+        drmu_atomic_plane_add_fb(da, p1, fb1, size_rect);
     }
 
     if (try_writeback && show_writeback < 2) {
