@@ -148,11 +148,14 @@ drmu_parse_rect(const char * s, char ** peos, drmu_rect_t * pRect)
     if (p == s)
         goto fail;
 
-    *peos = p;
+    if (peos != NULL)
+        *peos = p;
     return 0;
 
 fail:
-    *peos = p;
+    *pRect = (drmu_rect_t){0};
+    if (peos != NULL)
+        *peos = p;
     return -EINVAL;
 }
 

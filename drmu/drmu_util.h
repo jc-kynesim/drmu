@@ -35,7 +35,7 @@ unsigned int drmu_util_str_to_rotation(const char * s, char ** peos);
 
 // Parse a string of the form "<w>x<h>[@<x>,<y>]"
 // Returns 0 if this appears to be good, -EINVAL if this is bad
-// Contents of *pRect are not guaranteed if bad
+// *pRect will be {0,0,0,0} if bad
 int drmu_parse_rect(const char * s, char ** peos, drmu_rect_t * pRect);
 
 // Rotation to string - guaranteed to return a string that str_to_rotation can
