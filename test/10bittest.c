@@ -25,6 +25,7 @@
 #include <drm_fourcc.h>
 
 #include "plane16.h"
+#include "md5util.h"
 
 #ifndef DRM_FORMAT_P030
 #define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
@@ -734,6 +735,20 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_SIZE
     },
+#define OPT_SRC_SIZE 261
+    {
+        .name = "src-size",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_SRC_SIZE
+    },
+#define OPT_MD5 262
+    {
+        .name = "md5",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_MD5
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -786,6 +801,7 @@ int main(int argc, char *argv[])
     bool multi = false;
     bool conn_added = false;
     bool hdr_block = false;
+    bool wants_md5 = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
@@ -794,6 +810,7 @@ int main(int argc, char *argv[])
     writeback_env_t wbe = {0};
     drmu_rect_t size_rect;
     long size_scale = 100;
+    drmu_rect_t src_rect = {0};
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
@@ -835,6 +852,18 @@ int main(int argc, char *argv[])
                 }
                 break;
             }
+            case OPT_SRC_SIZE:
+            {
+                char * p;
+                if (drmu_parse_rect(optarg, &p, &src_rect) != 0 || *p != '\0') {
+                    fprintf(stderr, "Bad src-size string '%s'\n", optarg);
+                    goto fail;
+                }
+                break;
+            }
+            case OPT_MD5:
+                wants_md5 = true;
+                break;
             case 'C':
                     conn_name = optarg;
                     break;
@@ -1112,23 +1141,26 @@ int main(int argc, char *argv[])
         size_rect.x = 0;
         size_rect.y = 0;
     }
-    printf("Render to %dx%d@%d,%d\n", size_rect.w, size_rect.h, size_rect.x, size_rect.y);
+    if (src_rect.w == 0 || src_rect.h == 0)
+        src_rect = drmu_rect_wh(mp.width, mp.height);
+
+    printf("Src size %dx%d; Render to %dx%d@%d,%d\n", src_rect.w, src_rect.h, size_rect.w, size_rect.h, size_rect.x, size_rect.y);
 
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
     printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
-    if ((p16 = malloc(mp.width * mp.height * 8)) == NULL) {
+    if ((p16 = malloc(src_rect.w * src_rect.h * 8)) == NULL) {
         printf("Failed to alloc P16 plane\n");
         goto fail;
     }
-    p16_stride = mp.width * 8;
+    p16_stride = src_rect.w * 8;
 
     if ((p1 = drmu_output_plane_ref_format(dout, 0, p1fmt, p1mod)) == NULL) {
         fprintf(stderr, "Cannot find plane to support %s mod %#" PRIx64 "\n", drmu_log_fourcc(p1fmt), p1mod);
         goto fail;
     }
 
-    if ((fb1 = drmu_fb_new_dumb_multi(du, mp.width, mp.height, p1fmt, p1mod, multi)) == NULL) {
+    if ((fb1 = drmu_fb_new_dumb_multi(du, src_rect.w, src_rect.h, p1fmt, p1mod, multi)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
@@ -1137,32 +1169,32 @@ int main(int argc, char *argv[])
     printf("%s encoding: %s, range %s\n", drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1)) ? "YUV" : "RGB", encoding, range);
 
     // Start with grey fill
-    plane16_fill(p16, mp.width, mp.height, p16_stride, fillval);
+    plane16_fill(p16, src_rect.w, src_rect.h, p16_stride, fillval);
 
     switch (test_type) {
         case TEST_PIN:
-            fillpin10(p16, mp.width, mp.height, p16_stride);
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_GREY:
-            fillgradgrey10(p16, mp.width, mp.height, p16_stride);
+            fillgradgrey10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_SITING:
-            if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac, p1fmt))
+            if (color_siting(da, dout, p16, src_rect.w, src_rect.h, p16_stride, dofrac, p1fmt))
                 goto fail;
             break;
         case TEST_SOLID:
             break;
         case TEST_STRIPES:
-            fillgraduated10(p16, mp.width, mp.height, p16_stride);
+            fillgraduated10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_ALPHA:
-            fillpin10(p16, mp.width, mp.height, p16_stride);
-            if (alpha_test(da, dout, mp.width, mp.height, p1fmt))
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
+            if (alpha_test(da, dout, src_rect.w, src_rect.h, p1fmt))
                 goto fail;
             break;
         case TEST_SCALEUP:
-            fillpin10(p16, mp.width, mp.height, p16_stride);
-            if (scaleup_alpha(da, dout, mp.width, mp.height, p1fmt))
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
+            if (scaleup_alpha(da, dout, src_rect.w, src_rect.h, p1fmt))
                 goto fail;
             break;
         default:
@@ -1285,6 +1317,27 @@ int main(int argc, char *argv[])
         else {
             fprintf(stderr, "Failed to wait for writeback: %s\n", strerror(-rv));
             goto fail;
+        }
+
+        if (wants_md5) {
+            unsigned int n = 0;
+            const drmu_fmt_info_t * const fi = drmu_fb_fmt_info(fb2);
+
+            drmu_fb_read_start(fb2);
+            for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
+                const uint8_t * data = drmu_fb_data(fb2, n);
+                const drmu_rect_t a = drmu_fb_active(fb2);
+                const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
+                const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
+                const unsigned int line_len = (a.w + wdiv - 1) / wdiv;
+                const unsigned int h = (a.h + hdiv - 1) / hdiv;
+                const unsigned int stride = drmu_fb_pitch(fb2, n);
+                uint8_t digest[16];
+
+                printf("WB MD5 plane %d: %s\n", n,
+                       md5sum_str(md5sum_2d(digest, data, stride, line_len, h)));
+            }
+            drmu_fb_read_end(fb2);
         }
 
         {
