@@ -29,6 +29,7 @@ void drmu_writeback_env_finish(drmu_writeback_env_t ** const ppwbe);
 struct drmu_output_s * drmu_writeback_env_output(const drmu_writeback_env_t * const wbe);
 
 // Atomic queue used by this env
+// Do not unref - ref held by wbe
 struct drmu_queue_s * drmu_writeback_env_queue(const drmu_writeback_env_t * const wbe);
 
 // Get a "unique" non-zero tag no
