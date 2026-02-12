@@ -591,8 +591,9 @@ retry_hw:
                         pe->decoder->name, av_hwdevice_get_type_name(pe->hwdev_type));
                 break;
             }
-            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
-                config->device_type == pe->hwdev_type) {
+            if ((config->methods & AV_CODEC_HW_CONFIG_METHOD_INTERNAL) ||
+                (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
+                 config->device_type == pe->hwdev_type)) {
                 pe->hw_pix_fmt = config->pix_fmt;
                 break;
             }
