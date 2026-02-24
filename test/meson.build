@@ -30,3 +30,9 @@ executable(
 	link_with : [ drmu_base ],
 )
 
+executable(
+	'reduce_unit',
+	'reduce_unit.c',
+	include_directories : drmu_incs,
+	link_with : [ drmu_base ],
+)
