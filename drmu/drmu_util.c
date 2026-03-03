@@ -3,6 +3,7 @@
 #include "drmu.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <error.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,6 +122,41 @@ drmu_util_parse_mode(const char * s, unsigned int * pw, unsigned int * ph, unsig
     *ph = p.height;
     *phz = p.hz_x_1000;
     return r;
+}
+
+int
+drmu_parse_rect(const char * s, char ** peos, drmu_rect_t * pRect)
+{
+    char * p;
+
+    *pRect = (drmu_rect_t){0};
+
+    pRect->w = (uint32_t)strtoul(s, &p, 0);
+    if (*p != 'x' || p == s)
+        goto fail;
+    s = p + 1;
+    pRect->h = (uint32_t)strtoul(s, &p, 0);
+
+    if (*p == '@') {
+        s = p + 1;
+        pRect->x = (int32_t)strtol(s, &p, 0);
+        if (*p != ',' || p == s)
+            goto fail;
+        s = p + 1;
+        pRect->y = (int32_t)strtol(s, &p, 0);
+    }
+    if (p == s)
+        goto fail;
+
+    if (peos != NULL)
+        *peos = p;
+    return 0;
+
+fail:
+    *pRect = (drmu_rect_t){0};
+    if (peos != NULL)
+        *peos = p;
+    return -EINVAL;
 }
 
 unsigned int
