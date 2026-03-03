@@ -9,6 +9,7 @@ project(
 
 conf_data = configuration_data()
 
+m_dep = meson.get_compiler('c').find_library('m')
 libavutil_dep = dependency('libavutil')
 threads_dep = dependency('threads')
 libdrm_dep = dependency('libdrm')
@@ -152,6 +153,7 @@ drmu_av = library('drmu_av',
 	dependencies : [
 		threads_dep,
 		libavutil_dep,
+        m_dep,
 	],
 )
 
