@@ -7,8 +7,7 @@
 static int
 get_lease_fd(const drmu_log_env_t * const log)
 {
-    xcb_generic_error_t *xerr;
-
+    int fd = -1;
     int screen = 0;
     xcb_connection_t * const connection = xcb_connect(NULL, &screen);
     if (!connection) {
@@ -24,7 +23,7 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         if (!rqv_r) {
             drmu_warn_log(log, "Failed to get XCB RandR version");
-            return -1;
+            goto fail;
         }
 
         uint32_t major = rqv_r->major_version;
@@ -33,7 +32,7 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         if (minor < 6) {
             drmu_warn_log(log, "XCB RandR version %d.%d too low for lease support", major, minor);
-            return -1;
+            goto fail;
         }
     }
 
@@ -49,7 +48,7 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         if (s_i.rem == 0) {
             drmu_err_log(log, "Failed to get root for screen %d", screen);
-            return -1;
+            goto fail;
         }
 
         drmu_debug_log(log, "index %d screen %d rem %d", s_i.index, screen, s_i.rem);
@@ -68,7 +67,7 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         if (!gsr_r) {
             drmu_err_log(log, "get_screen_resources failed");
-            return -1;
+            goto fail;
         }
 
         xcb_randr_output_t * const ro = xcb_randr_get_screen_resources_outputs(gsr_r);
@@ -77,6 +76,9 @@ get_lease_fd(const drmu_log_env_t * const log)
             xcb_randr_get_output_info_cookie_t goi_c = xcb_randr_get_output_info(connection, ro[o], gsr_r->config_timestamp);
 
             xcb_randr_get_output_info_reply_t *goi_r = xcb_randr_get_output_info_reply(connection, goi_c, NULL);
+
+            if (goi_r == NULL)
+                continue;
 
             drmu_debug_log(log, "output[%d/%d] %d: conn %d/%d crtc %d", o, gsr_r->num_outputs, ro[o], goi_r->connection, XCB_RANDR_CONNECTION_CONNECTED, goi_r->crtc);
 
@@ -94,13 +96,12 @@ get_lease_fd(const drmu_log_env_t * const log)
 
         if (output == 0) {
             drmu_warn_log(log, "Failed to find active output (outputs=%d)", o);
-            return -1;
+            goto fail;
         }
     }
 
-    int fd = -1;
-
     {
+        xcb_generic_error_t *xerr = NULL;
         xcb_randr_lease_t lease = xcb_generate_id(connection);
 
         xcb_randr_create_lease_cookie_t rcl_c = xcb_randr_create_lease(connection,
@@ -113,8 +114,11 @@ get_lease_fd(const drmu_log_env_t * const log)
         xcb_randr_create_lease_reply_t *rcl_r = xcb_randr_create_lease_reply(connection, rcl_c, &xerr);
 
         if (!rcl_r) {
-            drmu_err_log(log, "create_lease failed: Xerror %d", xerr->error_code);
-            return -1;
+            if (xerr != NULL)
+                drmu_err_log(log, "create_lease failed: Xerror %d", xerr->error_code);
+            else
+                drmu_err_log(log, "create_lease failed");
+            goto fail;
         }
 
         int *rcl_f = xcb_randr_create_lease_reply_fds(connection, rcl_r);
@@ -125,6 +129,9 @@ get_lease_fd(const drmu_log_env_t * const log)
     }
 
     drmu_debug_log(log, "%s OK: fd=%d", __func__, fd);
+
+fail:
+    xcb_disconnect(connection);
     return fd;
 }
 
@@ -140,4 +147,3 @@ drmu_env_new_xlease(const drmu_log_env_t * const log2)
     }
     return drmu_env_new_fd(fd, log);
 }
-
