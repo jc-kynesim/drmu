@@ -2532,7 +2532,8 @@ struct drmu_conn_s {
     drmu_blob_t * hdr_metadata_blob;
 
     uint32_t * writeback_fmts;
-    size_t writeback_fmts_count;
+    uint32_t * writeback_fmts_sorted;
+    unsigned int writeback_fmts_count;
 
     char name[32];
 };
@@ -2658,10 +2659,26 @@ fail:
 }
 
 const uint32_t *
-drmu_conn_writeback_formats(drmu_conn_t * const dn, size_t * const ppcount)
+drmu_conn_writeback_formats(drmu_conn_t * const dn, unsigned int * const ppcount)
 {
     *ppcount = dn->writeback_fmts_count;
     return dn->writeback_fmts;
+}
+
+static int
+wb_fmt_cmp_cb(const void * va, const void * vb)
+{
+    const uint32_t a = *(const uint32_t *)va;
+    const uint32_t b = *(const uint32_t *)vb;
+    return a == b ? 0 : a < b ? -1 : 1;
+}
+
+bool
+drmu_conn_has_writeback_format(drmu_conn_t * const dn, const uint32_t fmt)
+{
+    return dn->writeback_fmts_sorted != NULL &&
+        bsearch(&fmt, dn->writeback_fmts_sorted, dn->writeback_fmts_count,
+                sizeof(*dn->writeback_fmts_sorted), wb_fmt_cmp_cb) != NULL;
 }
 
 const struct drm_mode_modeinfo *
@@ -2727,9 +2744,11 @@ conn_uninit(drmu_conn_t * const dn)
     free(dn->modes);
     free(dn->enc_ids);
     free(dn->writeback_fmts);
+    free(dn->writeback_fmts_sorted);
     dn->modes = NULL;
     dn->enc_ids = NULL;
     dn->writeback_fmts = NULL;
+    dn->writeback_fmts_sorted = NULL;
     dn->modes_size = 0;
     dn->enc_ids_size = 0;
     dn->writeback_fmts_count = 0;
@@ -2828,6 +2847,12 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         props_free(props);
         dn->writeback_fmts = wb_blob_data;
         dn->writeback_fmts_count = wb_blob_len / sizeof(*dn->writeback_fmts);
+        if (dn->writeback_fmts != NULL &&
+            (dn->writeback_fmts_sorted = malloc(wb_blob_len)) != NULL) {
+            memcpy(dn->writeback_fmts_sorted, dn->writeback_fmts, wb_blob_len);
+            qsort(dn->writeback_fmts_sorted, dn->writeback_fmts_count,
+                  sizeof(*dn->writeback_fmts_sorted), wb_fmt_cmp_cb);
+        }
 
         dn->rot_mask = rotation_make_array(dn->pid.rotation, dn->rot_vals);
     }
@@ -3324,6 +3349,12 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
             .fmt = ((uint32_t*)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset))[i],
             .idx = i};
     qsort(dp->fmt_idxs, dp->fmts_hdr->count_formats, sizeof(*dp->fmt_idxs), fmt_idx_cmp);
+#if 0
+    for (i = 0; i != dp->fmts_hdr->count_formats; ++i) {
+        drmu_info(du, "Format %s [%d] %s", drmu_log_fourcc(dp->fmt_idxs[i].fmt), dp->fmt_idxs[i].idx,
+                  drmu_fmt_info_name(drmu_fmt_info_find_fmt(dp->fmt_idxs[i].fmt)));
+    }
+#endif
 
     dp->pid.alpha            = drmu_prop_range_new(du, props_name_to_id(props, "alpha"));
     dp->pid.color_encoding   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_ENCODING"));
