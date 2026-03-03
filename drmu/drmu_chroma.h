@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "drmu_chroma.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
