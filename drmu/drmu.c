@@ -1407,6 +1407,12 @@ drmu_fb_colorspace_get(const drmu_fb_t * const dfb)
     return dfb->colorspace;
 }
 
+drmu_color_encoding_t
+drmu_fb_color_encoding_get(const drmu_fb_t * const dfb)
+{
+    return dfb->color_encoding;
+}
+
 const char *
 drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range)
 {

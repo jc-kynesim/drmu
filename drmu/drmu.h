@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "drmu_chroma.h"
 #include "drmu_math.h"
@@ -214,12 +215,15 @@ typedef const char * drmu_color_encoding_t;
 #define DRMU_COLOR_ENCODING_BT709               "ITU-R BT.709 YCbCr"
 #define DRMU_COLOR_ENCODING_BT601               "ITU-R BT.601 YCbCr"
 static inline bool drmu_color_encoding_is_set(const drmu_color_encoding_t x) {return x != NULL;}
+static inline bool drmu_color_encoding_eq(const drmu_color_encoding_t a, const drmu_color_encoding_t b) {return a != NULL && b != NULL && !strcmp(a, b);}
 // Note: Color range only applies to YCbCr planes - ignored for RGB
 typedef const char * drmu_color_range_t;
 #define DRMU_COLOR_RANGE_UNSET                  NULL
 #define DRMU_COLOR_RANGE_YCBCR_FULL_RANGE       "YCbCr full range"
 #define DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE    "YCbCr limited range"
 static inline bool drmu_color_range_is_set(const drmu_color_range_t x) {return x != NULL;}
+static inline bool drmu_color_range_is_full(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_FULL_RANGE) == 0;}
+static inline bool drmu_color_range_is_limited(const drmu_color_range_t x) {return x != NULL && strcmp(x, DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE) == 0;}
 typedef const char * drmu_colorspace_t;
 #define DRMU_COLORSPACE_UNSET                   NULL
 #define DRMU_COLORSPACE_DEFAULT                 "Default"
@@ -252,8 +256,10 @@ drmu_isset_t drmu_fb_hdr_metadata_isset(const drmu_fb_t *const dfb);
 const struct hdr_output_metadata * drmu_fb_hdr_metadata_get(const drmu_fb_t *const dfb);
 drmu_broadcast_rgb_t drmu_color_range_to_broadcast_rgb(const drmu_color_range_t range);
 drmu_colorspace_t drmu_fb_colorspace_get(const drmu_fb_t * const dfb);
+drmu_color_encoding_t drmu_fb_color_encoding_get(const drmu_fb_t * const dfb);
 drmu_color_range_t drmu_fb_color_range_get(const drmu_fb_t * const dfb);
 const struct drmu_fmt_info_s * drmu_fb_format_info_get(const drmu_fb_t * const dfb);
+#define drmu_fb_fmt_info drmu_fb_format_info_get
 void drmu_fb_hdr_metadata_set(drmu_fb_t *const dfb, const struct hdr_output_metadata * meta);
 int drmu_fb_int_make(drmu_fb_t *const dfb);
 
