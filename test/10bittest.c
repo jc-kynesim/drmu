@@ -16,6 +16,7 @@
 
 #include "config.h"
 #include "drmu.h"
+#include "drmu_fmts.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include "drmu_scan.h"
@@ -24,6 +25,7 @@
 #include <drm_fourcc.h>
 
 #include "plane16.h"
+#include "md5util.h"
 
 #ifndef DRM_FORMAT_P030
 #define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
@@ -71,7 +73,7 @@ fillpin16(uint8_t * const p,
 
 
 static void
-fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
     const unsigned int vstripes = 4;
@@ -86,9 +88,7 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
             uint8_t * const p2 = p1  + j * 2 * stripestride;
             uint64_t inc10 = p16val(0, (i & 4) << 4, (i & 2) << 5, (i & 1) << 6);
             uint64_t inc8  = inc10 << 2;
-            const uint64_t base10 = is_yuv ?
-                p16val(~0U, (i & 4) ? 0 : 0x8000, (i & 2) ? 0 : 0x8000, (i & 1) ? 0 : 0x8000) :
-                p16val(~0U, 0, 0, 0);
+            const uint64_t base10 = p16val(~0U, 0, 0, 0);
             uint64_t val0 =  base10 | (inc10 * w * j);
             fillstripe16(p2,
                        w / 4, h, stride, 4 * k,
@@ -102,7 +102,7 @@ fillgraduated10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned in
 }
 
 static void
-fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int j;
     const unsigned int vstripes = 16;
@@ -110,8 +110,8 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
     const unsigned int k = dw / w;
     const unsigned int h = dh / (vstripes * 2);
     const unsigned int stripestride = h * stride;
-    const uint64_t base10 = is_yuv ? p16val(~0U, 0, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
-    const uint64_t inc10 = is_yuv ? p16val(0, 1 << 6, 0, 0) : p16val(0, 1 << 6, 1 << 6, 1 << 6);
+    const uint64_t base10 = p16val(~0U, 0, 0, 0);
+    const uint64_t inc10 = p16val(0, 1 << 6, 1 << 6, 1 << 6);
     const uint64_t inc8  = inc10 << 2;
 
     for (j = 0; j != vstripes; ++j) {
@@ -128,53 +128,117 @@ fillgradgrey10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int
 }
 
 static void
-fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride, const bool is_yuv)
+fillpin10(uint8_t * const p, unsigned int dw, unsigned int dh, unsigned int stride)
 {
     unsigned int i, j;
     const unsigned int vstripes = 8;
     const unsigned int h = dh / (vstripes * 7);
     const unsigned int stripestride = h * stride;
-    const uint64_t grey = is_yuv ? p16val(~0U, 16, 0x8000, 0x8000) : p16val(~0U, 0, 0, 0);
-    unsigned int v0a = is_yuv ? (16 << 8) : 0;
+    const uint64_t grey = p16val(~0U, 0, 0, 0);
+    unsigned int v0a = 0;
     unsigned int v1a = 0x8000;
-    unsigned int v0b = is_yuv ? 0x8000 : 0;
-    unsigned int v1b = is_yuv ? (235 << 8) : 0x8000;
+    unsigned int v0b = 0;
+    unsigned int v1b = 0x8000;
 
     for (i = 0; i != vstripes; ++i) {
         uint8_t * const p1 = p + i * 7 * stripestride;
         for (j = 1; j != 8; ++j) {
             uint8_t * const p2 = p1 + (j - 1) * stripestride;
             uint64_t val0 = p16val(~0U, (j & 4) ? v1a : v0a, (j & 2) ? v1b : v0b, (j & 1) ? v1b : v0b);
-            fillpin16(p2, dw, h, stride, is_yuv ? (i + 1) * 2 : i + 2, val0, grey);
+            fillpin16(p2, dw, h, stride, i + 2, val0, grey);
         }
     }
+}
+
+static int
+plane16_to_fb_generic(drmu_fb_t * const fb,
+              const uint8_t * src, unsigned int stride)
+{
+    const drmu_fmt_info_t * fi = drmu_fb_format_info_get(fb);
+    const drmu_rect_t a = drmu_fb_active(fb);
+    uint8_t * dst_datas[4];
+    unsigned int dst_strides[4];
+
+    if (fi == NULL) {
+        fprintf(stderr, "FB has unknown format\n");
+        return -EINVAL;
+    }
+
+    if (drmu_fmt_info_fourcc(fi) == DRM_FORMAT_P030 && drmu_fb_pitch2(fb, 0) != 0)
+    {
+        plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
+                          drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
+                          src, stride, a.w, a.h);
+        return 0;
+    }
+
+    for (unsigned int i = 0; i != 4; ++i) {
+        dst_datas[i] = drmu_fb_data(fb, i);
+        dst_strides[i] = drmu_fb_pitch(fb, i);
+    }
+
+    plane16_to_generic(dst_datas, dst_strides, fi, src, stride, a.w, a.h);
+    return 0;
+}
+
+int
+fb_dump_to_file(const char * fname, drmu_fb_t * const fb)
+{
+    unsigned int n = 0;
+    const drmu_fmt_info_t * const fi = drmu_fb_fmt_info(fb);
+    FILE * ff = fopen(fname, "wb");
+
+    if (ff == NULL)
+        return -errno;
+
+    drmu_fb_read_start(fb);
+    for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
+        const uint8_t * data = drmu_fb_data(fb, n);
+        const drmu_rect_t a = drmu_fb_active(fb);
+        const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
+        const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
+        const unsigned int line_len = (a.w + wdiv - 1) / wdiv;
+        const unsigned int h = (a.h + hdiv - 1) / hdiv;
+        const unsigned int stride = drmu_fb_pitch(fb, n);
+        unsigned int y;
+
+        for (y = 0; y != h; ++y) {
+            fwrite(data + stride * y, drmu_fmt_info_pixel_bits(fi) / 8, line_len, ff);
+        }
+    }
+    drmu_fb_read_end(fb);
+
+    fclose(ff);
+    return 0;
 }
 
 #define BT2020_RGB_Y(r, g, b) ((double)(r)*0.2627+(double)(g)*0.6780+(double)(b)*0.0593)
 #define BT2020_RGB_Cb(r, g, b) (((double)(b)-BT2020_RGB_Y((r),(g),(b)))/1.8814)
 #define BT2020_RGB_Cr(r, g, b) (((double)(r)-BT2020_RGB_Y((r),(g),(b)))/1.4746)
-#define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Y((r),(g),(b)), BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5)
+#define BT2020_RGB_P16(r, g, b) p16val(~0U, BT2020_RGB_Cr((r),(g),(b))+0x8000+0.5, BT2020_RGB_Cb((r),(g),(b))+0x8000+0.5, BT2020_RGB_Y((r),(g),(b)))
 
 static int
 color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
              uint8_t * const p16, unsigned int dw, unsigned int dh, unsigned int p16_stride,
-             const bool dofrac)
+             const bool dofrac, const uint32_t rfmt)
 {
     drmu_env_t * du = drmu_atomic_env(da);
     drmu_plane_t * planes[7] = {NULL};
     drmu_fb_t * fb = NULL;
     unsigned int i;
     int rv = 0;
-    const uint32_t fmt = DRM_FORMAT_P030;
-    const uint64_t mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
+    uint32_t fmt = DRM_FORMAT_P030;
+    uint64_t mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
     const unsigned int w = 18; // 16 puts the TL on an odd number so don't do that
     const unsigned int h = 18;
-    const uint64_t bk = p16val(~0, 0x6000, 0x8000, 0x8000);
-    const uint64_t fg = BT2020_RGB_P16(0, 0, 230*256);
+    const uint64_t bk = p16val(~0, 0x8000, 0x8000, 0x6000);
+    const uint64_t fgh = BT2020_RGB_P16(0, 0, 230*256);
+    const uint64_t fgv = BT2020_RGB_P16(230*256, 0, 0);
     const unsigned int s16_stride = w * sizeof(uint64_t);
     uint8_t * s16 = malloc(h * s16_stride);
     const unsigned int patch_wh = dh / 4;
     const unsigned int patch_gap = (dh - patch_wh * 3) / 4;
+    const drmu_fmt_info_t * fi = drmu_fmt_info_find_fmt(rfmt);
 
     static const struct {
         drmu_chroma_siting_t color_siting;
@@ -191,6 +255,14 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
 
     (void)dw;
 
+    if (drmu_fmt_info_is_yuv(fi)) {
+        fmt = rfmt;
+        mod = DRM_FORMAT_MOD_LINEAR;
+    }
+    else {
+        printf("Using sand30 for color siting\n");
+    }
+
     if (s16 == NULL) {
         fprintf(stderr, "Failed malloc for plane16 fb\n");
         rv = -ENOMEM;
@@ -198,8 +270,8 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
     }
 
     plane16_fill(s16, w, h, s16_stride, bk);
-    plane16_fill(p16pos(s16, s16_stride, 0, (h / 2 - 1)), w, 2, s16_stride, fg);
-    plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fg);
+    plane16_fill(p16pos(s16, s16_stride, 0, (h / 2 - 1)), w, 2, s16_stride, fgh);
+    plane16_fill(p16pos(s16, s16_stride, (w / 2 - 1), 0), 2, h, s16_stride, fgv);
 
     for (i = 0; i != 7; ++i) {
         if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
@@ -219,9 +291,7 @@ color_siting(drmu_atomic_t * const da, drmu_output_t * const dout,
     if (dofrac)
         drmu_fb_crop_frac_set(fb, (drmu_rect_t){.x = 0x8000, .y = 0x8000, .w = (w << 16) - 0x8000, .h = (h << 16) - 0x8000});
 
-    plane16_to_sand30(drmu_fb_data(fb, 0), drmu_fb_pitch2(fb, 0),
-                      drmu_fb_data(fb, 1), drmu_fb_pitch2(fb, 1),
-                      s16, s16_stride, w, h);
+    plane16_to_fb_generic(fb, s16, s16_stride);
 
     for (i = 0; i != 7; ++i) {
         const unsigned int x = patch_gap + sitings[i].patch_x * (patch_wh + patch_gap);
@@ -252,9 +322,185 @@ fail:
     return rv;
 }
 
+static inline unsigned int
+p16_vn(uint64_t a, unsigned int n)
+{
+    return (a >> ((3 - n) * 16)) & 0xffff;
+}
+
+static uint64_t
+p16_avgx(unsigned int n, unsigned int d, uint64_t a, uint64_t b)
+{
+    unsigned int r = d / 2;
+    unsigned int m = d - n;
+
+    if (n == 0)
+        return a;
+
+    return p16val(
+        (p16_vn(a, 0) * m + p16_vn(b, 0) * n + r) / d,
+        (p16_vn(a, 1) * m + p16_vn(b, 1) * n + r) / d,
+        (p16_vn(a, 2) * m + p16_vn(b, 2) * n + r) / d,
+        (p16_vn(a, 3) * m + p16_vn(b, 3) * n + r) / d);
+}
+
+#if 0
+static void
+grad_fill(uint8_t * const p16, const unsigned int stride,
+          const unsigned int w, const unsigned int h,
+          const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    unsigned int x;
+    unsigned int y;
+
+    for (y = 0; y != h; ++y) {
+        uint64_t * d = (uint64_t *)(p16 + stride * y);
+
+        for (x = 0; x != w; ++x, ++d) {
+            *d = p16_avgx(y, h - 1,
+                            p16_avgx(x, w - 1, tl, tr),
+                            p16_avgx(x, w - 1, bl, br));
+        }
+    }
+}
+#endif
+
+#define P(a,b) p[(((y) >> 1) + (b)) & 1][(((x) >> 1) + (a)) & 1]
+static void
+blob_fill(uint8_t * const p16, const unsigned int stride,
+          const unsigned int w, const unsigned int h,
+          const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    const uint64_t p[2][2] = {{tl, tr}, {bl, br}};
+    unsigned int x, y;
+
+    for (y = 0; y != h; ++y) {
+        uint64_t * d = (uint64_t *)(p16 + stride * y);
+
+        for (x = 0; x != w; ++x, ++d) {
+            *d = p16_avgx(y & 1, 2,
+                          p16_avgx(x & 1, 2, P(0,0), P(1,0)),
+                          p16_avgx(x & 1, 2, P(1,0), P(1,1)));
+        }
+    }
+}
+#undef P
+
+static drmu_fb_t *
+mk_wxh(drmu_env_t * const du, const uint32_t fmt, const uint64_t mod,
+       const unsigned int w, const unsigned int h,
+       const uint64_t tl, const uint64_t tr, const uint64_t bl, const uint64_t br)
+{
+    const unsigned int ww = (w + 1) & ~1;
+    const unsigned int hh = (h + 1) & ~1;
+    const unsigned int p16_stride = ww * sizeof(uint64_t);
+    uint8_t * const p16 = malloc(p16_stride * hh);
+    const drmu_fmt_info_t * fi;
+
+    drmu_fb_t * const fb = drmu_fb_new_dumb_mod(du, ww, hh, fmt, mod);
+    if (fb == NULL)
+        return NULL;
+    drmu_fb_chroma_siting_set(fb, DRMU_CHROMA_SITING_TOP_LEFT);
+
+#if 1
+    blob_fill(p16, p16_stride, ww, hh, tl, tr, bl, br);
+#else
+    grad_fill(p16, p16_stride, ww, hh, tl, tr, bl, br);
+    // Edge fill if we happen to have an odd width/height so it is clearly
+    // legit to crop 420/422 to this size
+    if (w != ww) {
+        for (unsigned int i = 0; i != h; ++i) {
+            uint64_t * d = (uint64_t *)(p16 + p16_stride * i) + w;
+            d[0] = d[-1];
+        }
+    }
+    if (h != hh)
+        memcpy(p16 + p16_stride * h, p16 + p16_stride * (h - 1), p16_stride);
+#endif
+
+    fi = drmu_fb_fmt_info(fb);
+    if (drmu_fmt_info_is_yuv(fi)) {
+        plane16_rgb_to_yuv(p16, p16_stride, ww, hh,
+                           PLANE16_BT_709,  // default for dumb
+                           true,
+                           drmu_color_range_is_full(drmu_fb_color_range_get(fb)));
+    }
+
+    plane16_to_fb_generic(fb, p16, p16_stride);
+    free(p16);
+
+    drmu_fb_crop_frac_set(fb, drmu_rect_shl16(drmu_rect_wh(w, h)));
+
+    fb_dump_to_file("3x3", fb);
+
+    return fb;
+}
+
+static int
+scaleup_alpha(drmu_atomic_t * const da, drmu_output_t * const dout,
+              unsigned int dw, unsigned int dh, const uint32_t fmt)
+{
+    drmu_env_t * const du = drmu_atomic_env(da);
+    drmu_plane_t * planes[8] = {NULL};
+    drmu_fb_t * fb;
+    int rv = 0;
+    unsigned int nw = 4;
+    unsigned int nh = 2;
+
+    for (unsigned int i = 0; i != 8; ++i) {
+        if ((planes[i] = drmu_output_plane_ref_other(dout)) == NULL) {
+            fprintf(stderr, "Color siting test needs 8 planes, only got %d\nMaybe don't run from X?\n", i + 1);
+            rv = -ENOENT;
+            goto fail;
+        }
+    }
+
+    for (unsigned int ny = 0; ny != nh; ++ny) {
+        for (unsigned int nx = 0; nx != nw; ++nx) {
+            unsigned int n = nx + ny * nw;
+
+            unsigned int w3 = dw / (3 * nw + 1);
+            unsigned int h3 = dh / (3 * nh + 1);
+
+#if 1
+            fb = mk_wxh(du, fmt, DRM_FORMAT_MOD_LINEAR,
+                        n + 1, n + 1,
+                        p16val(0xffff, 0xffff, 0, 0),
+                        p16val(0xffff, 0, 0xffff, 0),
+                        p16val(0xffff, 0, 0, 0xffff),
+                        p16val(0xffff, 0xffff, 0xffff, 0xffff));
+#else
+            fb = mk_wxh(du, fmt, DRM_FORMAT_MOD_LINEAR,
+                        1, 1,
+                        p16val(0xffff, n & 1 ? 0xffff : 0, n & 2 ? 0xffff : 0, n & 4 ? 0xffff : 0),
+                        p16val(0xffff, 0, 0xffff, 0),
+                        p16val(0xffff, 0, 0, 0xffff),
+                        p16val(0xffff, 0xffff, 0xffff, 0xffff));
+#endif
+
+            if (fb == NULL) {
+                fprintf(stderr, "Failed to create patch %d\n", n);
+                continue;
+            }
+
+            drmu_atomic_plane_add_fb(da, planes[n], fb, (drmu_rect_t){
+                            .x = w3 * (nx * 3 + 1),
+                            .y = h3 * (ny * 3 + 1),
+                            .w = w3 * 2,
+                            .h = h3 * 2});
+            drmu_fb_unref(&fb);
+        }
+    }
+
+    return 0;
+
+fail:
+    return rv;
+}
+
 static int
 alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
-             unsigned int dw, unsigned int dh)
+             unsigned int dw, unsigned int dh, const uint32_t fmt)
 {
     drmu_env_t * const du = drmu_atomic_env(da);
     unsigned int i, j;
@@ -266,7 +512,7 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
     for (i = 0; i != 2; ++i) {
         for (j = 0; j != 2; ++j) {
             drmu_plane_t * plane = drmu_output_plane_ref_other(dout);
-            drmu_fb_t * fb = drmu_fb_new_dumb(du, w, h, DRM_FORMAT_ABGR8888);
+            drmu_fb_t * fb = drmu_fb_new_dumb(du, w, h, fmt);
             uint64_t col;
 
             switch (i * 2 + j) {
@@ -285,7 +531,7 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
             }
 
             plane16_fill(s16, w, h, s16_stride, col);
-            plane16_to_abgr8888(drmu_fb_data(fb, 0), drmu_fb_pitch(fb, 0), s16, s16_stride, w, h);
+            plane16_to_fb_generic(fb, s16, s16_stride);
             drmu_fb_pixel_blend_mode_set(fb, DRMU_FB_PIXEL_BLEND_COVERAGE);
 
             drmu_atomic_plane_add_fb(da, plane, fb, (drmu_rect_t){
@@ -301,6 +547,68 @@ alpha_test(drmu_atomic_t * const da, drmu_output_t * const dout,
     free(s16);
     return 0;
 }
+
+static void
+planes_print_fmts(const char * const name, const unsigned int n1, const unsigned int n2,
+                  const uint32_t * fmts, const unsigned int fcnt)
+{
+    unsigned int i;
+
+    if (n1 >= n2)
+        return;
+    printf("%s %d -> %d:\n", name, n1, n2 - 1);
+
+    if (fcnt == 0) {
+        printf("  None\n");
+        return;
+    }
+
+    for (i = 0; i != fcnt; ++i) {
+        const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(fmts[i]);
+        printf("%4d: %s (%s)\n", i, drmu_log_fourcc(fmts[i]), drmu_fmt_info_name(fi));
+    }
+}
+
+static void
+list_fmts(drmu_env_t * const du)
+{
+    unsigned int n = 0;
+    drmu_plane_t * dp;
+    drmu_conn_t * dc;
+    const uint32_t * prev_fmts = NULL;
+    unsigned int prev_fcnt = 0;
+    unsigned int prev_n = 0;
+
+    for (n = 0; (dp = drmu_env_plane_find_n(du, n)) != NULL; ++n) {
+        unsigned int fcnt = 0;
+        const uint32_t * fmts = drmu_plane_formats(dp, &fcnt);
+
+        if (fcnt == prev_fcnt && memcmp(fmts, prev_fmts, sizeof(*fmts) * fcnt) == 0)
+            continue;
+
+        planes_print_fmts("Render: Planes", prev_n, n, prev_fmts, prev_fcnt);
+        prev_fmts = fmts;
+        prev_fcnt = fcnt;
+        prev_n = n;
+    }
+    planes_print_fmts("Render: Planes", prev_n, n, prev_fmts, prev_fcnt);
+
+    for (n = 0; (dc = drmu_env_conn_find_n(du, n)) != NULL; ++n) {
+        unsigned int fcnt = 0;
+        const uint32_t * fmts = drmu_conn_writeback_formats(dc, &fcnt);
+
+        if (fcnt == prev_fcnt && memcmp(fmts, prev_fmts, sizeof(*fmts) * fcnt) == 0)
+            continue;
+
+        planes_print_fmts("Writeback: Conns", prev_n, n, prev_fmts, prev_fcnt);
+        prev_fmts = fmts;
+        prev_fcnt = fcnt;
+        prev_n = n;
+    }
+    planes_print_fmts("Writeback: Conns", prev_n, n, prev_fmts, prev_fcnt);
+
+}
+
 
 typedef struct writeback_env_s {
     drmu_writeback_env_t * wbe;
@@ -344,27 +652,48 @@ usage()
 {
     printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8]\n"
            "                 [-C <conn name>] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
-           "-g  grey blocks only, otherwise colour stripes\n"
-           "-p  pinstripes\n"
-           "-f  solid a, b, c 10-bit values\n"
-           "-s  colour siting\n"
-           "-F  make siting patch .5 pixel smaller\n"
-           "-y  Use YUV plane (same vals as for RGB - no conv)\n"
-           "-m  Use multiple buffers when constructing the (YUV) FB\n"
-           "-e  YUV encoding (only for -y) 609, 709, 2020 (default)\n"
-           "-r  YUV range full, limited (default)\n"
-           "-R  Broadcast RGB: auto, full (default), limited\n"
-           "    if -r set then defaults to that\n"
-           "-C  Use connection name\n"
-           "-c  set con colorspace to (string) <colourspace>\n"
            "-8  keep max_bpc 8\n"
-           "-P  pixel format fourcc\n"
-           "-M  drm module name, default: " DRM_MODULE "\n"
+           "--alpha\n"
+           "    Alpha blend test\n"
+           "-C <conn name>\n"
+           "    Use connection name\n"
+           "-c  set con colorspace to (string) <colourspace>\n"
+           "-e <encoding>\n"
+           "    set encoding of frame buffer (YUV only): 609, 709, 2020 (default)\n"
+           "-f <a>,<b>,<c>,<d>\n"
+           "    solid a, b, c 10-bit values\n"
+           "--formats\n"
+           "    list supported formats\n"
+           "-F  make siting patch .5 pixel smaller\n"
+           "-g  grey blocks only, otherwise colour stripes\n"
+           "-H  set HDR medadata (default: don't)\n"
+           "-m  Use 1 buffer per plane when constructing the FB\n"
+           "    rather than 1 buffer with offsets (the default)\n"
+           "-M <module name>\n"
+           "    drm module name, default: " DRM_MODULE "\n"
+           "--md5\n"
+           "    Calculate the MD5 of the writeback image\n"
+           "-p  pinstripes\n"
+           "-P <fmt>\n"
+           "    pixel format fourcc or name\n"
+           "-s  colour siting test\n"
+           "-r <range>\n"
+           "    YUV range (YUV only): full, limited (default)\n"
+           "-R <range>\n"
+           "    Broadcast RGB: auto, full (default), limited\n"
+           "    if -r set then defaults to that\n"
+           "--size <w>x<h>|<scale>%%\n"
+           "    Scale test image to <w>x<h> or scale it to <scale>%% of src size\n"
+           "--src-size <w>x<h>\n"
+           "    Size of test image, default is same as output resolution\n"
            "-T  if using writeback transpose the result through the connector\n"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
-           "-W  as -w but display the result onscreen too"
-           "-WW Use single FB writeback rather than whole atomic"
+           "-W  as -w but display the result onscreen too\n"
+           "-WW Use single FB writeback rather than whole atomic\n"
+           "--wbfmt <fmt>\n"
+           "    Set writeback buffer format (fourcc or name)\n"
+           "-y  Use SAND30 frame buffer\n"
            "\n"
            "Hit return to exit\n"
            "\n"
@@ -384,6 +713,48 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_ALPHA
     },
+#define OPT_WBFMT 257
+    {
+        .name = "wbfmt",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_WBFMT
+    },
+#define OPT_SCALEUP 258
+    {
+        .name = "scaleup",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_SCALEUP
+    },
+#define OPT_LIST_FORMATS 259
+    {
+        .name = "formats",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_LIST_FORMATS
+    },
+#define OPT_SIZE 260
+    {
+        .name = "size",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_SIZE
+    },
+#define OPT_SRC_SIZE 261
+    {
+        .name = "src-size",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_SRC_SIZE
+    },
+#define OPT_MD5 262
+    {
+        .name = "md5",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_MD5
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -398,7 +769,9 @@ enum test_type_e {
     TEST_PIN,
     TEST_GREY,
     TEST_SITING,
-    TEST_ALPHA
+    TEST_ALPHA,
+    TEST_SCALEUP,
+    TEST_LIST_FORMATS,
 };
 
 int main(int argc, char *argv[])
@@ -412,6 +785,7 @@ int main(int argc, char *argv[])
     drmu_fb_t * fb1 = NULL;
     drmu_fb_t * fb_out = NULL;
     drmu_atomic_t * da = NULL;
+    const drmu_fmt_info_t * fi = NULL;
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
     const char * drm_device = DRM_MODULE;
@@ -423,30 +797,82 @@ int main(int argc, char *argv[])
     drmu_color_range_t default_range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
     drmu_broadcast_rgb_t broadcast_rgb = NULL;
     enum test_type_e test_type = TEST_STRIPES;
-    bool is_yuv = false;
     bool mode_req = false;
     bool hi_bpc = true;
     bool dofrac = false;
     bool try_writeback = false;
     unsigned int show_writeback = 0;
     unsigned int rotation = DRMU_ROTATION_0;
+    uint32_t wbfmt = 0;
     bool multi = false;
     bool conn_added = false;
+    bool hdr_block = false;
+    bool wants_md5 = false;
     int verbose = 0;
     int c;
     uint64_t fillval = p16val(~0U, 0x8000, 0x8000, 0x8000);
     uint8_t *p16 = NULL;
     unsigned int p16_stride = 0;
     writeback_env_t wbe = {0};
+    drmu_rect_t size_rect;
+    long size_scale = 100;
+    drmu_rect_t src_rect = {0};
 
-    while ((c = getopt_long(argc, argv, "8C:c:e:f:FgpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
             case OPT_ALPHA:
                 test_type = TEST_ALPHA;
                 break;
-            case 'C':
-                conn_name = optarg;
+            case OPT_SCALEUP:
+                test_type = TEST_SCALEUP;
                 break;
+            case OPT_WBFMT:
+                fi = drmu_fmt_info_find_name(optarg);
+                if (fi == NULL) {
+                    printf("Unrecognised format '%s'\n", optarg);
+                    exit(1);
+                }
+                wbfmt = drmu_fmt_info_fourcc(fi);
+                break;
+                break;
+            case OPT_LIST_FORMATS:
+                test_type = TEST_LIST_FORMATS;
+                break;
+            case OPT_SIZE:
+            {
+                char * p;
+                if (drmu_parse_rect(optarg, &p, &size_rect) == 0) {
+                    size_scale = 0;
+                }
+                else if (*p == '%') {
+                    size_scale = strtol(optarg, &p, 0);
+                    if (size_scale <= 0 || *p != '%') {
+                        fprintf(stderr, "Bad size percentage '%s'\n", optarg);
+                        goto fail;
+                    }
+                    ++p;
+                }
+                if (*p != 0) {
+                    fprintf(stderr, "Bad size string '%s'\n", optarg);
+                    goto fail;
+                }
+                break;
+            }
+            case OPT_SRC_SIZE:
+            {
+                char * p;
+                if (drmu_parse_rect(optarg, &p, &src_rect) != 0 || *p != '\0') {
+                    fprintf(stderr, "Bad src-size string '%s'\n", optarg);
+                    goto fail;
+                }
+                break;
+            }
+            case OPT_MD5:
+                wants_md5 = true;
+                break;
+            case 'C':
+                    conn_name = optarg;
+                    break;
             case 'c':
                 colorspace = optarg;
                 break;
@@ -467,6 +893,9 @@ int main(int argc, char *argv[])
             case 'g':
                 test_type = TEST_GREY;
                 break;
+            case 'H':
+                hdr_block = true;
+                break;
             case 'M':
                 drm_device = optarg;
                 break;
@@ -477,11 +906,12 @@ int main(int argc, char *argv[])
                 test_type = TEST_PIN;
                 break;
             case 'P':
-                if (strlen(optarg) != 4) {
-                    printf("Pixel FourCC expected to have 4 chars\n");
+                fi = drmu_fmt_info_find_name(optarg);
+                if (fi == NULL) {
+                    printf("Unrecognised format '%s'\n", optarg);
                     exit(1);
                 }
-                p1fmt = fourcc_code(optarg[0], optarg[1], optarg[2], optarg[3]);
+                p1fmt = drmu_fmt_info_fourcc(fi);
                 break;
             case 'r': {
                 const char * s = optarg;
@@ -527,8 +957,6 @@ int main(int argc, char *argv[])
             case 'y':
                 p1fmt = DRM_FORMAT_P030;
                 p1mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0);
-                default_range = DRMU_COLOR_RANGE_YCBCR_LIMITED_RANGE;
-                is_yuv = true;
                 break;
             case '8':
                 hi_bpc = false;
@@ -585,6 +1013,11 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
+    if (test_type == TEST_LIST_FORMATS) {
+        list_fmts(du);
+        goto done_du_dout;
+    }
+
     drmu_env_restore_enable(du);
 
     da = drmu_atomic_new(du);
@@ -631,10 +1064,24 @@ int main(int argc, char *argv[])
             }
         }
 
-        wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt);
-        if (wbe.xfmt == 0) {
-            fprintf(stderr, "Failed to get plane/format for writeback\n");
-            return -1;
+        if (wbfmt == 0) {
+            wbe.p2 = drmu_writeback_env_fmt_plane(wbe.wbe, wbe.dout2, 0, &wbe.xfmt);
+            if (wbe.xfmt == 0) {
+                fprintf(stderr, "Failed to get plane/format for writeback\n");
+                return -1;
+            }
+        }
+        else {
+            if (!drmu_conn_has_writeback_format(drmu_output_conn(drmu_writeback_env_output(wbe.wbe), 0), wbfmt)) {
+                fprintf(stderr, "Writeback connector doesn't support format\n");
+                goto fail;
+            }
+            if (wbe.dout2 != NULL &&
+                (wbe.p2 = drmu_output_plane_ref_format(wbe.dout2, 0, wbfmt, 0)) == NULL) {
+                fprintf(stderr, "Cannot get plane for writeback format\n");
+                goto fail;
+            }
+            wbe.xfmt = wbfmt;
         }
 
         if (verbose != 0)
@@ -692,50 +1139,68 @@ int main(int argc, char *argv[])
             goto fail;
         }
     }
+
+    // Set render size if not given explictly
+    if (size_scale != 0) {
+        size_rect.w = mp.width * size_scale / 100;
+        size_rect.h = mp.height * size_scale / 100;
+        size_rect.x = 0;
+        size_rect.y = 0;
+    }
+    if (src_rect.w == 0 || src_rect.h == 0)
+        src_rect = drmu_rect_wh(mp.width, mp.height);
+
+    printf("Src size %dx%d; Render to %dx%d@%d,%d\n", src_rect.w, src_rect.h, size_rect.w, size_rect.h, size_rect.x, size_rect.y);
+
     printf("Use hi bits per channel: %s\n", hi_bpc ? "yes" : "no");
     printf("Colorspace: %s, Broadcast RGB: %s\n", colorspace, broadcast_rgb);
 
-    if ((p16 = malloc(mp.width * mp.height * 8)) == NULL) {
+    if ((p16 = malloc(src_rect.w * src_rect.h * 8)) == NULL) {
         printf("Failed to alloc P16 plane\n");
         goto fail;
     }
-    p16_stride = mp.width * 8;
+    p16_stride = src_rect.w * 8;
 
     if ((p1 = drmu_output_plane_ref_format(dout, 0, p1fmt, p1mod)) == NULL) {
         fprintf(stderr, "Cannot find plane to support %s mod %#" PRIx64 "\n", drmu_log_fourcc(p1fmt), p1mod);
         goto fail;
     }
 
-    if ((fb1 = drmu_fb_new_dumb_multi(du, mp.width, mp.height, p1fmt, p1mod, multi)) == NULL) {
+    if ((fb1 = drmu_fb_new_dumb_multi(du, src_rect.w, src_rect.h, p1fmt, p1mod, multi)) == NULL) {
         fprintf(stderr, "Cannot make dumb for %s\n", drmu_log_fourcc(p1fmt));
         goto fail;
     }
 
     drmu_fb_color_set(fb1, encoding, range, colorspace);
-    printf("%s encoding: %s, range %s\n", is_yuv ? "YUV" : "RGB", encoding, range);
+    printf("%s encoding: %s, range %s\n", drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1)) ? "YUV" : "RGB", encoding, range);
 
     // Start with grey fill
-    plane16_fill(p16, mp.width, mp.height, p16_stride, fillval);
+    plane16_fill(p16, src_rect.w, src_rect.h, p16_stride, fillval);
 
     switch (test_type) {
         case TEST_PIN:
-            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_GREY:
-            fillgradgrey10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillgradgrey10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_SITING:
-            if (color_siting(da, dout, p16, mp.width, mp.height, p16_stride, dofrac))
+            if (color_siting(da, dout, p16, src_rect.w, src_rect.h, p16_stride, dofrac, p1fmt))
                 goto fail;
             break;
         case TEST_SOLID:
             break;
         case TEST_STRIPES:
-            fillgraduated10(p16, mp.width, mp.height, p16_stride, is_yuv);
+            fillgraduated10(p16, src_rect.w, src_rect.h, p16_stride);
             break;
         case TEST_ALPHA:
-            fillpin10(p16, mp.width, mp.height, p16_stride, is_yuv);
-            if (alpha_test(da, dout, mp.width, mp.height))
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
+            if (alpha_test(da, dout, src_rect.w, src_rect.h, p1fmt))
+                goto fail;
+            break;
+        case TEST_SCALEUP:
+            fillpin10(p16, src_rect.w, src_rect.h, p16_stride);
+            if (scaleup_alpha(da, dout, src_rect.w, src_rect.h, p1fmt))
                 goto fail;
             break;
         default:
@@ -743,46 +1208,42 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    if (is_yuv)
-        plane16_to_sand30(drmu_fb_data(fb1, 0), drmu_fb_pitch2(fb1, 0),
-                          drmu_fb_data(fb1, 1), drmu_fb_pitch2(fb1, 1),
-                          p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ARGB2101010)
-        plane16_to_argb2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ABGR2101010)
-        plane16_to_abgr2101010(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_ABGR8888)
-        plane16_to_abgr8888(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-    else if (p1fmt == DRM_FORMAT_NV12) {
-        plane16_to_y8(drmu_fb_data(fb1, 0), drmu_fb_pitch(fb1, 0),
-                               p16, p16_stride, mp.width, mp.height);
-        plane16_to_uv8_420(drmu_fb_data(fb1, 1), drmu_fb_pitch(fb1, 1),
-                               p16, p16_stride, mp.width, mp.height);
-    }
-    else {
-        fprintf(stderr, "Unexpected p1fmt converting from p16\n");
-        goto fail;
+    if (drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1))) {
+        const drmu_color_encoding_t d_enc = drmu_fb_color_encoding_get(fb1);
+        const drmu_color_encoding_t d_range = drmu_fb_color_range_get(fb1);
+        enum plane16_cenc enc = PLANE16_BT_2020;
+        if (drmu_color_encoding_eq(d_enc, DRMU_COLOR_ENCODING_BT601))
+            enc = PLANE16_BT_601;
+        else if (drmu_color_encoding_eq(d_enc, DRMU_COLOR_ENCODING_BT709))
+            enc = PLANE16_BT_709;
+        plane16_rgb_to_yuv(p16, p16_stride,
+                           drmu_fb_width(fb1), drmu_fb_height(fb1),
+                           enc,
+                           true,
+                           drmu_color_range_is_full(d_range));
     }
 
-    static const struct hdr_output_metadata meta = {
-        .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-        .hdmi_metadata_type1 = {
-            .eotf = HDMI_EOTF_SMPTE_ST2084,
-            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
-            .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
-            .white_point = {15635,16450},
-            .max_display_mastering_luminance = 1000,
-            .min_display_mastering_luminance = 5,
-            .max_cll = 1000,
-            .max_fall = 400
-        }
-    };
-    if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
-        fprintf(stderr, "Failed metadata set");
+    if (plane16_to_fb_generic(fb1, p16, p16_stride) != 0)
         goto fail;
+
+    if (hdr_block) {
+        static const struct hdr_output_metadata meta = {
+            .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+            .hdmi_metadata_type1 = {
+                .eotf = HDMI_EOTF_SMPTE_ST2084,
+                .metadata_type = HDMI_STATIC_METADATA_TYPE1,
+                .display_primaries = {{34000,16000},{13250,34500},{7500,3000}},
+                .white_point = {15635,16450},
+                .max_display_mastering_luminance = 1000,
+                .min_display_mastering_luminance = 5,
+                .max_cll = 1000,
+                .max_fall = 400
+            }
+        };
+        if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
+            fprintf(stderr, "Failed metadata set");
+            goto fail;
+        }
     }
     if (drmu_atomic_conn_add_colorspace(da, dn, colorspace) != 0) {
         fprintf(stderr, "Failed to set colorspace to '%s'\n", colorspace);
@@ -821,7 +1282,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        drmu_atomic_plane_add_fb(da, p1, fb1, drmu_rect_wh(mp.width, mp.height));
+        drmu_atomic_plane_add_fb(da, p1, fb1, size_rect);
     }
 
     if (try_writeback && show_writeback < 2) {
@@ -864,16 +1325,33 @@ int main(int argc, char *argv[])
             goto fail;
         }
 
+        if (wants_md5) {
+            unsigned int n = 0;
+            const drmu_fmt_info_t * const fi = drmu_fb_fmt_info(fb2);
+
+            drmu_fb_read_start(fb2);
+            for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
+                const uint8_t * data = drmu_fb_data(fb2, n);
+                const drmu_rect_t a = drmu_fb_active(fb2);
+                const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
+                const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
+                const unsigned int line_len = (a.w + wdiv - 1) / wdiv;
+                const unsigned int h = (a.h + hdiv - 1) / hdiv;
+                const unsigned int stride = drmu_fb_pitch(fb2, n);
+                uint8_t digest[16];
+
+                printf("WB MD5 plane %d: %s\n", n,
+                       md5sum_str(md5sum_2d(digest, data, stride, line_len, h)));
+            }
+            drmu_fb_read_end(fb2);
+        }
+
         {
             const char * wb_filename = "wb.rgb";
-            FILE * f = fopen(wb_filename, "wb");
-            if (f == NULL) {
-                fprintf(stderr, "Failed to open %s for output: %s\n", wb_filename, strerror(errno));
-                goto fail;
-            }
-            fwrite(drmu_fb_data(fb2, 0), drmu_fb_pitch(fb2, 0), drmu_fb_height(fb2), f);
-            fclose(f);
-            printf("Writeback buffer written to %s\n", wb_filename);
+            if ((rv = fb_dump_to_file(wb_filename, fb2)) != 0)
+                fprintf(stderr, "Failed to write writeback file '%s': %s\n", wb_filename, strerror(-rv));
+            else
+                printf("Writeback buffer written to %s\n", wb_filename);
         }
 
         if (show_writeback) {
@@ -895,6 +1373,7 @@ fail:
     drmu_fb_unref(&fb1);
     drmu_plane_unref(&p1);
     drmu_output_unref(&dout2);
+done_du_dout:
     drmu_output_unref(&dout);
     drmu_env_kill(&du);
     free(p16);

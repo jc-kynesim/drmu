@@ -214,6 +214,7 @@ executable(
 executable(
 	'10bittest',
 	'test/10bittest.c', 'test/plane16.c',
+	'test/md5util.c', 'test/md5c.c',
 	include_directories : drmu_incs,
 	link_with : [ drmu_base ] + drmu_xlease_opt,
 	dependencies : [
