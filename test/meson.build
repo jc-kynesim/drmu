@@ -23,16 +23,26 @@ executable(
 	],
 )
 
-executable(
+rot_unit = executable(
 	'rot_unit',
 	'rot_unit.c',
 	include_directories : drmu_incs,
 	link_with : [ drmu_base ],
 )
+test('rot_unit', rot_unit)
 
-executable(
+reduce_unit = executable(
 	'reduce_unit',
 	'reduce_unit.c',
 	include_directories : drmu_incs,
 	link_with : [ drmu_base ],
 )
+test('reduce_unit', reduce_unit)
+
+parse_rect_unit = executable(
+	'parse_rect_unit',
+	'parse_rect_unit.c',
+	include_directories : drmu_incs,
+	link_with : [ drmu_base ],
+)
+test('parse_rect_unit', parse_rect_unit)
