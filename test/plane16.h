@@ -43,6 +43,20 @@ void plane16_fill(uint8_t * const data, unsigned int dw, unsigned int dh, unsign
 
 // Use format info to do the conversion. Works on whole frame.
 // Should work (slowly) for all linear formats.
+// Inverse of plane16_to_generic: for subsampled channels (sx/sy > 1) the
+// source value is replicated to all covered plane16 pixels.
+void generic_to_plane16(
+        uint8_t * const dst_data, const unsigned int dst_stride,
+        const struct drmu_fmt_info_s * const px,
+        const uint8_t * const src_datas[4], const unsigned int src_strides[4],
+        const unsigned int w, const unsigned int h);
+
+int fmt_generic_to_plane16(
+        uint8_t * const dst_data, const unsigned int dst_stride,
+        const uint32_t fmt,
+        const uint8_t * const src_datas[4], const unsigned int src_strides[4],
+        const unsigned int w, const unsigned int h);
+
 void plane16_to_generic(
         uint8_t * const dst_datas[4], const unsigned int dst_strides[4],
         const struct drmu_fmt_info_s * const px,

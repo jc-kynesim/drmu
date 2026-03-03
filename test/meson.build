@@ -46,3 +46,12 @@ parse_rect_unit = executable(
 	link_with : [ drmu_base ],
 )
 test('parse_rect_unit', parse_rect_unit)
+
+plane16_unit = executable(
+	'plane16_unit',
+	'plane16_unit.c', 'plane16.c',
+	include_directories : [ drmu_incs ],
+	link_with : [ drmu_base ],
+	dependencies : [ libdrm_dep ],
+)
+test('plane16_unit', plane16_unit)

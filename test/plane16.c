@@ -8,6 +8,67 @@
 #include "drmu_fmts.h"
 
 void
+generic_to_plane16(
+        uint8_t * const dst_data, const unsigned int dst_stride,
+        const drmu_fmt_info_t * const px,
+        const uint8_t * const src_datas[4], const unsigned int src_strides[4],
+        const unsigned int w, const unsigned int h)
+{
+    unsigned int y;
+    unsigned int x;
+    unsigned int plane;
+    for (plane = 0; plane != 4 && px->planes[plane].bpg != 0; ++plane) {
+        const struct drmu_fmt_plane_info_s * const pi = px->planes + plane;
+        unsigned int ty[4] = {0};
+
+        for (y = 0; y != (h + pi->ydiv - 1) / pi->ydiv; ++y) {
+            const uint8_t * s = src_datas[plane] + y * src_strides[plane];
+            unsigned int tx[4] = {0};
+
+            for (x = 0; x != (w + pi->xdiv - 1) / pi->xdiv; ++x) {
+                uint64_t a = 0;
+
+                for (unsigned int i = 0; i != pi->bpg; ++i)
+                    a |= (uint64_t)*s++ << (i * 8);
+
+                for (const struct drmu_fmt_pel_info_s *p = pi->pels; p->bits != 0; ++p) {
+                    unsigned int c = p->chan;
+
+                    if (c < 4) {
+                        uint16_t v16 = (uint16_t)(((a >> p->off) & ((1u << p->bits) - 1)) << (16 - p->bits));
+
+                        for (unsigned int dy = 0; dy < px->chans[c].sy; ++dy) {
+                            for (unsigned int dx = 0; dx < px->chans[c].sx; ++dx) {
+                                if (tx[c] + dx < w && ty[c] + dy < h)
+                                    *(uint16_t *)(dst_data + 8 * (tx[c] + dx) + dst_stride * (ty[c] + dy) + c * 2) = v16;
+                            }
+                        }
+                        tx[c] += px->chans[c].sx;
+                    }
+                }
+            }
+
+            for (unsigned int i = 0; i != 4; ++i)
+                ty[i] += px->chans[i].sy;
+        }
+    }
+}
+
+int
+fmt_generic_to_plane16(
+        uint8_t * const dst_data, const unsigned int dst_stride,
+        const uint32_t fmt,
+        const uint8_t * const src_datas[4], const unsigned int src_strides[4],
+        const unsigned int w, const unsigned int h)
+{
+    const drmu_fmt_info_t * const px = drmu_fmt_info_find_fmt(fmt);
+    if (px == NULL)
+        return -ENOENT;
+    generic_to_plane16(dst_data, dst_stride, px, src_datas, src_strides, w, h);
+    return 0;
+}
+
+void
 plane16_to_generic(
         uint8_t * const dst_datas[4], const unsigned int dst_strides[4],
         const drmu_fmt_info_t * const px,
@@ -34,7 +95,7 @@ plane16_to_generic(
                     if (c < 4) {
                         unsigned int v = (tx[c] >= w) ? 0x8000 :
                             *(uint16_t *)(src_data + 8 * tx[c] + src_stride * ty[c] + c * 2);
-                        a |= (v >> (16 - p->bits)) << p->off;
+                        a |= (uint64_t)(v >> (16 - p->bits)) << p->off;
                         tx[c] += px->chans[c].sx;
                     }
                     else if (c == 4) {
