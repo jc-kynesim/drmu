@@ -1,5 +1,6 @@
 #include "drmu_vlc.h"
 #include "drmu_fmts.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 
 #if HAS_ZC_CMA
@@ -13,8 +14,6 @@
 
 #include <libavutil/buffer.h>
 #include <libavutil/hwcontext_drm.h>
-
-#include <libdrm/drm_fourcc.h>
 
 typedef struct fb_aux_pic_s {
     picture_context_t * pic_ctx;

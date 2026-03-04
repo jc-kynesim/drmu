@@ -4,38 +4,13 @@
 #include <ctype.h>
 #include <string.h>
 
-#include <libdrm/drm_fourcc.h>
+#include "drmu_fourcc.h"
 
 #ifndef HAS_SORTED_FMTS
 #define HAS_SORTED_FMTS 0
 #endif
 #ifndef BUILD_MK_SORTED_FMTS_H
 #define BUILD_MK_SORTED_FMTS_H 0
-#endif
-
-#ifndef DRM_FORMAT_P030
-#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
-#endif
-#ifndef DRM_FORMAT_S010
-#define DRM_FORMAT_S010	fourcc_code('S', '0', '1', '0') /* 2x2 subsampled Cb (1) and Cr (2) planes 10 bits per channel */
-#endif
-#ifndef DRM_FORMAT_S012
-#define DRM_FORMAT_S012	fourcc_code('S', '0', '1', '2') /* 2x2 subsampled Cb (1) and Cr (2) planes 12 bits per channel */
-#endif
-#ifndef DRM_FORMAT_S016
-#define DRM_FORMAT_S016	fourcc_code('S', '0', '1', '6') /* 2x2 subsampled Cb (1) and Cr (2) planes 16 bits per channel */
-#endif
-#ifndef DRM_FORMAT_P210
-#define DRM_FORMAT_P210 fourcc_code('P', '2', '1', '0')
-#endif
-#ifndef DRM_FORMAT_P212
-#define DRM_FORMAT_P212 fourcc_code('P', '2', '1', '2')
-#endif
-#ifndef DRM_FORMAT_P410
-#define DRM_FORMAT_P410 fourcc_code('P', '4', '1', '0')
-#endif
-#ifndef DRM_FORMAT_P412
-#define DRM_FORMAT_P412 fourcc_code('P', '4', '1', '2')
 #endif
 
 // Format properties

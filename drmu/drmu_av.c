@@ -2,6 +2,7 @@
 
 #include "drmu.h"
 #include "drmu_fmts.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 
 #include <limits.h>
@@ -11,8 +12,6 @@
 #include <libavutil/hwcontext_drm.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/pixfmt.h>
-
-#include <libdrm/drm_fourcc.h>
 
 static const struct {
     enum AVPixelFormat pixfmt;

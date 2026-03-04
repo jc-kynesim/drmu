@@ -1,6 +1,5 @@
 #include "drmu_writeback.h"
 
-#include <drm_fourcc.h>
 #include <errno.h>
 #include <semaphore.h>
 #include <stdatomic.h>
@@ -8,6 +7,7 @@
 #include <unistd.h>
 
 #include "drmu.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include "drmu_pool.h"

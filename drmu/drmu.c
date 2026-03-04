@@ -4,6 +4,7 @@
 
 #include "drmu.h"
 #include "drmu_fmts.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 
 #include <pthread.h>
@@ -23,7 +24,6 @@
 
 #include <libdrm/drm.h>
 #include <libdrm/drm_mode.h>
-#include <libdrm/drm_fourcc.h>
 #include <xf86drm.h>
 
 #include <linux/dma-buf.h>
@@ -32,10 +32,6 @@
 
 #ifndef OPT_IO_CALLOC
 #define OPT_IO_CALLOC 0
-#endif
-
-#ifndef DRM_FORMAT_P030
-#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
 #endif
 
 struct drmu_bo_env_s;

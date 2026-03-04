@@ -29,9 +29,9 @@
 
 #include "config.h"
 #include "drmu.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
-#include <drm_fourcc.h>
 
 #define TRACE_ALL 0
 

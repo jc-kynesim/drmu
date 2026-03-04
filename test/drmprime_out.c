@@ -43,12 +43,12 @@
 #include "drmu_av.h"
 #include "drmu_dmabuf.h"
 #include "drmu_fmts.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include "drmu_pool.h"
 #include "drmu_util.h"
 #include "drmu_writeback.h"
-#include <drm_fourcc.h>
 
 #include "cube/runcube.h"
 

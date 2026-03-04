@@ -5,9 +5,8 @@
 #include <gbm.h>
 #include <stdbool.h>
 
-#include <libdrm/drm_fourcc.h>
-
 #include "drmu.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 
 uint32_t

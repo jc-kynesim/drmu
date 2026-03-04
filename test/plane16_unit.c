@@ -5,21 +5,7 @@
 
 #include "plane16.h"
 #include "drmu_fmts.h"
-
-#include <libdrm/drm_fourcc.h>
-
-#ifndef DRM_FORMAT_P030
-#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
-#endif
-#ifndef DRM_FORMAT_P210
-#define DRM_FORMAT_P210 fourcc_code('P', '2', '1', '0')
-#endif
-#ifndef DRM_FORMAT_P016
-#define DRM_FORMAT_P016 fourcc_code('P', '0', '1', '6')
-#endif
-#ifndef DRM_FORMAT_P010
-#define DRM_FORMAT_P010 fourcc_code('P', '0', '1', '0')
-#endif
+#include "drmu_fourcc.h"
 
 static const struct { unsigned int w, h; } test_sizes[] = {
     { 12,  4 },   /* divisible by 1,2,3,6 — baseline */

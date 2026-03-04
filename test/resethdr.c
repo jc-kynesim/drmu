@@ -5,9 +5,9 @@
 
 #include "config.h"
 #include "drmu.h"
+#include "drmu_fourcc.h"
 #include "drmu_output.h"
 #include "drmu_log.h"
-#include <drm_fourcc.h>
 
 static void
 drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_list vl)

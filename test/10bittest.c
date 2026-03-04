@@ -17,19 +17,15 @@
 #include "config.h"
 #include "drmu.h"
 #include "drmu_fmts.h"
+#include "drmu_fourcc.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
 #include "drmu_scan.h"
 #include "drmu_util.h"
 #include "drmu_writeback.h"
-#include <drm_fourcc.h>
 
 #include "plane16.h"
 #include "md5util.h"
-
-#ifndef DRM_FORMAT_P030
-#define DRM_FORMAT_P030 fourcc_code('P', '0', '3', '0')
-#endif
 
 #define TRACE_ALL 0
 
