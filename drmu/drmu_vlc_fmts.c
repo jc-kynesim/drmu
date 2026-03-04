@@ -6,13 +6,13 @@
 // These macros not in bullseye
 
 #ifndef fourcc_mod_get_vendor
-#define fourcc_mod_get_vendor(modifier) \
-	(((modifier) >> 56) & 0xff)
+#define fourcc_mod_get_vendor(modifier)\
+    (((modifier) >> 56) & 0xff)
 #endif
 
 #ifndef fourcc_mod_is_vendor
 #define fourcc_mod_is_vendor(modifier, vendor) \
-	(fourcc_mod_get_vendor(modifier) == DRM_FORMAT_MOD_VENDOR_## vendor)
+    (fourcc_mod_get_vendor(modifier) == DRM_FORMAT_MOD_VENDOR_## vendor)
 #endif
 
 #ifndef DRM_FORMAT_P030
@@ -23,12 +23,21 @@
 #define DRMU_VLC_FMTS_FLAG_ZC           2
 #define DRMU_VLC_FMTS_FLAG_FULL_RANGE   4
 
+// VLC4 after some point removes RGB32 and associated masks
+#ifdef VLC_CODEC_RGB32
+#define HAS_RGB_MASK 1
+#else
+#define HAS_RGB_MASK 0
+#endif
+
 struct drmu_vlc_fmt_info_ss {
     vlc_fourcc_t vlc_chroma;
     uint32_t drm_pixelformat;
+#if HAS_RGB_MASK
     uint32_t rmask;
     uint32_t gmask;
     uint32_t bmask;
+#endif
     uint64_t drm_modifier;
     unsigned int flags;
 };
@@ -36,10 +45,20 @@ struct drmu_vlc_fmt_info_ss {
 // N.B. DRM seems to order its format descriptor names the opposite way round to VLC
 // DRM is hi->lo within a little-endian word, VLC is byte order
 
-#define I2(vlc, drm) {(vlc), (drm), 0, 0, 0, DRM_FORMAT_MOD_LINEAR, 0 }
-#define RM(vlc, drm, r, g, b) {(vlc), (drm), (r), (g), (b), DRM_FORMAT_MOD_LINEAR, 0 }
-#define R2(vlc, drm) RM((vlc), (drm), 0, 0, 0)
+#define X4(vlc, drm, mod, f) {\
+    .vlc_chroma = (vlc),\
+    .drm_pixelformat = (drm),\
+    .drm_modifier = (mod),\
+    .flags = (f)}
+#define I2(vlc, drm) X4((vlc), (drm), DRM_FORMAT_MOD_LINEAR, 0)
+#define R2(vlc, drm) X4((vlc), (drm), DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE)
+#ifdef HAS_RGB_MASK
+#define RM(vlc, drm, r, g, b) {(vlc), (drm), (r), (g), (b), DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE }
+#endif
 
+// Format conversion table
+// N.B. Where we have a DRM format that maps to multiple VLC formats ensure
+// that the "default" mapping copmes first.
 static const drmu_vlc_fmt_info_t fmt_table[] = {
     R2(VLC_CODEC_RGBA, DRM_FORMAT_ABGR8888),
     R2(VLC_CODEC_BGRA, DRM_FORMAT_ARGB8888),
@@ -59,26 +78,19 @@ static const drmu_vlc_fmt_info_t fmt_table[] = {
     I2(VLC_CODEC_NV42, DRM_FORMAT_NV42),
     I2(VLC_CODEC_P010, DRM_FORMAT_P010),
     I2(VLC_CODEC_I420, DRM_FORMAT_YUV420),
-    { VLC_CODEC_J420, DRM_FORMAT_YUV420, 0, 0, 0, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE },
+#ifdef VLC_CODEC_J420
+    X4(VLC_CODEC_J420, DRM_FORMAT_YUV420, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE),
+#endif
     I2(VLC_CODEC_YV12, DRM_FORMAT_YVU420),
     I2(VLC_CODEC_I422, DRM_FORMAT_YUV422),
-    { VLC_CODEC_J422, DRM_FORMAT_YUV422, 0, 0, 0, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE },
+#ifdef VLC_CODEC_J422
+    X4(VLC_CODEC_J422, DRM_FORMAT_YUV422, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE),
+#endif
     I2(VLC_CODEC_I444, DRM_FORMAT_YUV444),
-    { VLC_CODEC_J444, DRM_FORMAT_YUV444, 0, 0, 0, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE },
-#if HAS_DRMPRIME
-    { VLC_CODEC_DRM_PRIME_I420,   DRM_FORMAT_YUV420,   0, 0, 0, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP },
-    { VLC_CODEC_DRM_PRIME_NV12,   DRM_FORMAT_NV12,     0, 0, 0, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP },
-    { VLC_CODEC_DRM_PRIME_SAND8,  DRM_FORMAT_NV12,     0, 0, 0, DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_DRMP },
-    { VLC_CODEC_DRM_PRIME_SAND30, DRM_FORMAT_P030,     0, 0, 0, DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_DRMP },
-    { VLC_CODEC_DRM_PRIME_RGB32,  DRM_FORMAT_XRGB8888, 0, 0, 0, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP },
+#ifdef VLC_CODEC_J444
+    X4(VLC_CODEC_J444, DRM_FORMAT_YUV444, DRM_FORMAT_MOD_LINEAR, DRMU_VLC_FMTS_FLAG_FULL_RANGE),
 #endif
-#if HAS_ZC_CMA
-    { VLC_CODEC_MMAL_ZC_I420,     DRM_FORMAT_YUV420,   0, 0, 0, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_ZC },
-    { VLC_CODEC_MMAL_ZC_SAND8,    DRM_FORMAT_NV12,     0, 0, 0, DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_ZC },
-    { VLC_CODEC_MMAL_ZC_SAND30,   DRM_FORMAT_P030,     0, 0, 0, DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_ZC },
-    { VLC_CODEC_MMAL_ZC_RGB32,    DRM_FORMAT_RGBX8888, 0, 0, 0, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_ZC },
-#endif
-
+#if HAS_RGB_MASK
     RM(VLC_CODEC_RGB32, DRM_FORMAT_XRGB8888, 0xff0000, 0xff00, 0xff),
     RM(VLC_CODEC_RGB32, DRM_FORMAT_XBGR8888, 0xff, 0xff00, 0xff0000),
     RM(VLC_CODEC_RGB32, DRM_FORMAT_RGBX8888, 0xff000000, 0xff0000, 0xff00),
@@ -88,9 +100,33 @@ static const drmu_vlc_fmt_info_t fmt_table[] = {
     RM(VLC_CODEC_RGB24, DRM_FORMAT_RGB888,   0xff, 0xff00, 0xff0000),
     RM(VLC_CODEC_RGB16, DRM_FORMAT_RGB565,   0xf800, 0x7e0, 0x1f),
     RM(VLC_CODEC_RGB16, DRM_FORMAT_BGR565,   0x1f, 0x7e0, 0xf800),
-
+#endif
+#ifdef VLC_CODEC_XRGB // VLC4 after some point
+    R2(VLC_CODEC_BGRX, DRM_FORMAT_XRGB8888),
+    R2(VLC_CODEC_RGBX, DRM_FORMAT_XBGR8888),
+    R2(VLC_CODEC_XBGR, DRM_FORMAT_RGBX8888),
+    R2(VLC_CODEC_XRGB, DRM_FORMAT_BGRX8888),
+    R2(VLC_CODEC_BGR24, DRM_FORMAT_BGR888),
+    R2(VLC_CODEC_RGB24, DRM_FORMAT_RGB888),
+    R2(VLC_CODEC_RGB565, DRM_FORMAT_RGB565),
+    R2(VLC_CODEC_BGR565, DRM_FORMAT_BGR565),
+#endif
+#if HAS_DRMPRIME
+    X4(VLC_CODEC_DRM_PRIME_I420,   DRM_FORMAT_YUV420,   DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP),
+    X4(VLC_CODEC_DRM_PRIME_NV12,   DRM_FORMAT_NV12,     DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP),
+    X4(VLC_CODEC_DRM_PRIME_SAND8,  DRM_FORMAT_NV12,     DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_DRMP),
+    X4(VLC_CODEC_DRM_PRIME_SAND30, DRM_FORMAT_P030,     DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_DRMP),
+    X4(VLC_CODEC_DRM_PRIME_RGB32,  DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_DRMP),
+#endif
+#if HAS_ZC_CMA
+    X4(VLC_CODEC_MMAL_ZC_I420,     DRM_FORMAT_YUV420,   DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_ZC),
+    X4(VLC_CODEC_MMAL_ZC_SAND8,    DRM_FORMAT_NV12,     DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_ZC),
+    X4(VLC_CODEC_MMAL_ZC_SAND30,   DRM_FORMAT_P030,     DRM_FORMAT_MOD_BROADCOM_SAND128, DRMU_VLC_FMTS_FLAG_ZC),
+    X4(VLC_CODEC_MMAL_ZC_RGB32,    DRM_FORMAT_RGBX8888, DRM_FORMAT_MOD_LINEAR,           DRMU_VLC_FMTS_FLAG_ZC),
+#endif
     I2(0, 0)
 };
+#undef X4
 #undef I2
 #undef RM
 #undef R2
@@ -106,9 +142,11 @@ drmu_vlc_fmt_info_find_vlc_next(const video_frame_format_t * const vf_vlc, const
     {
         if (f->vlc_chroma != vf_vlc->i_chroma)
             continue;
+#if HAS_RGB_MASK
         if (f->rmask != 0 && vf_vlc->i_rmask != 0 &&
             (f->rmask != vf_vlc->i_rmask || f->gmask != vf_vlc->i_gmask || f->bmask != vf_vlc->i_bmask))
             continue;
+#endif
         return f;
     }
     return NULL;
@@ -137,9 +175,6 @@ drmu_vlc_fmt_info_find_drm_next(const uint32_t pixelformat, const uint64_t modif
     {
         if (f->drm_pixelformat != pixelformat || f->drm_modifier != cmod)
             continue;
-        // Only return the "base" version
-        if (f->flags != 0)
-            continue;
         return f;
     }
     return NULL;
@@ -160,16 +195,20 @@ drmu_vlc_fmt_info_vlc_chroma(const drmu_vlc_fmt_info_t * const f)
 void
 drmu_vlc_fmt_info_vlc_rgb_masks(const drmu_vlc_fmt_info_t * const f, uint32_t * r, uint32_t * g, uint32_t * b)
 {
-    if (f == NULL)
+#if HAS_RGB_MASK
+    if (f != NULL)
     {
-        *r = 0;
-        *g = 0;
-        *b = 0;
+        *r = f->rmask;
+        *g = f->gmask;
+        *b = f->bmask;
         return;
     }
-    *r = f->rmask;
-    *g = f->gmask;
-    *b = f->bmask;
+#else
+    VLC_UNUSED(f);
+#endif
+    *r = 0;
+    *g = 0;
+    *b = 0;
 }
 
 uint32_t
