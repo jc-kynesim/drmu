@@ -218,7 +218,13 @@ drmu_fmt_info_t format_info[] = {
 
     FMT_TRI(S010, Y, U, V, 10, 2, 2),
     FMT_TRI(S012, Y, U, V, 12, 2, 2),
-    FMT_TRI(S016, Y, U, V, 12, 2, 2),
+    FMT_TRI(S016, Y, U, V, 16, 2, 2),
+    FMT_TRI(S210, Y, U, V, 10, 2, 1),
+    FMT_TRI(S212, Y, U, V, 12, 2, 1),
+    FMT_TRI(S216, Y, U, V, 16, 2, 1),
+    FMT_TRI(S410, Y, U, V, 10, 1, 1),
+    FMT_TRI(S412, Y, U, V, 12, 1, 1),
+    FMT_TRI(S416, Y, U, V, 16, 1, 1),
 
     FMT_ONE_4_NAMED(AYUV, A, Y, U, V, 8, 8, 8, 8),
     FMT_ONE_4(X, Y, U, V, 8, 8, 8, 8),
