@@ -1,11 +1,16 @@
 #ifndef _DRMU_DRMU_VLC_H
 #define _DRMU_DRMU_VLC_H
 
-#include "config.h"
-
 #ifndef HAS_VLC4
-#define HAS_VLC4     0
+// This is expected to be VLCs build config.h
+// If using this outside of a VLC build maybe libvlc_version.h
+#include "config.h"
+#ifndef PACKAGE_VERSION_MAJOR
+#error Expected to have PACKAGE_VERSION_MAJOR defined by config.h
 #endif
+#define HAS_VLC4     ((PACKAGE_VERSION_MAJOR) > 3)
+#endif
+
 #ifndef HAS_ZC_CMA
 #define HAS_ZC_CMA   0
 #endif

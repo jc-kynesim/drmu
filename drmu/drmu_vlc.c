@@ -12,7 +12,6 @@
 
 #include <errno.h>
 
-#include <vlc/libvlc_version.h>
 #include <libavutil/buffer.h>
 #include <libavutil/hwcontext_drm.h>
 
@@ -26,7 +25,7 @@ pic_fb_delete_cb(void * v)
     fb_aux_pic_t * const aux = v;
     picture_context_t * const ctx = aux->pic_ctx;
 
-#if LIBVLC_VERSION_MAJOR >= 4
+#if HAS_VLC4
     vlc_video_context *vctx = ctx->vctx;
     ctx->destroy(ctx);
     if (vctx)
