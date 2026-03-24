@@ -651,6 +651,9 @@ usage()
            "-8  keep max_bpc 8\n"
            "--alpha\n"
            "    Alpha blend test\n"
+           "--background <r>:<g>:<b>[:<a>]|#<rr><gg><bb>[<aa>]\n"
+           "    Background colour 1st form has 16-bit values decimal or (0x..) hex\n"
+           "    second form is web-like hex value with 1 or 2 digit channel values\n"
            "-C <conn name>\n"
            "    Use connection name\n"
            "-c  set con colorspace to (string) <colourspace>\n"
@@ -751,6 +754,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_MD5
     },
+#define OPT_BACKGROUND 263
+    {
+        .name = "background",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_BACKGROUND
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -792,6 +802,8 @@ int main(int argc, char *argv[])
     drmu_color_range_t range = NULL;
     drmu_color_range_t default_range = DRMU_COLOR_RANGE_YCBCR_FULL_RANGE;
     drmu_broadcast_rgb_t broadcast_rgb = NULL;
+    drmu_rgba_t background_rgba;
+    bool background_rgba_set = false;
     enum test_type_e test_type = TEST_STRIPES;
     bool mode_req = false;
     bool hi_bpc = true;
@@ -866,6 +878,16 @@ int main(int argc, char *argv[])
             case OPT_MD5:
                 wants_md5 = true;
                 break;
+            case OPT_BACKGROUND:
+            {
+                char * p;
+                if (drmu_util_parse_rgba(optarg, &p, &background_rgba) != 0 || *p != '\0') {
+                    fprintf(stderr, "Bad background colour string '%s'\n", optarg);
+                    goto fail;
+                }
+                background_rgba_set = true;
+                break;
+            }
             case 'C':
                     conn_name = optarg;
                     break;
@@ -1253,6 +1275,13 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed hi bpc set\n");
     if (!try_writeback && drmu_atomic_output_add_connect(da, dout) != 0)
         fprintf(stderr, "Failed connection\n");
+
+    if (background_rgba_set) {
+        if (!drmu_crtc_has_background_color(dc))
+            fprintf(stderr, "CRTC does not support background color\n");
+        else if (drmu_atomic_crtc_add_background_color(da, dc, background_rgba) != 0)
+            fprintf(stderr, "Failed to set CRTC background color\n");
+    }
 
     if (show_writeback == 2) {
         drmu_writeback_fb_t * wbq;
