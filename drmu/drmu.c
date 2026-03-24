@@ -2172,6 +2172,7 @@ typedef struct drmu_crtc_s {
 
     struct {
         drmu_prop_range_t * active;
+        drmu_prop_range_t * background_color;
         uint32_t mode_id;
     } pid;
 
@@ -2308,6 +2309,7 @@ crtc_init(drmu_env_t * const du, drmu_crtc_t * const dc, const unsigned int idx,
         props_dump(props);
 #endif
         dc->pid.mode_id = props_name_to_id(props, "MODE_ID");
+        dc->pid.background_color = drmu_prop_range_new(du, props_name_to_id(props, "BACKGROUND_COLOR"));
         dc->pid.active = drmu_prop_range_new(du, props_name_to_id(props, "ACTIVE"));
 
         props_free(props);
@@ -2404,6 +2406,18 @@ int
 drmu_atomic_crtc_add_active(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, unsigned int val)
 {
     return drmu_atomic_add_prop_range(da, dc->crtc.crtc_id, dc->pid.active, val);
+}
+
+bool
+drmu_crtc_has_background_color(const drmu_crtc_t * const dc)
+{
+    return dc->pid.background_color != NULL;
+}
+
+int
+drmu_atomic_crtc_add_background_color(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const drmu_rgba_t rgba)
+{
+    return drmu_atomic_add_prop_range(da, dc->crtc.crtc_id, dc->pid.background_color, drmu_rgba_to_u64(rgba));
 }
 
 // Use the same claim logic as we do for planes

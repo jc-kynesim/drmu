@@ -345,6 +345,9 @@ drmu_mode_simple_params_t drmu_crtc_mode_simple_params(const drmu_crtc_t * const
 
 int drmu_atomic_crtc_add_modeinfo(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const struct drm_mode_modeinfo * const modeinfo);
 int drmu_atomic_crtc_add_active(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, unsigned int val);
+// background color.
+bool drmu_crtc_has_background_color(const drmu_crtc_t * const dc);
+int drmu_atomic_crtc_add_background_color(struct drmu_atomic_s * const da, drmu_crtc_t * const dc, const drmu_rgba_t rgba);
 
 bool drmu_crtc_is_claimed(const drmu_crtc_t * const dc);
 void drmu_crtc_unref(drmu_crtc_t ** const ppdc);
