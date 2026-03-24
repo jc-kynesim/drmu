@@ -231,6 +231,109 @@ drmu_util_guess_simple_mode_par(const drmu_mode_simple_params_t * const p)
     return drmu_util_guess_par(p->width, p->height);
 }
 
+int
+drmu_util_parse_rgba(const char * s, char ** peos, drmu_rgba_t * pRgba)
+{
+    char * p;
+
+    *pRgba = (drmu_rgba_t){0};
+
+    if (*s == '#') {
+        // Web colour format: #RGB, #RGBA, #RRGGBB, #RRGGBBAA
+        unsigned long v;
+
+        ++s;
+        v = strtoul(s, &p, 16);
+        if (p == s)
+            goto fail;
+
+        switch (p - s) {
+            case 3: // #RGB
+                *pRgba = (drmu_rgba_t){
+                    .r = (uint16_t)(((v >> 8) & 0xf) * 0x1111),
+                    .g = (uint16_t)(((v >> 4) & 0xf) * 0x1111),
+                    .b = (uint16_t)(((v >> 0) & 0xf) * 0x1111),
+                    .a = 0xffff,
+                };
+                break;
+            case 4: // #RGBA
+                *pRgba = (drmu_rgba_t){
+                    .r = (uint16_t)(((v >> 12) & 0xf) * 0x1111),
+                    .g = (uint16_t)(((v >>  8) & 0xf) * 0x1111),
+                    .b = (uint16_t)(((v >>  4) & 0xf) * 0x1111),
+                    .a = (uint16_t)(((v >>  0) & 0xf) * 0x1111),
+                };
+                break;
+            case 6: // #RRGGBB
+                *pRgba = (drmu_rgba_t){
+                    .r = (uint16_t)(((v >> 16) & 0xff) * 0x101),
+                    .g = (uint16_t)(((v >>  8) & 0xff) * 0x101),
+                    .b = (uint16_t)(((v >>  0) & 0xff) * 0x101),
+                    .a = 0xffff,
+                };
+                break;
+            case 8: // #RRGGBBAA
+                *pRgba = (drmu_rgba_t){
+                    .r = (uint16_t)(((v >> 24) & 0xff) * 0x101),
+                    .g = (uint16_t)(((v >> 16) & 0xff) * 0x101),
+                    .b = (uint16_t)(((v >>  8) & 0xff) * 0x101),
+                    .a = (uint16_t)(((v >>  0) & 0xff) * 0x101),
+                };
+                break;
+            default:
+                goto fail;
+        }
+    } else {
+        // Colon-separated 16-bit format: R:G:B or R:G:B:A
+        // Values are decimal (0..65535) or hex with 0x prefix (0x0..0xffff)
+        // (strtoul base 0 rules: 0x prefix = hex, else decimal)
+        // Alpha defaults to 0xffff if omitted
+        unsigned long r, g, b, a;
+
+        r = strtoul(s, &p, 0);
+        if (p == s || *p != ':')
+            goto fail;
+        s = p + 1;
+
+        g = strtoul(s, &p, 0);
+        if (p == s || *p != ':')
+            goto fail;
+        s = p + 1;
+
+        b = strtoul(s, &p, 0);
+        if (p == s)
+            goto fail;
+
+        if (*p == ':') {
+            s = p + 1;
+            a = strtoul(s, &p, 0);
+            if (p == s)
+                goto fail;
+        } else {
+            a = 0xffff;
+        }
+
+        if (r > 0xffff || g > 0xffff || b > 0xffff || a > 0xffff)
+            goto fail;
+
+        *pRgba = (drmu_rgba_t){
+            .r = (uint16_t)r,
+            .g = (uint16_t)g,
+            .b = (uint16_t)b,
+            .a = (uint16_t)a,
+        };
+    }
+
+    if (peos != NULL)
+        *peos = p;
+    return 0;
+
+fail:
+    if (peos != NULL)
+        *peos = (char *)s;
+    return -EINVAL;
+}
+
 void
 drmu_memcpy_2d(void * const dst_p, const size_t dst_stride,
                const void * const src_p, const size_t src_stride,

@@ -37,6 +37,21 @@ drmu_chroma_siting_eq(const drmu_chroma_siting_t a, const drmu_chroma_siting_t b
     return a.x == b.x && a.y == b.y;
 }
 
+// RGB defs. Could have their own header, but not really worth it
+typedef struct drmu_rgba_s {
+    uint16_t b;
+    uint16_t g;
+    uint16_t r;
+    uint16_t a;
+} drmu_rgba_t;
+
+// Convert to DRM "standard" (used by background colour) form
+static inline uint64_t
+drmu_rgba_to_u64(const drmu_rgba_t rgba)
+{
+    return ((uint64_t)rgba.a << 48) | ((uint64_t)rgba.r << 32) | (rgba.g << 16) | rgba.b;
+}
+
 #ifdef __cplusplus
 }
 #endif

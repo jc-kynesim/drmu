@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 struct drmu_mode_simple_params_s;
+struct drmu_rgba_s;
 
 // Parse a string of the form [<w>x<h>][i][@<hz>[.<mHz>]]
 // Returns pointer to terminating char
@@ -41,6 +42,15 @@ int drmu_parse_rect(const char * s, char ** peos, drmu_rect_t * pRect);
 // Rotation to string - guaranteed to return a string that str_to_rotation can
 // ingest
 const char * drmu_util_rotation_to_str(const unsigned int rot);
+
+// Parse a colour string into a drmu_rgba_t (16-bit per channel).
+// Two formats are accepted:
+//   Web:   #RGB, #RGBA, #RRGGBB, #RRGGBBAA  (leading '#' required)
+//   16-bit: R:G:B or R:G:B:A  (colon-separated, decimal or 0x-prefixed hex, 0..65535 each)
+// Alpha defaults to 0xffff if omitted.
+// Returns pointer to char after parsed string in *peos (may be NULL if not required).
+// Returns 0 on success, -EINVAL if string is not a recognised colour format.
+int drmu_util_parse_rgba(const char * s, char ** peos, struct drmu_rgba_s * pRgba);
 
 // Given width & height guess par. Spots Likely SD and returns 4:3 otherwise reduced w:h
 drmu_ufrac_t drmu_util_guess_par(const unsigned int w, const unsigned int h);
