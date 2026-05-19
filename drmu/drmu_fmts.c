@@ -139,6 +139,31 @@
     }
 #define  FMT_TRI(name, CA, CB, CC, bits, SX, SY) FMT_TRI_PKLO(name, CA, CB, CC, (bits), SX, SY, (((bits) + 7) & ~7))
 
+#define  FMT_TRI_PKHI(_name, CA, CB, CC, bits, _sx, _sy, pk)\
+    { .fourcc = DRM_FORMAT_##_name,\
+      .bpp = (pk),\
+      .bit_depth = (bits),\
+      .plane_count = 3,\
+      .is_yuv = CTST_##CA || CTST_##CB || CTST_##CC,\
+      .chans = C_XY((_sx), (_sy)),\
+      .planes = {{\
+          .bpg = (pk) / 8,\
+          .xdiv = 1, .ydiv = 1,\
+          .pels = {PEL(CA, (bits), (pk) - (bits))}},\
+      {\
+          .bpg = (pk) / 8,\
+          .xdiv = (_sx), .ydiv = (_sy),\
+          .pels = {PEL(CB, (bits), (pk) - (bits))}},\
+      {\
+          .bpg = (pk) / 8,\
+          .xdiv = (_sx), .ydiv = (_sy),\
+          .pels = {PEL(CC, (bits), (pk) - (bits))}}\
+      },\
+      .chroma_siting = SITING_SY_##_sy,\
+      .name=#_name,\
+    }
+#define  FMT_TRI_HI(name, CA, CB, CC, bits, SX, SY) FMT_TRI_PKHI(name, CA, CB, CC, (bits), SX, SY, (((bits) + 7) & ~7))
+
 static
 // Not const when creating the sorted version 'cos we sort in place
 #if !BUILD_MK_SORTED_FMTS_H
@@ -225,6 +250,9 @@ drmu_fmt_info_t format_info[] = {
     FMT_TRI(S410, Y, U, V, 10, 1, 1),
     FMT_TRI(S412, Y, U, V, 12, 1, 1),
     FMT_TRI(S416, Y, U, V, 16, 1, 1),
+
+    FMT_TRI_HI(Q410, Y, U, V, 10, 1, 1),
+    FMT_TRI_HI(Q401, Y, V, U, 10, 1, 1),
 
     FMT_ONE_4_NAMED(AYUV, A, Y, U, V, 8, 8, 8, 8),
     FMT_ONE_4(X, Y, U, V, 8, 8, 8, 8),
