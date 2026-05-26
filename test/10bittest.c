@@ -208,6 +208,65 @@ fb_dump_to_file(const char * fname, drmu_fb_t * const fb)
     return 0;
 }
 
+static int
+read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p16_stride,
+             const uint32_t fmt, const unsigned int w, const unsigned int h)
+{
+    const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(fmt);
+    const uint8_t * src_datas[4] = {NULL};
+    unsigned int src_strides[4] = {0};
+    uint8_t * plane_bufs[4] = {NULL};
+    unsigned int n;
+    int rv = 0;
+    FILE * ff;
+
+    if (fi == NULL) {
+        fprintf(stderr, "Unknown format %#x for rawfile\n", fmt);
+        return -EINVAL;
+    }
+
+    ff = fopen(fname, "rb");
+    if (ff == NULL) {
+        fprintf(stderr, "Cannot open '%s': %s\n", fname, strerror(errno));
+        return -errno;
+    }
+
+    for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
+        const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
+        const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
+        const unsigned int pw = (w + wdiv - 1) / wdiv;
+        const unsigned int ph = (h + hdiv - 1) / hdiv;
+        const unsigned int bpp = drmu_fmt_info_pixel_bits(fi) / 8;
+        const unsigned int stride = pw * bpp;
+        unsigned int y;
+
+        plane_bufs[n] = malloc(stride * ph);
+        if (plane_bufs[n] == NULL) {
+            fprintf(stderr, "Failed to alloc plane %d buffer\n", n);
+            rv = -ENOMEM;
+            goto fail;
+        }
+        src_datas[n] = plane_bufs[n];
+        src_strides[n] = stride;
+
+        for (y = 0; y != ph; ++y) {
+            if (fread(plane_bufs[n] + stride * y, bpp, pw, ff) != pw) {
+                fprintf(stderr, "Short read on plane %d row %d of '%s'\n", n, y, fname);
+                rv = -EIO;
+                goto fail;
+            }
+        }
+    }
+
+    plane16_from_generic(p16, p16_stride, fi, src_datas, src_strides, w, h);
+
+fail:
+    for (n = 0; n != 4; ++n)
+        free(plane_bufs[n]);
+    fclose(ff);
+    return rv;
+}
+
 #define BT2020_RGB_Y(r, g, b) ((double)(r)*0.2627+(double)(g)*0.6780+(double)(b)*0.0593)
 #define BT2020_RGB_Cb(r, g, b) (((double)(b)-BT2020_RGB_Y((r),(g),(b)))/1.8814)
 #define BT2020_RGB_Cr(r, g, b) (((double)(r)-BT2020_RGB_Y((r),(g),(b)))/1.4746)
@@ -676,6 +735,8 @@ usage()
            "-P <fmt>\n"
            "    pixel format fourcc or name\n"
            "-s  colour siting test\n"
+           "--rawfile <filename>\n"
+           "    Read raw pixel data from file; format from -P, size from --src-size\n"
            "-r <range>\n"
            "    YUV range (YUV only): full, limited (default)\n"
            "-R <range>\n"
@@ -761,6 +822,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_BACKGROUND
     },
+#define OPT_RAWFILE 264
+    {
+        .name = "rawfile",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_RAWFILE
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -778,6 +846,7 @@ enum test_type_e {
     TEST_ALPHA,
     TEST_SCALEUP,
     TEST_LIST_FORMATS,
+    TEST_FILE,
 };
 
 int main(int argc, char *argv[])
@@ -825,6 +894,7 @@ int main(int argc, char *argv[])
     drmu_rect_t size_rect;
     long size_scale = 100;
     drmu_rect_t src_rect = {0};
+    const char * raw_filename = NULL;
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
@@ -888,6 +958,10 @@ int main(int argc, char *argv[])
                 background_rgba_set = true;
                 break;
             }
+            case OPT_RAWFILE:
+                raw_filename = optarg;
+                test_type = TEST_FILE;
+                break;
             case 'C':
                     conn_name = optarg;
                     break;
@@ -1221,12 +1295,16 @@ int main(int argc, char *argv[])
             if (scaleup_alpha(da, dout, src_rect.w, src_rect.h, p1fmt))
                 goto fail;
             break;
+        case TEST_FILE:
+            if (read_rawfile(raw_filename, p16, p16_stride, p1fmt, src_rect.w, src_rect.h) != 0)
+                goto fail;
+            break;
         default:
             fprintf(stderr, "Unexpected test number: %d\n", test_type);
             goto fail;
     }
 
-    if (drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1))) {
+    if (test_type != TEST_FILE && drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1))) {
         const drmu_color_encoding_t d_enc = drmu_fb_color_encoding_get(fb1);
         const drmu_color_encoding_t d_range = drmu_fb_color_range_get(fb1);
         enum plane16_cenc enc = PLANE16_BT_2020;
