@@ -210,9 +210,8 @@ fb_dump_to_file(const char * fname, drmu_fb_t * const fb)
 
 static int
 read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p16_stride,
-             const uint32_t fmt, const unsigned int w, const unsigned int h)
+             const drmu_fmt_info_t * const fi, const unsigned int w, const unsigned int h)
 {
-    const drmu_fmt_info_t * const fi = drmu_fmt_info_find_fmt(fmt);
     const uint8_t * src_datas[4] = {NULL};
     unsigned int src_strides[4] = {0};
     uint8_t * plane_bufs[4] = {NULL};
@@ -221,7 +220,7 @@ read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p
     FILE * ff;
 
     if (fi == NULL) {
-        fprintf(stderr, "Unknown format %#x for rawfile\n", fmt);
+        fprintf(stderr, "Unknown format for rawfile\n");
         return -EINVAL;
     }
 
@@ -231,6 +230,8 @@ read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p
         return -errno;
     }
 
+    printf("Reading %dx%d %s image from '%s'\n", w, h, drmu_fmt_info_name(fi), fname);
+
     for (n = 0; n != drmu_fmt_info_plane_count(fi); ++n) {
         const unsigned int wdiv = drmu_fmt_info_wdiv(fi, n);
         const unsigned int hdiv = drmu_fmt_info_hdiv(fi, n);
@@ -238,9 +239,9 @@ read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p
         const unsigned int ph = (h + hdiv - 1) / hdiv;
         const unsigned int bpp = drmu_fmt_info_pixel_bits(fi) / 8;
         const unsigned int stride = pw * bpp;
-        unsigned int y;
+        const unsigned int psize = stride * ph;
 
-        plane_bufs[n] = malloc(stride * ph);
+        plane_bufs[n] = malloc(psize);
         if (plane_bufs[n] == NULL) {
             fprintf(stderr, "Failed to alloc plane %d buffer\n", n);
             rv = -ENOMEM;
@@ -249,12 +250,10 @@ read_rawfile(const char * const fname, uint8_t * const p16, const unsigned int p
         src_datas[n] = plane_bufs[n];
         src_strides[n] = stride;
 
-        for (y = 0; y != ph; ++y) {
-            if (fread(plane_bufs[n] + stride * y, bpp, pw, ff) != pw) {
-                fprintf(stderr, "Short read on plane %d row %d of '%s'\n", n, y, fname);
-                rv = -EIO;
-                goto fail;
-            }
+        if (fread(plane_bufs[n], psize, 1, ff) != 1) {
+            fprintf(stderr, "Short read on plane %d of '%s'\n", n, fname);
+            rv = -EIO;
+            goto fail;
         }
     }
 
@@ -904,7 +903,7 @@ int main(int argc, char *argv[])
     long size_scale = 100;
     drmu_rect_t src_rect = {0};
     const char * raw_filename = NULL;
-    uint32_t src_fmt = 0;
+    const drmu_fmt_info_t * src_fi = 0;
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
@@ -921,7 +920,6 @@ int main(int argc, char *argv[])
                     exit(1);
                 }
                 wbfmt = drmu_fmt_info_fourcc(fi);
-                break;
                 break;
             case OPT_LIST_FORMATS:
                 test_type = TEST_LIST_FORMATS;
@@ -973,12 +971,11 @@ int main(int argc, char *argv[])
                 test_type = TEST_FILE;
                 break;
             case OPT_SRC_FMT:
-                fi = drmu_fmt_info_find_name(optarg);
-                if (fi == NULL) {
-                    printf("Unrecognised src-fmt '%s'\n", optarg);
-                    exit(1);
+                src_fi = drmu_fmt_info_find_name(optarg);
+                if (src_fi == NULL) {
+                    fprintf(stderr, "Unrecognised src-fmt '%s'\n", optarg);
+                    goto fail;
                 }
-                src_fmt = drmu_fmt_info_fourcc(fi);
                 break;
             case 'C':
                     conn_name = optarg;
@@ -1251,14 +1248,11 @@ int main(int argc, char *argv[])
     }
 
     // Set render size if not given explictly
-    if (size_scale != 0) {
-        size_rect.w = mp.width * size_scale / 100;
-        size_rect.h = mp.height * size_scale / 100;
-        size_rect.x = 0;
-        size_rect.y = 0;
-    }
     if (src_rect.w == 0 || src_rect.h == 0)
         src_rect = drmu_rect_wh(mp.width, mp.height);
+
+    if (size_scale != 0)
+        size_rect = drmu_rect_wh(src_rect.w * size_scale / 100, src_rect.h * size_scale / 100);
 
     printf("Src size %dx%d; Render to %dx%d@%d,%d\n", src_rect.w, src_rect.h, size_rect.w, size_rect.h, size_rect.x, size_rect.y);
 
@@ -1314,7 +1308,8 @@ int main(int argc, char *argv[])
                 goto fail;
             break;
         case TEST_FILE:
-            if (read_rawfile(raw_filename, p16, p16_stride, src_fmt ? src_fmt : p1fmt, src_rect.w, src_rect.h) != 0)
+            if (read_rawfile(raw_filename, p16, p16_stride,
+                             src_fi ? src_fi : drmu_fmt_info_find_fmt(p1fmt), src_rect.w, src_rect.h) != 0)
                 goto fail;
             break;
         default:
@@ -1322,7 +1317,7 @@ int main(int argc, char *argv[])
             goto fail;
     }
 
-    if (test_type != TEST_FILE && drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1))) {
+    if (drmu_fmt_info_is_yuv(drmu_fb_fmt_info(fb1)) != drmu_fmt_info_is_yuv(src_fi)) {
         const drmu_color_encoding_t d_enc = drmu_fb_color_encoding_get(fb1);
         const drmu_color_encoding_t d_range = drmu_fb_color_range_get(fb1);
         enum plane16_cenc enc = PLANE16_BT_2020;
