@@ -736,7 +736,9 @@ usage()
            "    pixel format fourcc or name\n"
            "-s  colour siting test\n"
            "--rawfile <filename>\n"
-           "    Read raw pixel data from file; format from -P, size from --src-size\n"
+           "    Read raw pixel data from file; format from --src-fmt or -P, size from --src-size\n"
+           "--src-fmt <fmt>\n"
+           "    Pixel format of --rawfile data (fourcc or name); overrides -P for file read\n"
            "-r <range>\n"
            "    YUV range (YUV only): full, limited (default)\n"
            "-R <range>\n"
@@ -829,6 +831,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_RAWFILE
     },
+#define OPT_SRC_FMT 265
+    {
+        .name = "src-fmt",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_SRC_FMT
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -895,6 +904,7 @@ int main(int argc, char *argv[])
     long size_scale = 100;
     drmu_rect_t src_rect = {0};
     const char * raw_filename = NULL;
+    uint32_t src_fmt = 0;
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
         switch (c) {
@@ -961,6 +971,14 @@ int main(int argc, char *argv[])
             case OPT_RAWFILE:
                 raw_filename = optarg;
                 test_type = TEST_FILE;
+                break;
+            case OPT_SRC_FMT:
+                fi = drmu_fmt_info_find_name(optarg);
+                if (fi == NULL) {
+                    printf("Unrecognised src-fmt '%s'\n", optarg);
+                    exit(1);
+                }
+                src_fmt = drmu_fmt_info_fourcc(fi);
                 break;
             case 'C':
                     conn_name = optarg;
@@ -1296,7 +1314,7 @@ int main(int argc, char *argv[])
                 goto fail;
             break;
         case TEST_FILE:
-            if (read_rawfile(raw_filename, p16, p16_stride, p1fmt, src_rect.w, src_rect.h) != 0)
+            if (read_rawfile(raw_filename, p16, p16_stride, src_fmt ? src_fmt : p1fmt, src_rect.w, src_rect.h) != 0)
                 goto fail;
             break;
         default:
