@@ -1326,7 +1326,7 @@ int main(int argc, char *argv[])
         else if (drmu_color_encoding_eq(d_enc, DRMU_COLOR_ENCODING_BT709))
             enc = PLANE16_BT_709;
         plane16_rgb_to_yuv(p16, p16_stride,
-                           drmu_fb_width(fb1), drmu_fb_height(fb1),
+                           src_rect.w, src_rect.h,
                            enc,
                            true,
                            drmu_color_range_is_full(d_range));
