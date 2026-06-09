@@ -1629,13 +1629,14 @@ drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
     const uint32_t s30_cw = 128 / 4 * 3;
     unsigned int plane_count;
     const drmu_fmt_info_t * f;
+    const bool is_sand = (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0));
 
     if (dfb == NULL) {
         drmu_err(du, "%s: Alloc failure", __func__);
         return NULL;
     }
 
-    if (mod != DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0))
+    if (!is_sand)
         w2 = w;
     else if (format == DRM_FORMAT_NV12)
         w2 = (w + 127) & ~127;
@@ -1673,7 +1674,7 @@ drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
         }
         else {
             dumb.height = (h + hdiv - 1) / hdiv;
-            dumb.width = (w + wdiv - 1) / wdiv;
+            dumb.width = (w2 + wdiv - 1) / wdiv;
         }
 
         if ((bo = drmu_bo_new_dumb(du, &dumb)) == NULL)
@@ -1685,10 +1686,14 @@ drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
             goto fail;
         drmu_fb_int_mmap_set(dfb, i, map_ptr, (size_t)dumb.size, dumb.pitch);
 
-        if (multi) {
+        if (multi && is_sand) {
+            // Modern sand is only a little better than legacy sand
+            drmu_fb_int_layer_mod_set(dfb, i, i, dumb.height, 0, mod);
+        }
+        else if (multi) {
             drmu_fb_int_layer_mod_set(dfb, i, i, dumb.pitch, 0, mod);
         }
-        else if (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0)) {
+        else if (is_sand) {
             // Cope with the joy that is legacy sand
             const uint64_t sand1_mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
             drmu_fb_int_layer_mod_set(dfb, 0, 0, dumb.pitch, 0, sand1_mod);
