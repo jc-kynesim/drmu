@@ -167,48 +167,50 @@ playlist_thread(void *v)
     const char * in_file;
     bool play0;
 
-loopy:
-    in_file = pl->in_filelist[in_n];
-    if (++in_n >= pl->in_count)
-        in_n = 0;
+    do {
+        in_file = pl->in_filelist[in_n];
+        if (++in_n >= pl->in_count)
+            in_n = 0;
 
-    player_open_file(pe, in_file);
-
-    if (pl->wants_deinterlace) {
-        if (player_filter_add_deinterlace(pe)) {
-            fprintf(stderr, "Failed to init deinterlace\n");
-            return NULL;
+        if (player_open_file(pe, in_file) != 0) {
+            fprintf(stderr, "Failed to open file for player\n");
+            break;
         }
-    }
 
-    play0 = true;
-reseek:
-    if (!play0 || pl->seek_start != 0) {
-        if (player_seek(pe, pl->seek_start) != 0)
-            fprintf(stderr, "Seek failed to %d.%06d\n", (int)(pl->seek_start / 1000000), (int)(pl->seek_start % 1000000));
-    }
-    play0 = false;
+        if (pl->wants_deinterlace) {
+            if (player_filter_add_deinterlace(pe)) {
+                fprintf(stderr, "Failed to init deinterlace\n");
+                player_close_file(pe);
+                break;
+            }
+        }
 
-    /* actual decoding and dump the raw data */
-    player_set_write_frame_count(pe, pl->frame_count);
-    player_set_input_pace_hz(pe, pl->pace_input_hz);
+        play0 = true;
 
-    while (player_run_one_packet(pe) >= 0)
-        /* loop */;
+        do {
+            if (!play0 || pl->seek_start != 0) {
+                if (player_seek(pe, pl->seek_start) != 0)
+                    fprintf(stderr, "Seek failed to %d.%06d\n", (int)(pl->seek_start / 1000000), (int)(pl->seek_start % 1000000));
+            }
+            play0 = false;
 
-    // Do not close & reopen if looping within a single file
-    if (pl->in_count == 1 &&
-        (pl->loop_count == -1 ||
-         (pl->loop_count != 0 && --pl->loop_count > 0)))
-        goto reseek;
+            /* actual decoding and dump the raw data */
+            player_set_write_frame_count(pe, pl->frame_count);
+            player_set_input_pace_hz(pe, pl->pace_input_hz);
 
-    player_run_eos(pe);
+            while (player_run_one_packet(pe) >= 0)
+                /* loop */;
 
-    player_close_file(pe);
+            // Do not close & reopen if looping within a single file
+        } while (pl->in_count == 1 &&
+                 (pl->loop_count == -1 ||
+                  (pl->loop_count != 0 && --pl->loop_count > 0)));
 
-    if (pl->loop_count == -1 ||
-        (pl->loop_count != 0 && --pl->loop_count > 0))
-        goto loopy;
+        player_run_eos(pe);
+
+        player_close_file(pe);
+    } while (pl->loop_count == -1 ||
+             (pl->loop_count != 0 && --pl->loop_count > 0));
 
     return NULL;
 }
@@ -254,12 +256,19 @@ void usage()
 "              [--rot 0|90|180|270|T|180T|X|Y]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
+"              [--pace-output pts|free|vsync]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
 "The --tile option will tile the video windows, if unset then playlist1 and\n"
 "later must have the --win option\n"
+"\n"
 "If loop count is set then the playlist will be repeated that many times, a\n"
 "loop count of -1 means forever\n"
+"\n"
+"--pace-output pts is the default and paces output to PTS\n"
+"              vsync outputs one frame per vsync\n"
+"              free outputs frames as fast as they are decoded\n"
+"\n"
 "N.B. frame counts and similar options are currently global to a playlist\n"
 "so generally do not work well with multiple input files in a playlist.\n"
             );
