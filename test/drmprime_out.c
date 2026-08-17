@@ -451,6 +451,11 @@ int drmprime_video_display(drmprime_video_env_t *de, struct AVFrame *src_frame)
             drmu_fb_ref(((gb2_dmabuf_t *)src_frame->buf[0]->data)->fb);
 //        const drmu_mode_simple_params_t *const sp = drmu_output_mode_simple_params(de->dout);
 
+        if (dfb == NULL) {
+            fprintf(stderr, "Failed to get DRM frame from AVFrame\n");
+            return AVERROR(EINVAL);
+        }
+
         drmu_fb_write_end(dfb); // Needed for mapped dmabufs, noop otherwise
 
         de->vid_rect = frame_output_rect(de, dfb, src_frame);

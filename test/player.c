@@ -107,6 +107,7 @@ typedef struct player_env_s {
     FILE *output_file;
     bool wants_modeset;
     bool wants_deinterlace;
+    bool low_delay;
 } player_env_t;
 
 static int hw_decoder_init(AVCodecContext *ctx, const enum AVHWDeviceType type)
@@ -283,11 +284,15 @@ player_decode_video_packet(player_env_t * const pe, AVPacket * const packet)
     int size;
     int ret = 0;
 
+    static int pin = 0, pout = 0;
+
     ret = avcodec_send_packet(avctx, packet);
     if (ret < 0) {
         fprintf(stderr, "Error during decoding\n");
         return ret;
     }
+
+    ++pin;
 
     for (;;) {
         if (!(frame = av_frame_alloc()) || !(sw_frame = av_frame_alloc())) {
@@ -305,6 +310,10 @@ player_decode_video_packet(player_env_t * const pe, AVPacket * const packet)
             fprintf(stderr, "Error while decoding\n");
             goto fail;
         }
+
+        ++pout;
+
+        printf("In %d, out %d\n", pin, pout);
 
         if (pe->wants_deinterlace && pe->filter_graph == NULL) {
             if (filter_add_deinterlace(pe, frame) != 0) {
@@ -511,6 +520,13 @@ player_set_output_file(player_env_t * const pe, FILE * output_file)
     pe->output_file = output_file;
 }
 
+void
+player_set_low_delay(player_env_t * const pe, bool low_latency)
+{
+    printf("Set low delay=%d\n", low_latency);
+    pe->low_delay = low_latency;
+}
+
 int
 player_filter_add_deinterlace(player_env_t * const pe)
 {
@@ -612,6 +628,10 @@ retry_hw:
     if (avcodec_parameters_to_context(pe->decoder_ctx, video->codecpar) < 0)
         return -1;
 
+    if (pe->low_delay)
+        pe->decoder_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    printf("Flags=%#x, low_delay=%#x\n", pe->decoder_ctx->flags, AV_CODEC_FLAG_LOW_DELAY);
+
     pe->decoder_ctx->opaque = pe;
     if (try_hw) {
         pe->decoder_ctx->get_format = get_hw_format;
@@ -627,7 +647,6 @@ retry_hw:
         pe->decoder_ctx->get_buffer2 = player_get_buffer2;
         pe->decoder_ctx->thread_count = 0; // FFmpeg will pick a default
     }
-    pe->decoder_ctx->flags = 0;
     // Pick any threading method
     pe->decoder_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 

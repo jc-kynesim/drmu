@@ -384,7 +384,7 @@ drmu_fb_av_new_frame_attach(drmu_env_t * const du, AVFrame * const frame)
 
     drmu_fb_int_fmt_size_set(dfb,
                              desc->layers[0].format,
-                             frame->width,
+                             (frame->width + 127) & ~127,
                              frame->height,
                              (drmu_rect_t){
                                  .x = frame->crop_left,

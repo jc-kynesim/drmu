@@ -66,6 +66,7 @@ typedef struct playlist_s {
     player_output_pace_mode_t pace_output_mode;
     bool wants_deinterlace;
     bool wants_modeset;
+    bool low_delay;
     const char * hwdev;
     unsigned int rotation;
 
@@ -256,7 +257,7 @@ void usage()
 "              [--rot 0|90|180|270|T|180T|X|Y]\n"
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
-"              [--pace-output pts|free|vsync]\n"
+"              [--pace-output pts|free|vsync] [--low-delay]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
 "The --tile option will tile the video windows, if unset then playlist1 and\n"
@@ -265,6 +266,8 @@ void usage()
 "If loop count is set then the playlist will be repeated that many times, a\n"
 "loop count of -1 means forever\n"
 "\n"
+"--low-delay   set the AVCodecContext low_delay flag, this may have some or no\n"
+"              effect depending on codec.\n"
 "--pace-output pts is the default and paces output to PTS\n"
 "              vsync outputs one frame per vsync\n"
 "              free outputs frames as fast as they are decoded\n"
@@ -365,6 +368,9 @@ int main(int argc, char *argv[])
                     usage();
                 --n;
                 ++a;
+            }
+            else if (strcmp(arg, "--low-delay") == 0) {
+                pl->low_delay = true;
             }
             else if (strcmp(arg, "-o") == 0) {
                 if (n == 0)
@@ -483,6 +489,7 @@ int main(int argc, char *argv[])
         player_set_output_file(pl->pe, pl->output_file);
         player_set_window(pl->pe, pl->x, pl->y, pl->w, pl->h, pl->zpos);
         player_set_output_pace_mode(pl->pe, pl->pace_output_mode);
+        player_set_low_delay(pl->pe, pl->low_delay);
 
         playlist_run(pl);
     }
