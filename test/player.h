@@ -38,6 +38,7 @@ player_output_pace_mode_t player_str_to_output_pace_mode(const char * const str)
 void player_set_output_pace_mode(player_env_t * const pe, const player_output_pace_mode_t mode);
 void player_set_modeset(player_env_t * const pe, bool modeset);
 void player_set_output_file(player_env_t * const pe, FILE * output_file);
+void player_set_low_delay(player_env_t * const pe, bool low_latency);
 int player_filter_add_deinterlace(player_env_t * const pe);
 int player_seek(player_env_t * const pe, uint64_t seek_pos_us);
 void player_close_file(player_env_t * const pe);
