@@ -721,4 +721,45 @@ player_delete(player_env_t ** ppPe)
     free(pe);
 }
 
+void
+player_log_level(enum player_log_level_e log_level)
+{
+    if (log_level == PLAYER_LOG_INVALID)
+        return;
+
+    av_log_set_level(log_level);
+}
+
+enum player_log_level_e
+player_str_to_log_level(const char * s, char ** peos)
+{
+    static const struct {
+        const char * str;
+        enum player_log_level_e lvl;
+    } str_to_lvl[] = {
+        {"QUIET",   PLAYER_LOG_QUIET},
+        {"PANIC",   PLAYER_LOG_PANIC},
+        {"FATAL",   PLAYER_LOG_FATAL},
+        {"ERROR",   PLAYER_LOG_ERROR},
+        {"WARNING", PLAYER_LOG_WARNING},
+        {"INFO" ,   PLAYER_LOG_INFO },
+        {"VERBOSE", PLAYER_LOG_VERBOSE},
+        {"DEBUG",   PLAYER_LOG_DEBUG},
+        {"TRACE",   PLAYER_LOG_TRACE},
+        {NULL,      PLAYER_LOG_INVALID}
+    };
+    unsigned int i;
+
+    for (i = 0; str_to_lvl[i].str != NULL; ++i) {
+        size_t n = strlen(str_to_lvl[i].str);
+        if (strncasecmp(s, str_to_lvl[i].str, n) == 0) {
+            if (peos != NULL)
+                *peos = (char*)(s + n);
+            return str_to_lvl[i].lvl;
+        }
+    }
+    if (peos != NULL)
+        *peos = (char*)s;
+    return PLAYER_LOG_INVALID;
+}
 

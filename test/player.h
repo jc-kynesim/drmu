@@ -48,6 +48,23 @@ void player_set_window(player_env_t * const pe, unsigned int x, unsigned int y, 
 player_env_t * player_new(struct drmprime_out_env_s * const dpo);
 void player_delete(player_env_t ** ppPe);
 
+// Player log level sets the ffmpeg level as well as some local debug
+enum player_log_level_e {
+    PLAYER_LOG_INVALID = -99,
+    PLAYER_LOG_QUIET =  -8,
+    PLAYER_LOG_PANIC =   0,
+    PLAYER_LOG_FATAL =   8,
+    PLAYER_LOG_ERROR =   16,
+    PLAYER_LOG_WARNING = 24,
+    PLAYER_LOG_INFO  =   32,  // Default
+    PLAYER_LOG_VERBOSE = 40,
+    PLAYER_LOG_DEBUG =   48,
+    PLAYER_LOG_TRACE =   56
+};
+
+void player_log_level(enum player_log_level_e log_level);
+enum player_log_level_e player_str_to_log_level(const char * s, char ** peos);
+
 #ifdef __cplusplus
 }
 #endif

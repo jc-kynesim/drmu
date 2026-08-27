@@ -258,6 +258,7 @@ void usage()
 "              [-l <loop_count>] [-f <frames>] [-o yuv_output_file]\n"
 "              [--deinterlace] [--pace-input <hz>] [--modeset]\n"
 "              [--pace-output pts|free|vsync] [--low-delay]\n"
+"              [--player-log quiet|error|info|versbose|debug|trace]\n"
 "              <input file> [<input_file> ...]\n"
 "\n"
 "The --tile option will tile the video windows, if unset then playlist1 and\n"
@@ -286,6 +287,7 @@ int main(int argc, char *argv[])
     const char * ticker_text = NULL;
     unsigned int screen_width, screen_height;
     unsigned int tiles_w = 1, tiles_h = 1;
+    enum player_log_level_e pll = PLAYER_LOG_INVALID;
 
     playlist_env_t ple;
     playlist_t * pl = NULL;
@@ -397,6 +399,15 @@ int main(int argc, char *argv[])
                 --n;
                 ++a;
             }
+            else if (strcmp(arg, "--player-log") == 0) {
+                if (n == 0)
+                    usage();
+                pll = player_str_to_log_level(*a, NULL);
+                if (pll == PLAYER_LOG_INVALID)
+                    usage();
+                --n;
+                ++a;
+            }
             else if (strcmp(arg, "--deinterlace") == 0) {
                 pl->wants_deinterlace = true;
             }
@@ -426,6 +437,8 @@ int main(int argc, char *argv[])
         if (ple.n == 0)
             usage();
     }
+
+    player_log_level(pll);
 
     dpo = drmprime_out_new();
     if (dpo == NULL) {
