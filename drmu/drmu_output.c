@@ -396,21 +396,22 @@ retry:
         crtc_id = drmu_conn_crtc_id_get(dn_t);
         if (crtc_id != 0 && try_connected) {
             dc_t = drmu_env_crtc_find_id(du, crtc_id);
-            if (dc_t == NULL || drmu_crtc_is_claimed(dc_t))
-                continue;
             score += 4;
         }
         else if (crtc_id == 0 && try_disconnected) {
             dc_t = output_add_find_crtc(du, dn_t);
-            if (dc_t == NULL || drmu_crtc_is_claimed(dc_t))
-                continue;
             if ((flags & DRMU_OUTPUT_FLAG_ADD_ANY) != 0 || !try_connected)
                 score += 4;
             else
                 score += 1;
         }
+        else
+            continue;
 
         if (score > best_score) {
+            if (dc_t == NULL || drmu_crtc_is_claimed(dc_t))
+                continue;
+
             dn = dn_t;
             dc = dc_t;
             best_score = score;
