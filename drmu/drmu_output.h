@@ -54,25 +54,32 @@ int drmu_output_max_bpc_allow(drmu_output_t * const dout, const bool allow);
 // Allow fb to set modes generally
 int drmu_output_modeset_allow(drmu_output_t * const dout, const bool allow);
 
-// Add a CONN/CRTC pair to an output
-// If conn_name == NULL then 1st connected connector is used
-// If != NULL then 1st conn with prefix-matching name is used
-int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name);
-
 // Allow _add_output2 to add a disconnected connect & asign a compatible CRTC
 // Mode select and active will have to happen later
-
-// Search disconnected conns too; but prefer connected
+// Search conns unconnected to CRTCs too; but prefer connected
 #define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED       1
-// Pick the first one we find; connected or disconnected
+// Pick the first one we find; connected or disconnected from a CRTC
 #define DRMU_OUTPUT_FLAG_ADD_ANY                2
-// Only search disconnected
+// Only search conncs disconnected from a CRTC
 #define DRMU_OUTPUT_FLAG_ADD_DISCONNECTED_ONLY  4
 // Only search writeback connectors; otherwise only search output connectors
 #define DRMU_OUTPUT_FLAG_ADD_WRITEBACK          8
+// Return a match score > 0 in the return value if we found something
+// Handy if searching multiple cards
+#define DRMU_OUTPUT_FLAG_ADD_RETURN_SCORE       16
+// Max score value
+#define DRMU_OUTPUT_ADD_SCORE_MAX               0xff
+// Define a score that a conn must beat
+#define DRMU_OUTPUT_FLAG_ADD_SCORE_GT(score)    (((score) & 0xff) << 16)
 
-// Experimental, more flexible version of _add_output
+// Add a CONN/CRTC pair to an output
+// If conn_name == NULL then 1st connected connector is used
+// If != NULL then 1st conn with prefix-matching name is used
 int drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name, const unsigned int flags);
+
+// Simpler add output
+// Equivalent to drmu_output_add_output2(dout, conn_name, 0)
+int drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name);
 
 // Set writeback fb on output - rotation 0
 int drmu_atomic_output_add_writeback_fb(drmu_atomic_t * const da_req, drmu_output_t * const dout,
@@ -87,6 +94,7 @@ int drmu_atomic_output_add_writeback_fb_callback(drmu_atomic_t * const da_out, d
                                     drmu_fb_fence_fd_fn * const fn, void * const v);
 
 // Add a writeback connector & find a crtc for it
+// Sets _modeset_allow as it is always needed for writeback
 int drmu_output_add_writeback(drmu_output_t * const dout);
 
 // Conn & CRTC for when output isn't fine grained enough

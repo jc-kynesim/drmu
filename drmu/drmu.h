@@ -73,6 +73,12 @@ typedef enum drmu_isset_e {
     DRMU_ISSET_SET,        // Thing has valid data
 } drmu_isset_t;
 
+typedef enum drmu_tri_e {
+    DRMU_TRI_UNKNOWN = -1,
+    DRMU_TRI_FALSE = 0,
+    DRMU_TRI_TRUE = 1,
+} drmu_tri_t;
+
 // Blob
 
 void drmu_blob_unref(drmu_blob_t ** const ppBlob);
@@ -365,6 +371,11 @@ bool drmu_conn_has_hi_bpc(const drmu_conn_t * const dn);
 // False set max_bpc to 8, true max value
 int drmu_atomic_conn_add_hi_bpc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, bool hi_bpc);
 
+// Is this connector attached to a live display?
+// This is a stored state from startup and does not track the actual state
+// N.B. Returns a tristate value
+drmu_tri_t drmu_conn_is_live(const drmu_conn_t * const dn);
+
 int drmu_atomic_conn_add_colorspace(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const drmu_colorspace_t colorspace);
 int drmu_atomic_conn_add_broadcast_rgb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const drmu_broadcast_rgb_t bcrgb);
 
@@ -404,6 +415,7 @@ uint32_t drmu_conn_crtc_id_get(const drmu_conn_t * const dn);
 
 // Bitmask of CRTCs that might be able to use this Conn
 uint32_t drmu_conn_possible_crtcs(const drmu_conn_t * const dn);
+
 
 bool drmu_conn_is_output(const drmu_conn_t * const dn);
 bool drmu_conn_is_writeback(const drmu_conn_t * const dn);

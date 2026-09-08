@@ -353,23 +353,30 @@ drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name
     const bool try_disconnected = (flags & DRMU_OUTPUT_FLAG_ADD_DISCONNECTED_ONLY) != 0 ||
         (flags & DRMU_OUTPUT_FLAG_ADD_ANY) != 0 ||
         (flags & DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0;
+    unsigned int best_score;
 
     if (wants_writeback && !dout->modeset_allow) {
         drmu_debug(du, "modeset_allow required for writeback");
         return -EINVAL;
     }
 
-    retry:
+retry:
     if (++retries > 16) {
         drmu_err(du, "Retry count exceeded");
         return -EBUSY;
     }
     dn = NULL;
     dc = NULL;
+    best_score = (flags >> 16) & 0xff;
+    // Check we can possibly find something
+    if (best_score >= DRMU_OUTPUT_ADD_SCORE_MAX)
+        return -ENOENT;
 
     for (unsigned int i = 0; (dn_t = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
         drmu_crtc_t * dc_t;
         uint32_t crtc_id;
+        unsigned int score = 0;
+        drmu_tri_t live;
 
         if ((wants_writeback && !drmu_conn_is_writeback(dn_t)) ||
             (!wants_writeback && !drmu_conn_is_output(dn_t)))
@@ -380,23 +387,39 @@ drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name
         if (nlen && strncmp(conn_name, drmu_conn_name(dn_t), nlen) != 0)
             continue;
 
+        live = drmu_conn_is_live(dn_t);
+        if (live == DRMU_TRI_TRUE)
+            score += 2;
+        else if (live == DRMU_TRI_UNKNOWN)
+            score += 1;
+
         crtc_id = drmu_conn_crtc_id_get(dn_t);
         if (crtc_id != 0 && try_connected) {
             dc_t = drmu_env_crtc_find_id(du, crtc_id);
             if (dc_t == NULL || drmu_crtc_is_claimed(dc_t))
                 continue;
-            dn = dn_t;
-            dc = dc_t;
-            break;
+            score += 4;
         }
         else if (crtc_id == 0 && try_disconnected) {
             dc_t = output_add_find_crtc(du, dn_t);
             if (dc_t == NULL || drmu_crtc_is_claimed(dc_t))
                 continue;
+            if ((flags & DRMU_OUTPUT_FLAG_ADD_ANY) != 0 || !try_connected)
+                score += 4;
+            else
+                score += 1;
+        }
+
+        if (score > best_score) {
             dn = dn_t;
             dc = dc_t;
-            if ((flags & DRMU_OUTPUT_FLAG_ADD_ANY) != 0 || !try_connected)
-                break;
+            best_score = score;
+        }
+
+        // No point in looking any further?
+        if (best_score >= 6) {
+            best_score = DRMU_OUTPUT_ADD_SCORE_MAX;
+            break;
         }
     }
 
@@ -424,7 +447,7 @@ drmu_output_add_output2(drmu_output_t * const dout, const char * const conn_name
 
     dout->mode_params = drmu_crtc_mode_simple_params(dout->dc);
 
-    return 0;
+    return (flags & DRMU_OUTPUT_FLAG_ADD_RETURN_SCORE) != 0 ? best_score : 0;
 }
 
 int
@@ -436,6 +459,7 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
 int
 drmu_output_add_writeback(drmu_output_t * const dout)
 {
+    drmu_output_modeset_allow(dout, true);
     return drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_WRITEBACK | DRMU_OUTPUT_FLAG_ADD_ANY);
 }
 

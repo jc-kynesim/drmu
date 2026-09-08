@@ -2721,6 +2721,17 @@ drmu_conn_is_writeback(const drmu_conn_t * const dn)
     return dn->conn.connector_type == DRM_MODE_CONNECTOR_WRITEBACK;
 }
 
+drmu_tri_t
+drmu_conn_is_live(const drmu_conn_t * const dn)
+{
+    // DRM_xxx definitions for this seem lacking from the uapi!
+    // Can be found in a linux tree in include/drm/drm_connector.h
+    // or xf86drmMode.h which we are trying to avoid as a dependancy
+    return dn->conn.connection == 1 ? DRMU_TRI_TRUE :
+        dn->conn.connection == 2 ? DRMU_TRI_FALSE :
+            DRMU_TRI_UNKNOWN; // connection == 3
+}
+
 const char *
 drmu_conn_name(const drmu_conn_t * const dn)
 {
