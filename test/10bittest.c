@@ -7,6 +7,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -633,6 +634,8 @@ list_fmts(drmu_env_t * const du)
     unsigned int prev_fcnt = 0;
     unsigned int prev_n = 0;
 
+    printf("Test: List formats\n");
+
     for (n = 0; (dp = drmu_env_plane_find_n(du, n)) != NULL; ++n) {
         unsigned int fcnt = 0;
         const uint32_t * fmts = drmu_plane_formats(dp, &fcnt);
@@ -663,6 +666,41 @@ list_fmts(drmu_env_t * const du)
 
 }
 
+static void
+list_conns()
+{
+    drmu_scan_t * dscan;
+    const char * path;
+
+    printf("Test: List connectors:\n");
+
+    for (dscan = drmu_scan_new(NULL); (path = drmu_scan_path(dscan)) != NULL; drmu_scan_next(dscan))  {
+        int fd;
+        drmu_env_t * du;
+        drmu_conn_t * dn;
+        unsigned int i;
+
+        printf("Card %s:\n", path);
+
+        if ((fd = open(path, O_RDWR)) == -1) {
+            printf("  Cannot open: %s\n", strerror(errno));
+            continue;
+        }
+
+        if ((du = drmu_env_new_fd(fd, NULL)) == NULL) {
+            printf("  Cannot create drmu environment\n");
+            continue;
+        }
+
+        for (i = 0; (dn = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
+            drmu_tri_t live = drmu_conn_is_live(dn);
+            printf("  [%d] %-16s %s\n", i, drmu_conn_name(dn),
+                   live == DRMU_TRI_TRUE ? "Connected" : live == DRMU_TRI_FALSE ? "" : "Unknown");
+        }
+
+        drmu_env_unref(&du);
+    }
+}
 
 typedef struct writeback_env_s {
     drmu_writeback_env_t * wbe;
@@ -704,8 +742,12 @@ drmu_log_stderr_cb(void * v, enum drmu_log_level_e level, const char * fmt, va_l
 static void
 usage()
 {
-    printf("Usage: 10bittest [-M <module>] [-P <pixfmt>] [-g|-p|-f <y>,<u>,<v>] [-y] [-8]\n"
-           "                 [-C <conn name>] [-c <colourspace>] [-v] [<w>x<h>][@<hz>]\n\n"
+    printf("Usage: 10bittest [opt]^ [<w>x<h>][@<hz>]\n"
+           "\n"
+           "Run a test: default is 10 bit colour stripes\n"
+           "Hit return to exit\n"
+           "Sets mode to <w>x<h> @ <hz> refresh if given and appropriate for the test\n"
+           "\n"
            "-8  keep max_bpc 8\n"
            "--alpha\n"
            "    Alpha blend test\n"
@@ -715,6 +757,8 @@ usage()
            "-C <conn name>\n"
            "    Use connection name\n"
            "-c  set con colorspace to (string) <colourspace>\n"
+           "--connectors\n"
+           "    list all connectors we can use and the cards they are on\n"
            "-e <encoding>\n"
            "    set encoding of frame buffer (YUV only): 609, 709, 2020 (default)\n"
            "-f <a>,<b>,<c>,<d>\n"
@@ -755,8 +799,6 @@ usage()
            "--wbfmt <fmt>\n"
            "    Set writeback buffer format (fourcc or name)\n"
            "-y  Use SAND30 frame buffer\n"
-           "\n"
-           "Hit return to exit\n"
            "\n"
            "Stripes have values incrementing as for 8-bit data at the top and\n"
            "incrementing for 10-bit at the bottom\n"
@@ -837,6 +879,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_SRC_FMT
     },
+#define OPT_LIST_CONNS 266
+    {
+        .name = "connectors",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_LIST_CONNS
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -855,6 +904,7 @@ enum test_type_e {
     TEST_SCALEUP,
     TEST_LIST_FORMATS,
     TEST_FILE,
+    TEST_LIST_CONNS,
 };
 
 int main(int argc, char *argv[])
@@ -923,6 +973,9 @@ int main(int argc, char *argv[])
                 break;
             case OPT_LIST_FORMATS:
                 test_type = TEST_LIST_FORMATS;
+                break;
+            case OPT_LIST_CONNS:
+                test_type = TEST_LIST_CONNS;
                 break;
             case OPT_SIZE:
             {
@@ -1094,6 +1147,11 @@ int main(int argc, char *argv[])
 
     if (range == NULL)
         range = default_range;
+
+    if (test_type == TEST_LIST_CONNS) {
+        list_conns();
+        goto done_du_dout;
+    }
 
     if (broadcast_rgb == NULL)
         broadcast_rgb = drmu_color_range_to_broadcast_rgb(range);
