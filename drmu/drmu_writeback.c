@@ -80,11 +80,6 @@ drmu_writeback_env_new(struct drmu_env_s * const du)
         goto fail;
     }
 
-    if (drmu_output_modeset_allow(wbe->dout, true) != 0) {
-        drmu_err(du, "Failed to allow modeset");
-        goto fail;
-    }
-
     if (drmu_output_add_writeback(wbe->dout) != 0) {
         drmu_err(du, "Failed to add writeback");
         goto fail;
