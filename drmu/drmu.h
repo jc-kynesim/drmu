@@ -73,6 +73,12 @@ typedef enum drmu_isset_e {
     DRMU_ISSET_SET,        // Thing has valid data
 } drmu_isset_t;
 
+typedef enum drmu_tri_e {
+    DRMU_TRI_UNKNOWN = -1,
+    DRMU_TRI_FALSE = 0,
+    DRMU_TRI_TRUE = 1,
+} drmu_tri_t;
+
 // Blob
 
 void drmu_blob_unref(drmu_blob_t ** const ppBlob);
