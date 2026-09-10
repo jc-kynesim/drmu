@@ -371,6 +371,11 @@ bool drmu_conn_has_hi_bpc(const drmu_conn_t * const dn);
 // False set max_bpc to 8, true max value
 int drmu_atomic_conn_add_hi_bpc(struct drmu_atomic_s * const da, drmu_conn_t * const dn, bool hi_bpc);
 
+// Is this connector attached to a live display?
+// This is a stored state from startup and does not track the actual state
+// N.B. Returns a tristate value
+drmu_tri_t drmu_conn_is_live(const drmu_conn_t * const dn);
+
 int drmu_atomic_conn_add_colorspace(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const drmu_colorspace_t colorspace);
 int drmu_atomic_conn_add_broadcast_rgb(struct drmu_atomic_s * const da, drmu_conn_t * const dn, const drmu_broadcast_rgb_t bcrgb);
 
