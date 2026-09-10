@@ -1105,8 +1105,10 @@ int main(int argc, char *argv[])
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
         if (conn_name) {
-            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0)
+            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0) {
+                printf("Failed to find output for conn '%s'\n", conn_name);
                 goto fail;
+            }
             conn_added = true;
         }
         else if (
