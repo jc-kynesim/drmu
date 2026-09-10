@@ -87,6 +87,7 @@ int drmu_atomic_output_add_writeback_fb_callback(drmu_atomic_t * const da_out, d
                                     drmu_fb_fence_fd_fn * const fn, void * const v);
 
 // Add a writeback connector & find a crtc for it
+// Sets _modeset_allow as it is always needed for writeback
 int drmu_output_add_writeback(drmu_output_t * const dout);
 
 // Conn & CRTC for when output isn't fine grained enough

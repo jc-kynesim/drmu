@@ -436,6 +436,7 @@ drmu_output_add_output(drmu_output_t * const dout, const char * const conn_name)
 int
 drmu_output_add_writeback(drmu_output_t * const dout)
 {
+    drmu_output_modeset_allow(dout, true);
     return drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_WRITEBACK | DRMU_OUTPUT_FLAG_ADD_ANY);
 }
 
