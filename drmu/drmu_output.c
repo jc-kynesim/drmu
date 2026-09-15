@@ -538,7 +538,7 @@ drmu_output_conn(const drmu_output_t * const dout, const unsigned int n)
 drmu_env_t *
 drmu_output_env(const drmu_output_t * const dout)
 {
-    return dout->du;
+    return !dout ? NULL : dout->du;
 }
 
 static void
