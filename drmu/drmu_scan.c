@@ -228,35 +228,47 @@ int
 drmu_scan_output(const char * const conn_name, const drmu_log_env_t * const dlog,
                  drmu_env_t ** const pDu, drmu_output_t ** const pDoutput)
 {
-    drmu_scan_t * dscan = drmu_scan_new(dlog);
+    drmu_scan_t * dscan;
     drmu_env_t * du;
-    int rv = -ENOENT;
+    drmu_output_t * dout_best = NULL;
+    int score_best = 0;
 
     *pDu = NULL;
     *pDoutput = NULL;
 
     for (dscan = drmu_scan_new(dlog); (du = drmu_scan_du(dscan)) != NULL; drmu_scan_next(dscan)) {
         drmu_output_t * dout = NULL;
+        int score;
 
         if ((dout = drmu_output_new(du)) == NULL) {
-            drmu_debug_log(dlog, "Cannot create output");
+            drmu_debug(du, "Cannot create output");
         }
-        else if (drmu_output_add_output(dout, conn_name) != 0) {
-            drmu_debug_log(dlog, "Could not add output for conn '%s'", conn_name);
+        else if ((score = drmu_output_add_output2(dout, conn_name,
+                                                  DRMU_OUTPUT_FLAG_ADD_SCORE_GT(score_best))) < 0) {
+            drmu_debug(du, "Could not add output for conn '%s'", conn_name);
         }
         else {
-            drmu_debug_log(dlog, "Added output OK");
-            *pDu = du;
-            *pDoutput = dout;
-            rv = 0;
-            break;
+            drmu_debug(du, "Added output OK");
+            drmu_output_unref(&dout_best);
+            dout_best = drmu_output_ref(dout);
+            score_best = score;
         }
 
         drmu_output_unref(&dout);
         drmu_env_unref(&du);
+
+        // We aren't going to do better than this - might as well stop now
+        if (score == DRMU_OUTPUT_ADD_SCORE_MAX)
+            break;
     }
 
     drmu_scan_unref(&dscan);
-    return rv;
+
+    if (dout_best == NULL)
+        return -ENOENT;
+
+    *pDu = drmu_env_ref(drmu_output_env(dout_best));
+    *pDoutput = dout_best;
+    return 0;
 }
 
