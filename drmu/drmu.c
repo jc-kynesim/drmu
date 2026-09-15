@@ -2189,6 +2189,7 @@ static void
 crtc_uninit(drmu_crtc_t * const dc)
 {
     drmu_prop_range_delete(&dc->pid.active);
+    drmu_prop_range_delete(&dc->pid.background_color);
     drmu_blob_unref(&dc->mode_id_blob);
 }
 
