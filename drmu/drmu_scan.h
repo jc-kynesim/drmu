@@ -29,8 +29,10 @@ struct drmu_env_s * drmu_scan_du(drmu_scan_t * const dscan);
 // Move to next path
 // Returns 0 if found, -ENOENT if no more
 int drmu_scan_next(drmu_scan_t * const dscan);
-
+// Unref the scan, delete if no more refs
 void drmu_scan_unref(drmu_scan_t ** const ppdscan);
+// Ref the scan, NULL valid, cannot fail
+drmu_scan_t * drmu_scan_ref(drmu_scan_t * const dscan);
 
 // Scan /dev/drv/card* in numeric order looking for a device with the given conn_name
 // as a connected connector. conn_name is prefix matched only so "DP" will likely match

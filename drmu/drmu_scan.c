@@ -1,9 +1,11 @@
 #include "drmu_scan.h"
 
+#include <assert.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,7 @@ typedef struct card_list_s {
 } card_list_t;
 
 struct drmu_scan_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
     const drmu_log_env_t * dlog;
     card_list_t cl;
     unsigned int cur_idx;
@@ -126,12 +129,26 @@ void
 drmu_scan_unref(drmu_scan_t ** const ppdscan)
 {
     drmu_scan_t *const dscan = *ppdscan;
+    int n;
 
     if (dscan == NULL)
         return;
     *ppdscan = NULL;
 
+    n = atomic_fetch_sub(&dscan->ref_count, 1);
+    assert(n >= 0);
+    if (n != 0)
+        return;
+
     scan_free(dscan);
+}
+
+drmu_scan_t *
+drmu_scan_ref(drmu_scan_t * const dscan)
+{
+    if (dscan != NULL)
+        atomic_fetch_add(&dscan->ref_count, 1);
+    return dscan;
 }
 
 static bool
@@ -194,6 +211,7 @@ drmu_scan_new(const drmu_log_env_t * const dlog)
     if (dscan == NULL)
         return NULL;
 
+    atomic_init(&dscan->ref_count, 0);
     dscan->dlog = dlog == NULL ? &drmu_log_env_none : dlog;
 
     if (card_list_scan(&dscan->cl, dscan->dlog) != 0)
