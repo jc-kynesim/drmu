@@ -3449,6 +3449,8 @@ typedef struct drmu_env_s {
 
     drmu_env_post_delete_fn post_delete_fn;
     void * post_delete_v;
+
+    struct drm_version version;
 } drmu_env_t;
 
 // Retrieve the the n-th conn
@@ -3657,6 +3659,8 @@ env_free(drmu_env_t * const du)
     env_free_conns(du);
     env_free_crtcs(du);
     drmu_bo_env_uninit(&du->boe);
+    free(du->version.name);
+    free(du->version.desc);
     pthread_mutex_destroy(&du->lock);
 
     {
@@ -3857,6 +3861,36 @@ drmu_env_int_poll_get(drmu_env_t * const du)
     return pe;
 }
 
+const char *
+drmu_env_name(const drmu_env_t * const du)
+{
+    return du == NULL ? "<null>" : du->version.name;
+}
+
+const char *
+drmu_env_desc(const drmu_env_t * const du)
+{
+    return du == NULL ? "<null>" : du->version.desc;
+}
+
+int
+drmu_env_ver_major(const drmu_env_t * const du)
+{
+    return du == NULL ? 0 : du->version.version_major;
+}
+
+int
+drmu_env_ver_minor(const drmu_env_t * const du)
+{
+    return du == NULL ? 0 : du->version.version_minor;
+}
+
+int
+drmu_env_ver_patch(const drmu_env_t * const du)
+{
+    return du == NULL ? 0 : du->version.version_patchlevel;
+}
+
 // Closes fd on failure
 drmu_env_t *
 drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
@@ -3881,6 +3915,26 @@ drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
 
     pthread_mutex_init(&du->lock, NULL);
     drmu_bo_env_init(&du->boe);
+
+    // Version has a date field but it seems to contain rubbish at best
+    // so ignore it.
+    if (drmu_ioctl(du, DRM_IOCTL_VERSION, &du->version) != 0) {
+        drmu_debug(du, "Failed to get version info");
+        goto fail1;
+    }
+    if (io_alloc(du->version.name, du->version.name_len + 1) == 0 ||
+        io_alloc(du->version.desc, du->version.desc_len + 1) == 0) {
+        drmu_err(du, "Failed to alloc memory for version");
+        goto fail1;
+    }
+    du->version.date_len = 0; // Ignore
+    if (drmu_ioctl(du, DRM_IOCTL_VERSION, &du->version) != 0) {
+        drmu_err(du, "Failed to get version info 2nd time!");
+        goto fail1;
+    }
+    // Doesn't appear to be zero terminated from ioctl so make it so
+    du->version.name[du->version.name_len] = 0;
+    du->version.desc[du->version.desc_len] = 0;
 
     // We need atomic for almost everything we do
     if (env_set_client_cap(du, DRM_CLIENT_CAP_ATOMIC, 1) != 0) {
