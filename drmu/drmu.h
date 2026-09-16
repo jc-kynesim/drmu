@@ -604,6 +604,13 @@ int drmu_atomic_env_restore_add_snapshot(struct drmu_atomic_s ** const ppda);
 // a poll shutdown function. Leaves restore disabled.
 void drmu_env_int_restore(drmu_env_t * const du);
 
+// Module name & version info
+const char * drmu_env_name(const drmu_env_t * const du);
+const char * drmu_env_desc(const drmu_env_t * const du);
+int drmu_env_ver_major(const drmu_env_t * const du);
+int drmu_env_ver_minor(const drmu_env_t * const du);
+int drmu_env_ver_patch(const drmu_env_t * const du);
+
 // Open a drmu environment with the drm fd
 // Takes a logging structure so early errors can be reported. The logging
 // environment is copied so does not have to be valid for greater than the
