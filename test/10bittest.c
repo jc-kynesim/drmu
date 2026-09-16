@@ -698,12 +698,25 @@ list_conns()
 
         for (i = 0; (dn = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
             drmu_tri_t live = drmu_conn_is_live(dn);
-            printf("    [%d] %-16s %s\n", i, drmu_conn_name(dn),
-                   live == DRMU_TRI_TRUE ? "Connected" : live == DRMU_TRI_FALSE ? "" : "Unknown");
+            unsigned int crtc_id = drmu_conn_crtc_id_get(dn);
+
+            printf("    [%d] %-16s ", i, drmu_conn_name(dn));
+            if (crtc_id == 0)
+                printf("             ");
+            else
+                printf("crtc_id=%-5d", crtc_id);
+            if (live != DRMU_TRI_FALSE) {
+                if (live == DRMU_TRI_TRUE)
+                    printf("Connected");
+                else
+                    printf("Unknown");
+            }
+            printf("\n");
         }
 
         drmu_env_unref(&du);
     }
+    drmu_scan_unref(&dscan);
 }
 
 typedef struct writeback_env_s {
