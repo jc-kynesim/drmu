@@ -1031,8 +1031,8 @@ int main(int argc, char *argv[])
                 }
                 break;
             case 'C':
-                    conn_name = optarg;
-                    break;
+                conn_name = optarg;
+                break;
             case 'c':
                 colorspace = optarg;
                 break;
