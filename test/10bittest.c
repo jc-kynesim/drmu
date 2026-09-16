@@ -30,8 +30,6 @@
 
 #define TRACE_ALL 0
 
-#define DRM_MODULE "vc4"
-
 #define STRIPES (7 * 4 * 2)
 #define SWIDTH 256
 
@@ -788,7 +786,7 @@ usage()
            "-m  Use 1 buffer per plane when constructing the FB\n"
            "    rather than 1 buffer with offsets (the default)\n"
            "-M <module name>\n"
-           "    drm module name, default: " DRM_MODULE "\n"
+           "    drm module name\n"
            "--md5\n"
            "    Calculate the MD5 of the writeback image\n"
            "-p  pinstripes\n"
@@ -938,7 +936,7 @@ int main(int argc, char *argv[])
     const drmu_fmt_info_t * fi = NULL;
     uint32_t p1fmt = DRM_FORMAT_ABGR2101010;
     uint64_t p1mod = DRM_FORMAT_MOD_LINEAR;
-    const char * drm_device = DRM_MODULE;
+    const char * drm_device = NULL;
     const char * conn_name = NULL;
     drmu_mode_simple_params_t mp = {0};
     drmu_colorspace_t colorspace = DRMU_COLORSPACE_BT2020_RGB;
@@ -957,7 +955,6 @@ int main(int argc, char *argv[])
     unsigned int rotation = DRMU_ROTATION_0;
     uint32_t wbfmt = 0;
     bool multi = false;
-    bool conn_added = false;
     bool hdr_block = false;
     bool wants_md5 = false;
     int verbose = 0;
@@ -1173,28 +1170,37 @@ int main(int argc, char *argv[])
     if (broadcast_rgb == NULL)
         broadcast_rgb = drmu_color_range_to_broadcast_rgb(range);
 
+    // Try to obtain a drmu env
     {
         const drmu_log_env_t log = {
             .fn = drmu_log_stderr_cb,
             .v = NULL,
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
-        if (conn_name) {
-            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0) {
-                printf("Failed to find output for conn '%s'\n", conn_name);
+
+        if (du == NULL && drm_device != NULL) {
+            if ((du = drmu_env_new_open(drm_device, &log)) == NULL) {
+                printf("Failed to open module '%s'\n", drm_device);
                 goto fail;
             }
-            conn_added = true;
         }
-        else if (
 #if HAS_WAYLEASE
-            (du = drmu_env_new_waylease(&log)) == NULL &&
+        if (du == NULL && getenv("WAYLAND_DISPLAY") != NULL)
+            du = drmu_env_new_waylease(&log);
 #endif
 #if HAS_XLEASE
-            (du = drmu_env_new_xlease(&log)) == NULL &&
+        if (du == NULL && getenv("DISPLAY") != NULL)
+            du = drmu_env_new_xlease(&log);
 #endif
-            (du = drmu_env_new_open(drm_device, &log)) == NULL)
-            goto fail;
+        if (du == NULL) {
+            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0) {
+                if (conn_name)
+                    printf("Failed to find output for conn '%s'\n", conn_name);
+                else
+                    printf("Failed to a usable DRM device\n");
+                goto fail;
+            }
+        }
     }
 
     if (test_type == TEST_LIST_FORMATS) {
@@ -1206,7 +1212,7 @@ int main(int argc, char *argv[])
 
     da = drmu_atomic_new(du);
 
-    if (!conn_added && (dout = drmu_output_new(du)) == NULL)
+    if (dout == NULL && (dout = drmu_output_new(du)) == NULL)
         goto fail;
 
     drmu_output_max_bpc_allow(dout, true);
@@ -1215,13 +1221,19 @@ int main(int argc, char *argv[])
     if (try_writeback) {
         if ((wbe.wbe = drmu_writeback_env_new(du)) == NULL) {
             fprintf(stderr, "Failed to create writeback env\n");
-            return -1;
-        }
-        dout = drmu_writeback_env_output(wbe.wbe);
-    }
-    else if (!conn_added) {
-        if (drmu_output_add_output2(dout, NULL, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0)
             goto fail;
+        }
+        wbe.dout2 = dout;
+        if ((dout = drmu_writeback_env_output(wbe.wbe)) == NULL) {
+            fprintf(stderr, "Failed to create writeback output\n");
+            goto fail;
+        }
+    }
+    else if (drmu_output_crtc(dout) == NULL) {
+        if (drmu_output_add_output2(dout, conn_name, DRMU_OUTPUT_FLAG_ADD_DISCONNECTED) != 0) {
+            printf("Failed to add %s connector\n", conn_name == NULL ? "any" : conn_name);
+            goto fail;
+        }
     }
     dc = drmu_output_crtc(dout);
     dn = drmu_output_conn(dout, 0);
@@ -1237,7 +1249,7 @@ int main(int argc, char *argv[])
 
         wbe.dest_rect = drmu_rect_wh(mp.width, mp.height);
 
-        if (show_writeback != 0) {
+        if (show_writeback != 0 && wbe.dout2 == NULL) {
             if ((wbe.dout2 = drmu_output_new(du)) == NULL) {
                 printf("Failed to create output 2\n");
                 goto fail;
