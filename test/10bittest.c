@@ -692,9 +692,13 @@ list_conns()
             continue;
         }
 
+        printf("  %s %d.%d.%d (%s)\n", drmu_env_name(du),
+               drmu_env_ver_major(du), drmu_env_ver_minor(du), drmu_env_ver_patch(du),
+               drmu_env_desc(du));
+
         for (i = 0; (dn = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
             drmu_tri_t live = drmu_conn_is_live(dn);
-            printf("  [%d] %-16s %s\n", i, drmu_conn_name(dn),
+            printf("    [%d] %-16s %s\n", i, drmu_conn_name(dn),
                    live == DRMU_TRI_TRUE ? "Connected" : live == DRMU_TRI_FALSE ? "" : "Unknown");
         }
 
