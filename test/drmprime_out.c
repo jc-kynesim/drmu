@@ -48,6 +48,7 @@
 #include "drmu_output.h"
 #include "drmu_pool.h"
 #include "drmu_util.h"
+#include "drmu_scan.h"
 #include "drmu_writeback.h"
 
 #include "cube/runcube.h"
@@ -126,20 +127,24 @@ drmprime_out_env_t* drmprime_out_new()
             .v = NULL,
             .max_level = DRMU_LOG_LEVEL_ALL
         };
-        if (
 #if HAS_XLEASE
-            (dpo->du = drmu_env_new_xlease(&log)) == NULL &&
+        if (dpo->du == NULL && getenv("DISPLAY") != NULL)
+            dpo->du = drmu_env_new_xlease(&log);
 #endif
-            (dpo->du = drmu_env_new_open(DRM_MODULE, &log)) == NULL)
-            goto fail;
+        if (dpo->du == NULL) {
+            if (drmu_scan_output(NULL, &log, &dpo->du, &dpo->dout) != 0)
+                goto fail;
+        }
     }
     drmu_env_restore_enable(dpo->du);
 
-    if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
-        goto fail;
+    if (dpo->dout == NULL) {
+        if ((dpo->dout = drmu_output_new(dpo->du)) == NULL)
+            goto fail;
 
-    if (drmu_output_add_output(dpo->dout, NULL) != 0)
-        goto fail;
+        if (drmu_output_add_output(dpo->dout, NULL) != 0)
+            goto fail;
+    }
 
     drmu_output_max_bpc_allow(dpo->dout, true);
 
@@ -661,8 +666,10 @@ drmprime_video_env_t* drmprime_video_new(drmprime_out_env_t * const dpo)
         goto fail;
     }
 
-    if ((de->pic_pool = drmu_pool_new_dmabuf_video(de->du, 32)) == NULL)
+    if ((de->pic_pool = drmu_pool_new_dmabuf_video(de->du, 32)) == NULL) {
+        fprintf(stderr, "Failed to get dmabuf pool\n");
         goto fail;
+    }
 
     // Plane allocation delayed till we have a format - not all planes are idempotent
 
