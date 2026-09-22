@@ -12,6 +12,8 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <memory.h>
 
@@ -25,6 +27,7 @@
 #include "drmu_util.h"
 #include "drmu_writeback.h"
 
+#include "fb_dump_bmp.h"
 #include "plane16.h"
 #include "md5util.h"
 
@@ -174,6 +177,15 @@ plane16_to_fb_generic(drmu_fb_t * const fb,
 
     plane16_to_generic(dst_datas, dst_strides, fi, src, stride, a.w, a.h);
     return 0;
+}
+
+// Case insensitive test of the tail of fname against suffix
+static bool
+has_suffix(const char * const fname, const char * const suffix)
+{
+    const size_t nlen = strlen(fname);
+    const size_t slen = strlen(suffix);
+    return nlen >= slen && strcasecmp(fname + nlen - slen, suffix) == 0;
 }
 
 int
@@ -809,8 +821,13 @@ usage()
            "-T  if using writeback transpose the result through the connector\n"
            "-v  verbose\n"
            "-w  write to writeback rather than screen, then writen to wb.rgb\n"
+           "    (see --wbfile)\n"
            "-W  as -w but display the result onscreen too\n"
            "-WW Use single FB writeback rather than whole atomic\n"
+           "--wbfile <filename>\n"
+           "    Set writeback dump filename (default wb.rgb)\n"
+           "    If it has a .bmp suffix then a BMP is written rather than raw\n"
+           "    pixel data; this requires a non-subsampled RGB writeback format\n"
            "--wbfmt <fmt>\n"
            "    Set writeback buffer format (fourcc or name)\n"
            "-y  Use SAND30 frame buffer\n"
@@ -901,6 +918,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_LIST_CONNS
     },
+#define OPT_WBFILE 267
+    {
+        .name = "wbfile",
+        .has_arg = 1,
+        .flag = NULL,
+        .val = OPT_WBFILE
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -967,6 +991,7 @@ int main(int argc, char *argv[])
     long size_scale = 100;
     drmu_rect_t src_rect = {0};
     const char * raw_filename = NULL;
+    const char * wb_filename = "wb.rgb";
     const drmu_fmt_info_t * src_fi = 0;
 
     while ((c = getopt_long(argc, argv, "8C:c:e:f:FgHpM:mP:r:R:sTvwWy", longopts, NULL)) != -1) {
@@ -984,6 +1009,9 @@ int main(int argc, char *argv[])
                     exit(1);
                 }
                 wbfmt = drmu_fmt_info_fourcc(fi);
+                break;
+            case OPT_WBFILE:
+                wb_filename = optarg;
                 break;
             case OPT_LIST_FORMATS:
                 test_type = TEST_LIST_FORMATS;
@@ -1552,8 +1580,10 @@ int main(int argc, char *argv[])
         }
 
         {
-            const char * wb_filename = "wb.rgb";
-            if ((rv = fb_dump_to_file(wb_filename, fb2)) != 0)
+            rv = has_suffix(wb_filename, ".bmp") ?
+                fb_dump_to_bmp(wb_filename, fb2) :
+                fb_dump_to_file(wb_filename, fb2);
+            if (rv != 0)
                 fprintf(stderr, "Failed to write writeback file '%s': %s\n", wb_filename, strerror(-rv));
             else
                 printf("Writeback buffer written to %s\n", wb_filename);
