@@ -22,7 +22,14 @@ void drmu_dmabuf_env_unref(drmu_dmabuf_env_t ** const ppdde);
 // or on creation error so dup if it is needed to survive the pool
 drmu_dmabuf_env_t * drmu_dmabuf_env_new_fd(struct drmu_env_s * const du, int fd);
 
+// Create a dmabuf env that allocates from /dev/dma_heap/*
+// On a Pi will pick the correct device for video frames
 drmu_dmabuf_env_t * drmu_dmabuf_env_new_video(struct drmu_env_s * const du);
+
+// Create a dmabuf env that allocates via /dev/udmabuf
+// Beware that this will not allocate CMA so may not work where this is
+// required e.g. Pi
+drmu_dmabuf_env_t * drmu_dmabuf_env_new_udmabuf(struct drmu_env_s * const du);
 
 // Construct an fb pool from dmabufs
 // A reference to dde is held by the pool so it is safe to unref immediately

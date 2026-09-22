@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "drmu_dmabuf.h"
 
 #include <errno.h>
@@ -11,6 +12,7 @@
 
 #include <linux/mman.h>
 #include <linux/dma-heap.h>
+#include <linux/udmabuf.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
@@ -19,12 +21,68 @@
 #include "drmu_log.h"
 #include "drmu_pool.h"
 
+typedef enum drmu_dmabuf_type_e {
+    DRMU_DMABUF_TYPE_DMA_HEAP,
+    DRMU_DMABUF_TYPE_UDMABUF,
+} drmu_dmabuf_type_t;
+
 struct drmu_dmabuf_env_s {
     atomic_int ref_count;
     drmu_env_t * du;
+    drmu_dmabuf_type_t type;
     int fd;
     size_t page_size;
 };
+
+static int buf_udma_alloc(drmu_dmabuf_env_t * const dde, struct dma_heap_allocation_data * const data)
+{
+    int err;
+    int fd;
+    int fd2;
+    struct udmabuf_create udc = {
+        .memfd = -1,
+        .flags = UDMABUF_FLAGS_CLOEXEC,
+        .offset = 0,
+        .size = data->len
+    };
+
+    if ((fd = memfd_create("drmu-dmabuf", MFD_CLOEXEC | MFD_ALLOW_SEALING)) == -1) {
+        err = -errno;
+        drmu_debug(dde->du, "%s: Failed to alloc memfd\n", __func__);
+        goto fail0;
+    }
+
+    if (ftruncate(fd, data->len) == -1) {
+        err = -errno;
+        drmu_debug(dde->du, "%s: Failed to resize memfd to %zd\n", __func__, (size_t)data->len);
+        goto fail_mfd;
+    }
+
+    if (fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK) < 0) {
+        err = -errno;
+        drmu_debug(dde->du, "%s: Failed to seal memfd\n", __func__);
+        goto fail_mfd;
+    }
+
+    udc.memfd = fd;
+    while ((fd2 = ioctl(dde->fd, UDMABUF_CREATE, &udc)) == -1) {
+        err = -errno;
+        if (err != -EINTR) {
+            drmu_debug(dde->du, "%s: Failed udambuf create\n", __func__);
+            goto fail_mfd;
+        }
+    }
+    data->fd = fd2;
+
+    close(fd);
+    return 0;
+
+fail_mfd:
+    close(fd);
+fail0:
+    return err;
+
+}
 
 drmu_fb_t *
 drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const uint32_t h, const uint32_t format, const uint64_t mod)
@@ -69,13 +127,24 @@ drmu_fb_new_dmabuf_mod(drmu_dmabuf_env_t * const dde, const uint32_t w, const ui
         void * map_ptr;
         drmu_bo_t * bo;
 
-        while (ioctl(dde->fd, DMA_HEAP_IOCTL_ALLOC, &data)) {
-            const int err = errno;
-            if (err == EINTR)
-                continue;
-            drmu_err(dde->du, "Failed to alloc %" PRIu64 " from dma-heap(fd=%d): %d (%s)",
-                    (uint64_t)data.len, dde->fd, err, strerror(err));
-            goto fail;
+        if (dde->type == DRMU_DMABUF_TYPE_DMA_HEAP) {
+            while (ioctl(dde->fd, DMA_HEAP_IOCTL_ALLOC, &data)) {
+                const int err = errno;
+                if (err == EINTR)
+                    continue;
+                drmu_err(dde->du, "Failed to alloc %" PRIu64 " from dma-heap(fd=%d): %d (%s)",
+                        (uint64_t)data.len, dde->fd, err, strerror(err));
+                goto fail;
+            }
+        }
+        else {
+            // Must be udmabuf
+            int err;
+            if ((err = buf_udma_alloc(dde, &data)) != 0) {
+                drmu_err(dde->du, "Failed to alloc %" PRIu64 " from dma-heap(fd=%d): %d (%s)",
+                        (uint64_t)data.len, dde->fd, err, strerror(err));
+                goto fail;
+            }
         }
 
         drmu_fb_int_fd_set(fb, 0, data.fd);
@@ -158,6 +227,29 @@ drmu_dmabuf_env_new_fd(struct drmu_env_s * const du, const int fd)
 }
 
 drmu_dmabuf_env_t *
+drmu_dmabuf_env_new_udmabuf(struct drmu_env_s * const du)
+{
+    int fd;
+    drmu_dmabuf_env_t * dde;
+
+    while ((fd = open("/dev/udmabuf", O_RDWR | __O_CLOEXEC)) == -1 &&
+           errno == EINTR)
+        /* Loop */;
+
+    if (fd == -1) {
+        drmu_err(du, "Failed to open udmabuf: %s", strerror(errno));
+        return NULL;
+    }
+
+    if ((dde = drmu_dmabuf_env_new_fd(du, fd)) == NULL) {
+        return NULL;
+    }
+
+    dde->type = DRMU_DMABUF_TYPE_UDMABUF;
+    return dde;
+}
+
+drmu_dmabuf_env_t *
 drmu_dmabuf_env_new_video(struct drmu_env_s * const du)
 {
     static const char * const names[] = {
@@ -171,8 +263,10 @@ drmu_dmabuf_env_new_video(struct drmu_env_s * const du)
     for (pfname = names; *pfname != NULL; ++pfname) {
         const int fd = open(*pfname, O_RDWR | O_CLOEXEC);
         drmu_dmabuf_env_t * const dde = drmu_dmabuf_env_new_fd(du, fd);
-        if (dde != NULL)
+        if (dde != NULL) {
+            dde->type = DRMU_DMABUF_TYPE_DMA_HEAP;
             return dde;
+        }
     }
     return NULL;
 }
