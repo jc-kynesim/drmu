@@ -1725,6 +1725,276 @@ fail:
     return NULL;
 }
 
+typedef struct drmu_fb_alloc_fns_s {
+    // env      allocation env
+    // bpp      bits per pixel (multiple of 8)
+    // pWidth   pointer to width, may be updated if rounding required for some reason
+    // pHeight  pointer to height, may be updated if rounding required for some reason
+    // pSize    set to total size
+    //
+    // Returns buffer env
+    void * (* alloc_buf)(void * env, unsigned int bpp, unsigned int * pWidth, unsigned int *pHeight,
+                         unsigned int * pPitch, size_t * pSize);
+    void * (* buf_mmap)(void * buf);
+    drmu_bo_t * (* buf_bo)(void * buf);
+    unsigned int (* buf_fd)(void * buf);
+    void (* buf_free)(void * v);
+
+    void (* env_free)(void * v);
+} drmu_fb_alloc_fns_t;
+
+// A containter for all the sorts of backing buffer
+
+typedef struct drmu_benv_s {
+    atomic_int ref_count;
+
+    drmu_fb_alloc_fns_t * fns;
+    void * fn_v;
+} drmu_benv_t;
+
+static void
+benv_free(drmu_benv_t * benv)
+{
+    free(benv);
+}
+
+void
+drmu_benv_unref(drmu_benv_t ** const ppBenv)
+{
+    drmu_benv_t * const benv = *ppBenv;
+
+    if (benv == NULL)
+        return;
+    *ppBenv = NULL;
+
+    if (atomic_fetch_sub(&benv, 1) != 0)
+        return;
+
+    benv_free(benv);
+}
+
+drmu_benv_t *
+drmu_benv_ref(drmu_benv_t * const benv)
+{
+    if (benv == NULL)
+        return NULL;
+    atomic_fetch_add(&benc->ref_count, 1);
+    return benv;
+}
+
+drmu_benv_t *
+drmu_benv_new(drmu_env_t * const du, const drmu_fb_alloc_fns_t * const fns, void * const fn_v)
+{
+    drmu_benv_t * benv = calloc(1, sizeof(*benv));
+
+    if (benv == NULL)
+        return NULL;
+
+    atomic_init(&benv->ref_count, 0);
+    benv->fns = fns;
+    benv->fn_v = fn_v;
+
+    return benv;
+}
+
+typedef struct drmu_buf_s {
+    atomic_int ref_count;
+
+    drmu_benv_t * benv;
+    void * abuf;
+
+    size_t size;
+} drmu_buf_t;
+
+static void
+dbuf_free(drmu_buf_t * dbuf)
+{
+    fns->buf_free(dbuf->abuf);
+    drmu_benv_unref(&dbuf->benv);
+    free(dbuf);
+}
+
+drmu_buf_t *
+drmu_buf_new(drmu_benv_t * const benv,
+             unsigned int bpp, unsigned int * pWidth, unsigned int * pHeight,
+             unsigned int * pPitch)
+{
+    drmu_buf_t * dbuf = calloc(1, sizeof(*dbuf));
+
+    if (dbuf == NULL)
+        return NULL;
+
+    atomic_init(&dbuf->ref_count);
+    dbuf->benv = drmu_benv_ref(benv);
+
+    if ((dbuf->abuf = benv->fns->alloc_buf(benv->fn_v, bpp, pWidth, pHeight, pPitch, &dbuf->size)) == NULL)
+        goto fail;
+
+    return dbuf;
+
+fail:
+    dbuf_free(dbuf);
+    return NULL;
+}
+
+void
+drmu_buf_unref(drmu_buf_t ** ppDbuf)
+{
+    drmu_buf_t * const dbuf = *ppDbuf;
+
+    if (dbuf == NULL)
+        return;
+    *ppDbuf = NULL;
+
+    if (atomic_fetch_sub(&dbuf->ref_count, 1) != 0)
+        return;
+
+    dbuf_free(dbuf);
+}
+
+drmu_bo_t *
+drmu_buf_bo(drmu_buf_t * const dbuf)
+{
+    if (dbuf == NULL)
+        return NULL;
+
+    return dbuf->benv->fns->buf_bo(dbuf);
+}
+
+int
+drmu_buf_fd(drmu_buf_t * const dbuf)
+{
+    if (dbuf == NULL)
+        return -1;
+
+    return dbuf->benv->fns->buf_fd(dbuf);
+}
+
+void *
+drmu_buf_mmap(drmu_buf_t * const dbuf)
+{
+    if (dbuf == NULL)
+        return NULL;
+
+    return dbuf->benv->fns->buf_mmap(dbuf);
+}
+
+drmu_fb_t *
+drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
+                        uint32_t w, uint32_t h,
+                        const uint32_t format, const uint64_t mod, const bool multi)
+{
+    drmu_fb_t * const dfb = drmu_fb_int_alloc(du);
+    uint32_t bpp;
+    uint32_t w2;
+    const uint32_t s30_cw = 128 / 4 * 3;
+    unsigned int plane_count;
+    const drmu_fmt_info_t * f;
+    const bool is_sand = (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0));
+
+    if (dfb == NULL) {
+        drmu_err(du, "%s: Alloc failure", __func__);
+        return NULL;
+    }
+
+    if (!is_sand)
+        w2 = w;
+    else if (format == DRM_FORMAT_NV12)
+        w2 = (w + 127) & ~127;
+    else if (format == DRM_FORMAT_P030)
+        w2 = ((w + s30_cw - 1) / s30_cw) * s30_cw;
+    else {
+        // Unknown form of sand128
+        drmu_err(du, "Sand modifier on unexpected format");
+        goto fail;
+    }
+
+    drmu_fb_int_fmt_size_set(dfb, format, w2, h, drmu_rect_wh(w, h));
+
+    if ((bpp = drmu_fb_pixel_bits(dfb)) == 0) {
+        drmu_err(du, "%s: Unexpected format %#x", __func__, format);
+        goto fail;
+    }
+
+    f = drmu_fb_format_info_get(dfb);
+    plane_count = !multi ? 1 : drmu_fmt_info_plane_count(f);
+
+    for (unsigned int i = 0; i != plane_count; ++i) {
+        const unsigned int wdiv = drmu_fmt_info_wdiv(f, i);
+        const unsigned int hdiv = drmu_fmt_info_hdiv(f, i);
+        drmu_bo_t * bo;
+        void * map_ptr;
+        drmu_buf_t * dbuf;
+        unsigned int bw;
+        unsigned int bh;
+        unsigned int bpitch = 0;
+
+        if (!multi) {
+            bh = fb_total_height(dfb, (h + 1) & ~1);
+            bw = ((w2 + 31) & ~31) / wdiv;
+        }
+        else {
+            bh = (h + hdiv - 1) / hdiv;
+            bw = (w2 + wdiv - 1) / wdiv;
+        }
+
+        if ((dbuf = drmu_buf_new(benv, bpp, &bw, &hw, &bpitch)) == NULL)
+            goto fail;
+#warning store benv in fb
+
+        if ((bo = drmu_buf_bo(dbuf)) == NULL)
+            goto fail;
+        drmu_fb_int_bo_set(dfb, i, bo);
+
+#warning delayed mmap?
+#if 0
+        if ((map_ptr = drmu_bo_mmap(bo, (size_t)dumb.size,
+                               PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE)) == NULL)
+            goto fail;
+        drmu_fb_int_mmap_set(dfb, i, map_ptr, (size_t)dumb.size, dumb.pitch);
+#endif
+
+        if (multi && is_sand) {
+            // Modern sand is only a little better than legacy sand
+            drmu_fb_int_layer_mod_set(dfb, i, i, bh, 0, mod);
+        }
+        else if (multi) {
+            drmu_fb_int_layer_mod_set(dfb, i, i, dumb.pitch, 0, mod);
+        }
+        else if (is_sand) {
+            // Cope with the joy that is legacy sand
+            const uint64_t sand1_mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
+            drmu_fb_int_layer_mod_set(dfb, 0, 0, dumb.pitch, 0, sand1_mod);
+            drmu_fb_int_layer_mod_set(dfb, 1, 0, dumb.pitch, h * 128, sand1_mod);
+        }
+        else {
+            const uint32_t pitch0 = dumb.pitch * wdiv;
+            const unsigned int c = drmu_fmt_info_plane_count(f);
+            uint32_t t = 0;
+
+            // This should be true for anything we've allocated
+            for (unsigned int layer = 0; layer != c; ++layer) {
+                const unsigned int wdiv2 = drmu_fmt_info_wdiv(f, layer);
+                drmu_fb_int_layer_mod_set(dfb, layer, 0, pitch0 / wdiv2, t, mod);
+                t += (pitch0 * h) / (drmu_fmt_info_hdiv(f, layer) * wdiv2);
+            }
+        }
+    }
+
+    if (drmu_fb_int_make(dfb))
+        goto fail;
+
+//    drmu_debug(du, "Create dumb %p %s %dx%d / %dx%d size: %zd", dfb,
+//               drmu_log_fourcc(format), dfb->fb.width, dfb->fb.height, dfb->active.w, dfb->active.h, dfb->map_size);
+    return dfb;
+
+fail:
+    drmu_fb_int_free(dfb);
+    return NULL;
+}
+
+
+
 drmu_fb_t *
 drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,
                      const uint32_t format, const uint64_t mod)
