@@ -54,6 +54,8 @@ typedef struct drmu_env_s drmu_env_t;
 struct drm_log_env_s;
 typedef struct drmu_log_env_s drmu_log_env_t;
 
+struct drmu_buf_s;
+
 // HDR enums is copied from linux include/linux/hdmi.h (strangely not part of uapi)
 enum hdmi_metadata_type
 {
@@ -253,6 +255,7 @@ static inline bool drmu_broadcast_rgb_is_set(const drmu_broadcast_rgb_t x) {retu
 void drmu_fb_color_set(drmu_fb_t *const dfb, const drmu_color_encoding_t enc, const drmu_color_range_t range, const drmu_colorspace_t space);
 void drmu_fb_chroma_siting_set(drmu_fb_t *const dfb, const drmu_chroma_siting_t siting);
 void drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * v);
+void drmu_fb_int_buf_set(drmu_fb_t *const dfb, const unsigned int obj_idx, struct drmu_buf_s * const dbuf);
 void drmu_fb_int_bo_set(drmu_fb_t *const dfb, const unsigned int obj_idx, drmu_bo_t * const bo);
 void drmu_fb_int_layer_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset);
 void drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier);
