@@ -1619,6 +1619,7 @@ fb_total_height(const drmu_fb_t * const dfb, const unsigned int h)
     return t;
 }
 
+#if 0
 drmu_fb_t *
 drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
                      const uint32_t format, const uint64_t mod, const bool multi)
@@ -1724,33 +1725,16 @@ fail:
     drmu_fb_int_free(dfb);
     return NULL;
 }
-
-typedef struct drmu_fb_alloc_fns_s {
-    // env      allocation env
-    // bpp      bits per pixel (multiple of 8)
-    // pWidth   pointer to width, may be updated if rounding required for some reason
-    // pHeight  pointer to height, may be updated if rounding required for some reason
-    // pSize    set to total size
-    //
-    // Returns buffer env
-    void * (* alloc_buf)(void * env, unsigned int bpp, unsigned int * pWidth, unsigned int *pHeight,
-                         unsigned int * pPitch, size_t * pSize);
-    void * (* buf_mmap)(void * buf);
-    drmu_bo_t * (* buf_bo)(void * buf);
-    unsigned int (* buf_fd)(void * buf);
-    void (* buf_free)(void * v);
-
-    void (* env_free)(void * v);
-} drmu_fb_alloc_fns_t;
+#endif
 
 // A containter for all the sorts of backing buffer
 
-typedef struct drmu_benv_s {
+struct drmu_benv_s {
     atomic_int ref_count;
 
-    drmu_fb_alloc_fns_t * fns;
+    const drmu_fb_alloc_fns_t * fns;
     void * fn_v;
-} drmu_benv_t;
+};
 
 static void
 benv_free(drmu_benv_t * benv)
@@ -1767,7 +1751,7 @@ drmu_benv_unref(drmu_benv_t ** const ppBenv)
         return;
     *ppBenv = NULL;
 
-    if (atomic_fetch_sub(&benv, 1) != 0)
+    if (atomic_fetch_sub(&benv->ref_count, 1) != 0)
         return;
 
     benv_free(benv);
@@ -1778,7 +1762,8 @@ drmu_benv_ref(drmu_benv_t * const benv)
 {
     if (benv == NULL)
         return NULL;
-    atomic_fetch_add(&benc->ref_count, 1);
+
+    atomic_fetch_add(&benv->ref_count, 1);
     return benv;
 }
 
@@ -1786,6 +1771,7 @@ drmu_benv_t *
 drmu_benv_new(drmu_env_t * const du, const drmu_fb_alloc_fns_t * const fns, void * const fn_v)
 {
     drmu_benv_t * benv = calloc(1, sizeof(*benv));
+    (void)du;
 
     if (benv == NULL)
         return NULL;
@@ -1797,19 +1783,19 @@ drmu_benv_new(drmu_env_t * const du, const drmu_fb_alloc_fns_t * const fns, void
     return benv;
 }
 
-typedef struct drmu_buf_s {
+struct drmu_buf_s {
     atomic_int ref_count;
 
     drmu_benv_t * benv;
     void * abuf;
 
     size_t size;
-} drmu_buf_t;
+};
 
 static void
 dbuf_free(drmu_buf_t * dbuf)
 {
-    fns->buf_free(dbuf->abuf);
+    dbuf->benv->fns->buf_free(dbuf->abuf);
     drmu_benv_unref(&dbuf->benv);
     free(dbuf);
 }
@@ -1824,7 +1810,7 @@ drmu_buf_new(drmu_benv_t * const benv,
     if (dbuf == NULL)
         return NULL;
 
-    atomic_init(&dbuf->ref_count);
+    atomic_init(&dbuf->ref_count, 0);
     dbuf->benv = drmu_benv_ref(benv);
 
     if ((dbuf->abuf = benv->fns->alloc_buf(benv->fn_v, bpp, pWidth, pHeight, pPitch, &dbuf->size)) == NULL)
@@ -1858,7 +1844,7 @@ drmu_buf_bo(drmu_buf_t * const dbuf)
     if (dbuf == NULL)
         return NULL;
 
-    return dbuf->benv->fns->buf_bo(dbuf);
+    return dbuf->benv->fns->buf_bo(dbuf->abuf);
 }
 
 int
@@ -1867,7 +1853,7 @@ drmu_buf_fd(drmu_buf_t * const dbuf)
     if (dbuf == NULL)
         return -1;
 
-    return dbuf->benv->fns->buf_fd(dbuf);
+    return dbuf->benv->fns->buf_fd(dbuf->abuf);
 }
 
 void *
@@ -1876,13 +1862,21 @@ drmu_buf_mmap(drmu_buf_t * const dbuf)
     if (dbuf == NULL)
         return NULL;
 
-    return dbuf->benv->fns->buf_mmap(dbuf);
+    return dbuf->benv->fns->buf_mmap(dbuf->abuf);
 }
+
+size_t
+drmu_buf_size(const drmu_buf_t * const dbuf)
+{
+    return dbuf->size;
+}
+
+#define DRMU_FB_ALLOC_FLAG_MULTI  1
 
 drmu_fb_t *
 drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
                         uint32_t w, uint32_t h,
-                        const uint32_t format, const uint64_t mod, const bool multi)
+                        const uint32_t format, const uint64_t mod, const unsigned flags)
 {
     drmu_fb_t * const dfb = drmu_fb_int_alloc(du);
     uint32_t bpp;
@@ -1891,6 +1885,7 @@ drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
     unsigned int plane_count;
     const drmu_fmt_info_t * f;
     const bool is_sand = (mod == DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(0));
+    const bool multi = (flags & DRMU_FB_ALLOC_FLAG_MULTI) != 0;
 
     if (dfb == NULL) {
         drmu_err(du, "%s: Alloc failure", __func__);
@@ -1938,37 +1933,34 @@ drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
             bw = (w2 + wdiv - 1) / wdiv;
         }
 
-        if ((dbuf = drmu_buf_new(benv, bpp, &bw, &hw, &bpitch)) == NULL)
+        if ((dbuf = drmu_buf_new(benv, bpp, &bw, &bh, &bpitch)) == NULL)
             goto fail;
-#warning store benv in fb
+        // **** store benv in fb?
 
         if ((bo = drmu_buf_bo(dbuf)) == NULL)
             goto fail;
         drmu_fb_int_bo_set(dfb, i, bo);
 
-#warning delayed mmap?
-#if 0
-        if ((map_ptr = drmu_bo_mmap(bo, (size_t)dumb.size,
-                               PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE)) == NULL)
+        // **** delayed mmap?
+        if ((map_ptr = drmu_buf_mmap(dbuf)) == NULL)
             goto fail;
-        drmu_fb_int_mmap_set(dfb, i, map_ptr, (size_t)dumb.size, dumb.pitch);
-#endif
+        drmu_fb_int_mmap_set(dfb, i, map_ptr, drmu_buf_size(dbuf), bpitch);
 
         if (multi && is_sand) {
             // Modern sand is only a little better than legacy sand
             drmu_fb_int_layer_mod_set(dfb, i, i, bh, 0, mod);
         }
         else if (multi) {
-            drmu_fb_int_layer_mod_set(dfb, i, i, dumb.pitch, 0, mod);
+            drmu_fb_int_layer_mod_set(dfb, i, i, bpitch, 0, mod);
         }
         else if (is_sand) {
             // Cope with the joy that is legacy sand
             const uint64_t sand1_mod = DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT(h * 3/2);
-            drmu_fb_int_layer_mod_set(dfb, 0, 0, dumb.pitch, 0, sand1_mod);
-            drmu_fb_int_layer_mod_set(dfb, 1, 0, dumb.pitch, h * 128, sand1_mod);
+            drmu_fb_int_layer_mod_set(dfb, 0, 0, bpitch, 0, sand1_mod);
+            drmu_fb_int_layer_mod_set(dfb, 1, 0, bpitch, h * 128, sand1_mod);
         }
         else {
-            const uint32_t pitch0 = dumb.pitch * wdiv;
+            const uint32_t pitch0 = bpitch * wdiv;
             const unsigned int c = drmu_fmt_info_plane_count(f);
             uint32_t t = 0;
 
@@ -1993,7 +1985,118 @@ fail:
     return NULL;
 }
 
+typedef struct fb_alloc_bo_env_s {
+    drmu_env_t * du;
+} fb_alloc_bo_env_t;
 
+typedef struct fb_alloc_bo_buf_s {
+    struct drm_mode_create_dumb dumb;
+    drmu_bo_t * bo;
+    void * map_ptr;
+} fb_alloc_bo_buf_t;
+
+static void *
+fb_alloc_bo_alloc_buf(void * env, unsigned int bpp, unsigned int * pWidth, unsigned int *pHeight,
+                     unsigned int * pPitch, size_t * pSize)
+{
+    drmu_env_t * du = env;
+    fb_alloc_bo_buf_t * const abuf = calloc(1, sizeof(*abuf));
+
+    if (abuf == NULL)
+        goto fail;
+
+    abuf->dumb.bpp    = bpp;
+    abuf->dumb.width  = *pWidth;
+    abuf->dumb.height = *pHeight;
+
+    if ((abuf->bo = drmu_bo_new_dumb(du, &abuf->dumb)) == NULL)
+        goto fail;
+
+    *pWidth  = abuf->dumb.width;
+    *pHeight = abuf->dumb.height;
+    *pPitch  = abuf->dumb.pitch;
+    *pSize   = abuf->dumb.size;
+    return abuf;
+
+fail:
+    *pWidth = 0;
+    *pHeight = 0;
+    *pPitch = 0;
+    *pSize = 0;
+    free(abuf);
+    return NULL;
+}
+
+static void *
+fb_alloc_bo_buf_mmap(void * v)
+{
+    fb_alloc_bo_buf_t * const abuf = v;
+
+    // **** Where do we unmap?
+
+    if (abuf->map_ptr == NULL)
+        abuf->map_ptr = drmu_bo_mmap(abuf->bo, abuf->dumb.size,
+                                     PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE);
+
+    return abuf->map_ptr;
+}
+
+static drmu_bo_t *
+fb_alloc_bo_buf_bo(void * v)
+{
+    fb_alloc_bo_buf_t * const abuf = v;
+
+    return abuf->bo;
+}
+
+static int
+fb_alloc_bo_buf_fd(void * buf)
+{
+    (void)buf;
+
+    // **** NIF
+
+    return -1;
+}
+
+static void
+fb_alloc_bo_buf_free(void * v)
+{
+    fb_alloc_bo_buf_t * const abuf = v;
+
+    drmu_bo_unref(&abuf->bo);
+    free(abuf);
+}
+
+static void
+fb_alloc_bo_env_free(void * v)
+{
+    (void)v;
+}
+
+static const drmu_fb_alloc_fns_t fb_alloc_bo_fns = {
+    .alloc_buf  = fb_alloc_bo_alloc_buf,
+    .buf_mmap   = fb_alloc_bo_buf_mmap,
+    .buf_bo     = fb_alloc_bo_buf_bo,
+    .buf_fd     = fb_alloc_bo_buf_fd,
+    .buf_free   = fb_alloc_bo_buf_free,
+    .env_free   = fb_alloc_bo_env_free,
+};
+
+drmu_fb_t *
+drmu_fb_new_dumb_multi(drmu_env_t * const du, uint32_t w, uint32_t h,
+                     const uint32_t format, const uint64_t mod, const bool multi)
+{
+    unsigned int flags = multi ? DRMU_FB_ALLOC_FLAG_MULTI : 0;
+    drmu_benv_t * benv = drmu_benv_new(du, &fb_alloc_bo_fns, du);
+    drmu_fb_t * fb = NULL;
+
+    if (benv != NULL)
+        fb = drmu_fb_new_alloc_multi(du, benv, w, h, format, mod, flags);
+
+    drmu_benv_unref(&benv);
+    return fb;
+}
 
 drmu_fb_t *
 drmu_fb_new_dumb_mod(drmu_env_t * const du, uint32_t w, uint32_t h,

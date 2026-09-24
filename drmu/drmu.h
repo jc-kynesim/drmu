@@ -305,6 +305,54 @@ int drmu_fb_out_fence_wait(drmu_fb_t * const fb, const int timeout_ms);
 // Take the fence fd. Resets fb fence fd. User is now responsible for closing it.
 int drmu_fb_out_fence_take_fd(drmu_fb_t * const fb);
 
+// --------------------------------------------------------
+
+struct drmu_buf_s;
+struct drmu_benv_s;
+
+typedef struct drmu_buf_s drmu_buf_t;
+typedef struct drmu_benv_s drmu_benv_t;
+
+typedef struct drmu_fb_alloc_fns_s {
+    // env      allocation env
+    // bpp      bits per pixel (multiple of 8)
+    // pWidth   pointer to width, may be updated if rounding required for some reason
+    // pHeight  pointer to height, may be updated if rounding required for some reason
+    // pSize    set to total size
+    //
+    // Returns buffer env
+    void * (* alloc_buf)(void * env, unsigned int bpp, unsigned int * pWidth, unsigned int *pHeight,
+                         unsigned int * pPitch, size_t * pSize);
+    void * (* buf_mmap)(void * buf);
+    drmu_bo_t * (* buf_bo)(void * buf);
+    int (* buf_fd)(void * buf);
+    void (* buf_free)(void * v);
+
+    void (* env_free)(void * v);
+} drmu_fb_alloc_fns_t;
+
+
+void drmu_benv_unref(drmu_benv_t ** const ppBenv);
+drmu_benv_t * drmu_benv_ref(drmu_benv_t * const benv);
+drmu_benv_t * drmu_benv_new(drmu_env_t * const du, const drmu_fb_alloc_fns_t * const fns, void * const fn_v);
+
+drmu_buf_t * drmu_buf_new(drmu_benv_t * const benv, unsigned int bpp,
+                          unsigned int * pWidth, unsigned int * pHeight,
+                          unsigned int * pPitch);
+void drmu_buf_unref(drmu_buf_t ** ppDbuf);
+drmu_bo_t * drmu_buf_bo(drmu_buf_t * const dbuf);
+int drmu_buf_fd(drmu_buf_t * const dbuf);
+void * drmu_buf_mmap(drmu_buf_t * const dbuf);
+size_t drmu_buf_size(const drmu_buf_t * const dbuf);
+
+
+drmu_fb_t * drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
+                                    uint32_t w, uint32_t h,
+                                    const uint32_t format, const uint64_t mod, const unsigned flags);
+
+// ---------------------------------------------------------
+
+
 // Object Id
 
 struct drmu_propinfo_s;
