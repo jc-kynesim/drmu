@@ -1015,8 +1015,12 @@ typedef struct drmu_fb_s {
     drmu_rect_t active;     // Area that was asked for inside the buffer; pixels
     drmu_rect_t crop;       // Cropping inside that; fractional pels (16.16, 16.16)
 
+    // We expect either dbufs to be set OR the object structs
+    // * Fix so we only have dbufs.
+    drmu_buf_t * dbufs[4];
+
     struct {
-        int fd;
+        int fd;  // Needed for sync and close - not exported
 
         drmu_bo_t * bo;
 
@@ -1108,13 +1112,13 @@ drmu_fb_int_free(drmu_fb_t * const dfb)
         drmu_ioctl(du, DRM_IOCTL_MODE_RMFB, &dfb->fb.fb_id);
 
     for (i = 0; i != 4; ++i) {
+        drmu_buf_unref(dfb->dbufs + i);
         if (dfb->objects[i].map_ptr != NULL)
             munmap(dfb->objects[i].map_ptr, dfb->objects[i].map_size);
         drmu_bo_unref(&dfb->objects[i].bo);
         if (dfb->objects[i].fd != -1)
             close(dfb->objects[i].fd);
     }
-
 
     // Call on_delete last so we have stopped using anything that might be
     // freed by it
@@ -1202,13 +1206,16 @@ void *
 drmu_fb_data(const drmu_fb_t *const dfb, const unsigned int layer)
 {
     int obj_idx;
+    uint8_t * ptr;
+
     if (layer >= 4)
         return NULL;
     obj_idx = dfb->layer_obj[layer];
     if (obj_idx < 0)
         return NULL;
-    return (dfb->objects[obj_idx].map_ptr == NULL) ? NULL :
-        (uint8_t * )dfb->objects[obj_idx].map_ptr + dfb->fb.offsets[layer];
+
+    ptr = dfb->dbufs[obj_idx] != NULL ? drmu_buf_mmap(dfb->dbufs[obj_idx]) : dfb->objects[obj_idx].map_ptr;
+    return (ptr == NULL) ? NULL : ptr + dfb->fb.offsets[layer];
 }
 
 drmu_bo_t *
@@ -1220,7 +1227,7 @@ drmu_fb_bo(const drmu_fb_t * const dfb, const unsigned int layer)
     obj_idx = dfb->layer_obj[layer];
     if (obj_idx < 0)
         return NULL;
-    return dfb->objects[obj_idx].bo;
+    return dfb->dbufs[obj_idx] != NULL ? drmu_buf_bo(dfb->dbufs[obj_idx]) : dfb->objects[obj_idx].bo;
 }
 
 uint32_t
@@ -1327,6 +1334,12 @@ drmu_fb_int_on_delete_set(drmu_fb_t *const dfb, drmu_fb_on_delete_fn fn, void * 
 }
 
 void
+drmu_fb_int_buf_set(drmu_fb_t *const dfb, const unsigned int obj_idx, struct drmu_buf_s * const dbuf)
+{
+    dfb->dbufs[obj_idx] = dbuf;
+}
+
+void
 drmu_fb_int_bo_set(drmu_fb_t *const dfb, const unsigned int obj_idx, drmu_bo_t * const bo)
 {
     dfb->objects[obj_idx].bo = bo;
@@ -1350,7 +1363,7 @@ void
 drmu_fb_int_layer_mod_set(drmu_fb_t *const dfb, unsigned int i, unsigned int obj_idx, uint32_t pitch, uint32_t offset, uint64_t modifier)
 {
     dfb->layer_obj[i] = obj_idx;
-    dfb->fb.handles[i] = drmu_bo_handle(dfb->objects[obj_idx].bo);
+    dfb->fb.handles[i] = drmu_bo_handle(drmu_fb_bo(dfb, obj_idx));
     dfb->fb.pitches[i] = pitch;
     dfb->fb.offsets[i] = offset;
     // We should be able to have "invalid" modifiers and not set the flag
@@ -1917,8 +1930,6 @@ drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
     for (unsigned int i = 0; i != plane_count; ++i) {
         const unsigned int wdiv = drmu_fmt_info_wdiv(f, i);
         const unsigned int hdiv = drmu_fmt_info_hdiv(f, i);
-        drmu_bo_t * bo;
-        void * map_ptr;
         drmu_buf_t * dbuf;
         unsigned int bw;
         unsigned int bh;
@@ -1935,16 +1946,7 @@ drmu_fb_new_alloc_multi(drmu_env_t * const du, drmu_benv_t * const benv,
 
         if ((dbuf = drmu_buf_new(benv, bpp, &bw, &bh, &bpitch)) == NULL)
             goto fail;
-        // **** store benv in fb?
-
-        if ((bo = drmu_buf_bo(dbuf)) == NULL)
-            goto fail;
-        drmu_fb_int_bo_set(dfb, i, bo);
-
-        // **** delayed mmap?
-        if ((map_ptr = drmu_buf_mmap(dbuf)) == NULL)
-            goto fail;
-        drmu_fb_int_mmap_set(dfb, i, map_ptr, drmu_buf_size(dbuf), bpitch);
+        drmu_fb_int_buf_set(dfb, i, dbuf);
 
         if (multi && is_sand) {
             // Modern sand is only a little better than legacy sand
