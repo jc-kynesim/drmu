@@ -1205,29 +1205,28 @@ int main(int argc, char *argv[])
             .v = NULL,
             .max_level = verbose ? DRMU_LOG_LEVEL_ALL : DRMU_LOG_LEVEL_INFO
         };
+        const char * src = "DRM";
 
-        if (du == NULL && drm_device != NULL) {
-            if ((du = drmu_env_new_open(drm_device, &log)) == NULL) {
-                printf("Failed to open module '%s'\n", drm_device);
-                goto fail;
-            }
-        }
 #if HAS_WAYLEASE
-        if (du == NULL && getenv("WAYLAND_DISPLAY") != NULL)
+        if (du == NULL && getenv("WAYLAND_DISPLAY") != NULL) {
             du = drmu_env_new_waylease(&log);
+            if (du != NULL)
+                src= "Wayland";
+        }
 #endif
 #if HAS_XLEASE
-        if (du == NULL && getenv("DISPLAY") != NULL)
+        if (du == NULL && getenv("DISPLAY") != NULL) {
             du = drmu_env_new_xlease(&log);
+            if (du != NULL)
+                src= "X";
+        }
 #endif
-        if (du == NULL) {
-            if (drmu_scan_output(conn_name, &log, &du, &dout) != 0) {
-                if (conn_name)
-                    printf("Failed to find output for conn '%s'\n", conn_name);
-                else
-                    printf("Failed to a usable DRM device\n");
-                goto fail;
-            }
+        if (drmu_scan_output2(&du, &log, drm_device, conn_name, &dout, 0) != 0) {
+            printf("Failed to find %s output for module '%s' conn '%s'\n",
+                   src,
+                   drm_device ? drm_device : "<any>",
+                   conn_name ? conn_name : "<any>");
+            goto fail;
         }
     }
 
@@ -1239,9 +1238,6 @@ int main(int argc, char *argv[])
     drmu_env_restore_enable(du);
 
     da = drmu_atomic_new(du);
-
-    if (dout == NULL && (dout = drmu_output_new(du)) == NULL)
-        goto fail;
 
     drmu_output_max_bpc_allow(dout, true);
     drmu_output_modeset_allow(dout, true);
