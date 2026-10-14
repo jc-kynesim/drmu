@@ -41,6 +41,17 @@ int
 drmu_scan_output(const char * const conn_name, const struct drmu_log_env_s * const dlog,
                  struct drmu_env_s ** const pDu, struct drmu_output_s ** const pDoutput);
 
+// pDu may be NULL, if not NULL *pDu must either contain a valid du or be NULL
+//
+// On error:
+//   *pDoutput = NULL
+//   *pDu      unchanged
+int
+drmu_scan_output2(struct drmu_env_s ** const pDu, const struct drmu_log_env_s * const dlog,
+                  const char * module_name, const char * const conn_name,
+                  struct drmu_output_s ** const pDoutput,
+                  const unsigned int flags);
+
 #ifdef __cplusplus
 }
 #endif
