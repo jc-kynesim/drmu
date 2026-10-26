@@ -332,7 +332,7 @@ player_decode_video_packet(player_env_t * const pe, AVPacket * const packet)
                 }
                 if (ret < 0) {
                     if (ret != AVERROR_EOF)
-                        fprintf(stderr, "Failed to get frame: %s", av_err2str(ret));
+                        fprintf(stderr, "Failed to get frame: %s\n", av_err2str(ret));
                     goto fail;
                 }
                 if (pe->wants_modeset)
@@ -699,7 +699,7 @@ player_new(drmprime_out_env_t * const dpo)
 
     pe->dpo = dpo;
     if ((pe->dve = drmprime_video_new(dpo)) == NULL) {
-        fprintf(stderr, "%s: Failed to create video out", __func__);
+        fprintf(stderr, "%s: Failed to create video out\n", __func__);
         free(pe);
         return NULL;
     }

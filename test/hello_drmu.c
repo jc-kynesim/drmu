@@ -221,7 +221,7 @@ playlist_run(playlist_t * const pl)
 {
     if (pthread_create(&pl->thread_id, NULL, playlist_thread, pl) != 0) {
         int rv = -errno;
-        fprintf(stderr, "%s: Failed to create player thread", __func__);
+        fprintf(stderr, "%s: Failed to create player thread\n", __func__);
         return rv;
     }
     return 0;
@@ -329,7 +329,7 @@ int main(int argc, char *argv[])
                 if (n == 0)
                     usage();
                 if (playlist_set_win(pl, *a) != 0) {
-                    fprintf(stderr, "Bad window <w>x<h>@<x>,<y>: '%s'", *a);
+                    fprintf(stderr, "Bad window <w>x<h>@<x>,<y>: '%s'\n", *a);
                     return -1;
                 }
                 --n;
@@ -339,7 +339,7 @@ int main(int argc, char *argv[])
                 if (n == 0)
                     usage();
                 if (playlist_set_rot(pl, *a) != 0) {
-                    fprintf(stderr, "Bad rotation: '%s'", *a);
+                    fprintf(stderr, "Bad rotation: '%s'\n", *a);
                     return -1;
                 }
                 --n;
@@ -462,7 +462,7 @@ int main(int argc, char *argv[])
             pl->loop_count *= pl->in_count;
         if (pl->w == 0) {
             if (!tile_video && i != 0) {
-                fprintf(stderr, "Playlist %zd needs a window", i);
+                fprintf(stderr, "Playlist %zd needs a window\n", i);
                 return -1;
             }
             pl->w = screen_width / tiles_w;
@@ -492,7 +492,7 @@ int main(int argc, char *argv[])
         }
 
         if ((pl->pe = player_new(dpo)) == NULL) {
-            fprintf(stderr, "Failed to create player");
+            fprintf(stderr, "Failed to create player\n");
             return -1;
         }
         if (player_set_hwdevice_by_name(pl->pe, pl->hwdev) != 0)

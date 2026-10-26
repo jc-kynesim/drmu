@@ -1463,7 +1463,7 @@ int main(int argc, char *argv[])
             }
         };
         if (drmu_atomic_conn_add_hdr_metadata(da, dn, &meta) != 0) {
-            fprintf(stderr, "Failed metadata set");
+            fprintf(stderr, "Failed metadata set\n");
             goto fail;
         }
     }
