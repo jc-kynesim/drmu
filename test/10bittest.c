@@ -676,6 +676,42 @@ list_fmts(drmu_env_t * const du)
 
 }
 
+#ifndef DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP
+#define DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP	0x15
+#endif
+
+static const char *
+cap_to_name(const uint64_t cap)
+{
+    unsigned int i;
+
+    static const struct {
+        uint64_t cap;
+        const char * name;
+    } a[] = {
+        {DRM_CAP_DUMB_BUFFER, "DUMB_BUFFER"},
+        {DRM_CAP_VBLANK_HIGH_CRTC, "VBLANK_HIGH_CRTC"},
+        {DRM_CAP_DUMB_PREFERRED_DEPTH, "DUMB_PREFERRED_DEPTH"},
+        {DRM_CAP_DUMB_PREFER_SHADOW, "DUMB_PREFER_SHADOW"},
+        {DRM_CAP_PRIME, "PRIME"},
+        {DRM_CAP_TIMESTAMP_MONOTONIC, "TIMESTAMP_MONOTONIC"},
+        {DRM_CAP_ASYNC_PAGE_FLIP, "ASYNC_PAGE_FLIP"},
+        {DRM_CAP_CURSOR_WIDTH, "CURSOR_WIDTH"},
+        {DRM_CAP_CURSOR_HEIGHT, "CURSOR_HEIGHT"},
+        {DRM_CAP_ADDFB2_MODIFIERS, "ADDFB2_MODIFIERS"},
+        {DRM_CAP_PAGE_FLIP_TARGET, "PAGE_FLIP_TARGET"},
+        {DRM_CAP_CRTC_IN_VBLANK_EVENT, "CRTC_IN_VBLANK_EVENT"},
+        {DRM_CAP_SYNCOBJ, "SYNCOBJ"},
+        {DRM_CAP_SYNCOBJ_TIMELINE, "SYNCOBJ_TIMELINE"},
+        {DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP, "ATOMIC_ASYNC_PAGE_FLIP"},
+        {0, "????"}
+    };
+
+    for (i = 0; a[i].cap != cap && a[i].cap != 0; ++i)
+        /* Loop */;
+    return a[i].name;
+}
+
 static void
 list_conns()
 {
@@ -705,6 +741,31 @@ list_conns()
         printf("  %s %d.%d.%d (%s)\n", drmu_env_name(du),
                drmu_env_ver_major(du), drmu_env_ver_minor(du), drmu_env_ver_patch(du),
                drmu_env_desc(du));
+
+        for (i = 1;; ++i) {
+            uint64_t value;
+            int rv = drmu_env_get_cap(du, i, &value);
+            if (rv >= 0) {
+                printf("  Cap %2d : %22s = %"PRId64, i, cap_to_name(i), value);
+                switch (i) {
+                    case DRM_CAP_PRIME:
+                        printf(" (");
+                        if ((value & DRM_PRIME_CAP_IMPORT) != 0)
+                            printf(" IMPORT");
+                        if ((value & DRM_PRIME_CAP_EXPORT) != 0)
+                            printf(" EXPORT");
+                        if ((value & ~(DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT)) != 0)
+                            printf(" ????");
+                        printf(" )");
+                        break;
+                    default:
+                        break;
+                }
+                printf("\n");
+            }
+            else if (i > 64)
+                break;
+        }
 
         for (i = 0; (dn = drmu_env_conn_find_n(du, i)) != NULL; ++i) {
             drmu_tri_t live = drmu_conn_is_live(dn);
