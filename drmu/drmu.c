@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <poll.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -4264,6 +4265,22 @@ int
 drmu_env_ver_patch(const drmu_env_t * const du)
 {
     return du == NULL ? 0 : du->version.version_patchlevel;
+}
+
+int
+drmu_env_get_cap(drmu_env_t * const du, const uint64_t cap, uint64_t * const pValue)
+{
+    int rv;
+    struct drm_get_cap getcap = {
+        .capability = cap,
+        .value = 0
+    };
+    if ((rv = drmu_ioctl(du, DRM_IOCTL_GET_CAP, &getcap)) != 0)
+        return rv;
+
+    if (pValue != NULL)
+        *pValue = getcap.value;
+    return getcap.value > INT_MAX ? INT_MAX : (int)getcap.value;
 }
 
 // Closes fd on failure

@@ -662,6 +662,16 @@ int drmu_env_ver_major(const drmu_env_t * const du);
 int drmu_env_ver_minor(const drmu_env_t * const du);
 int drmu_env_ver_patch(const drmu_env_t * const du);
 
+// Get capability
+//
+// Returns
+// -ve      Error
+// INT_MAX  Capability value >= INT_MAX
+// +ve      Capability value
+//
+// pValue may be NULL. If not NULL is set to the full 64bit value.
+int drmu_env_get_cap(drmu_env_t * const du, const uint64_t cap, uint64_t * const pValue);
+
 // Open a drmu environment with the drm fd
 // Takes a logging structure so early errors can be reported. The logging
 // environment is copied so does not have to be valid for greater than the
