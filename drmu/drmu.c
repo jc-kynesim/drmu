@@ -29,7 +29,7 @@
 
 #include <linux/dma-buf.h>
 
-#define TRACE_PROP_NEW 0
+#define TRACE_PROP_NEW 1
 
 #ifndef OPT_IO_CALLOC
 #define OPT_IO_CALLOC 0
@@ -4342,6 +4342,16 @@ drmu_env_new_fd2(const int fd, const struct drmu_log_env_s * const log,
     // We would like to see writeback connectors
     if (env_set_client_cap(du, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1) != 0)
         drmu_debug(du, "Failed to set writeback cap");
+
+    if (env_set_client_cap(du, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) != 0)
+        drmu_info(du, "No color pipeline");
+    else
+        drmu_info(du, "Have plane color pipeline");
+
+    if ((rv = env_set_client_cap(du, 8, 1)) != 0) {
+        drmu_info(du, "No color pipeline+1: %d (%s)", rv, strerror(-rv));
+    } else
+        drmu_info(du, "Have plane color pipeline+1");
 
     {
         struct drm_mode_get_plane_res res;

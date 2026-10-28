@@ -219,6 +219,14 @@ drmu_fmt_info_t format_info[] = {
     FMT_ONE_4(R, G, B, A, 10, 10, 10, 2),
     FMT_ONE_4(B, G, R, A, 10, 10, 10, 2),
 
+    FMT_ONE_3(B, G, R, 16, 16, 16),
+    FMT_ONE_3(R, G, B, 16, 16, 16),
+
+    FMT_ONE_4(X, R, G, B, 16, 16, 16, 16),
+    FMT_ONE_4(X, B, G, R, 16, 16, 16, 16),
+    FMT_ONE_4(A, R, G, B, 16, 16, 16, 16),
+    FMT_ONE_4(A, B, G, R, 16, 16, 16, 16),
+
     FMT_NV(NV12, U, V, 8, 2, 2),
     FMT_NV(NV21, V, U, 8, 2, 2),
     FMT_NV(NV16, U, V, 8, 2, 1),
