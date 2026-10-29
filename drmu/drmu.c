@@ -212,8 +212,8 @@ drmu_blob_update(drmu_env_t * const du, drmu_blob_t ** const ppblob, const void 
 }
 
 // Data alloced here needs freeing later
-int
-drmu_blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
+static int
+blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
 {
     uint8_t * data;
     struct drm_mode_get_blob gblob = {.blob_id = blob_id};
@@ -253,7 +253,7 @@ drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id)
     size_t len;
     drmu_blob_t * blob = NULL;
 
-    if (drmu_blob_data_read(du, blob_id, &data, &len) == 0)
+    if (blob_data_read(du, blob_id, &data, &len) == 0)
         blob = blob_create(du, data, len);
 
     return blob;

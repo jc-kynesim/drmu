@@ -83,23 +83,6 @@ drmu_props_name_to_id(const drmu_props_t * const props, const char * const name)
     return drmu_propinfo_prop_id(drmu_props_name_to_propinfo(props, name));
 }
 
-// Data must be freed later
-int
-drmu_props_name_get_blob(const drmu_props_t * const props, const char * const name, void ** const ppdata, size_t * const plen)
-{
-    const drmu_propinfo_t * const pinfo = drmu_props_name_to_propinfo(props, name);
-
-    *ppdata = 0;
-    *plen = 0;
-
-    if (!pinfo)
-        return -ENOENT;
-    if ((pinfo->prop.flags & DRM_MODE_PROP_BLOB) == 0)
-        return -EINVAL;
-
-    return drmu_blob_data_read(props->du, (uint32_t)pinfo->val, ppdata, plen);
-}
-
 void
 drmu_props_dump(const drmu_props_t * const props)
 {
