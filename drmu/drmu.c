@@ -6,6 +6,7 @@
 #include "drmu_fmts.h"
 #include "drmu_fourcc.h"
 #include "drmu_log.h"
+#include "drmu_props.h"
 
 #include <pthread.h>
 
@@ -73,28 +74,6 @@ retry_alloc_u32(uint32_t ** const pp, uint32_t * const palloc_count, uint32_t co
 
 //----------------------------------------------------------------------------
 //
-// propinfo
-
-typedef struct drmu_propinfo_s {
-    uint64_t val;
-    struct drm_mode_get_property prop;
-} drmu_propinfo_t;
-
-static uint64_t
-propinfo_val(const drmu_propinfo_t * const pi)
-{
-    return pi == NULL ? 0 : pi->val;
-}
-
-static uint32_t
-propinfo_prop_id(const drmu_propinfo_t * const pi)
-{
-    return pi == NULL ? 0 : pi->prop.prop_id;
-}
-
-
-//----------------------------------------------------------------------------
-//
 // Blob fns
 
 typedef struct drmu_blob_s {
@@ -154,13 +133,13 @@ drmu_blob_ref(drmu_blob_t * const blob)
 const void *
 drmu_blob_data(const drmu_blob_t * const blob)
 {
-    return blob->data;
+    return blob == NULL ? NULL : blob->data;
 }
 
 size_t
 drmu_blob_len(const drmu_blob_t * const blob)
 {
-    return blob->len;
+    return blob == NULL ? 0 : blob->len;
 }
 
 static drmu_blob_t *
@@ -233,8 +212,8 @@ drmu_blob_update(drmu_env_t * const du, drmu_blob_t ** const ppblob, const void 
 }
 
 // Data alloced here needs freeing later
-static int
-blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
+int
+drmu_blob_data_read(drmu_env_t * const du, uint32_t blob_id, void ** const ppdata, size_t * plen)
 {
     uint8_t * data;
     struct drm_mode_get_blob gblob = {.blob_id = blob_id};
@@ -274,10 +253,21 @@ drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id)
     size_t len;
     drmu_blob_t * blob = NULL;
 
-    if (blob_data_read(du, blob_id, &data, &len) == 0)
+    if (drmu_blob_data_read(du, blob_id, &data, &len) == 0)
         blob = blob_create(du, data, len);
 
     return blob;
+}
+
+static drmu_blob_t *
+blob_new_props_name(drmu_env_t * const du, const drmu_props_t * const props, const char * const name)
+{
+    const drmu_propinfo_t * pi = drmu_props_name_to_propinfo(props, name);
+
+    if (pi == NULL)
+        return NULL;
+
+    return drmu_blob_copy_id(du, drmu_propinfo_val(pi));
 }
 
 static void
@@ -689,8 +679,8 @@ drmu_prop_object_unref(drmu_prop_object_t ** ppobj)
 drmu_prop_object_t *
 drmu_prop_object_new_propinfo(drmu_env_t * const du, const uint32_t obj_id, const drmu_propinfo_t * const pi)
 {
-    const uint64_t val = propinfo_val(pi);
-    const uint32_t prop_id = propinfo_prop_id(pi);
+    const uint64_t val = drmu_propinfo_val(pi);
+    const uint32_t prop_id = drmu_propinfo_prop_id(pi);
 
     if (obj_id == 0 || prop_id == 0)
         return NULL;
@@ -2202,240 +2192,6 @@ drmu_atomic_add_prop_fb(drmu_atomic_t * const da, const uint32_t obj_id, const u
     return rv;
 }
 
-//----------------------------------------------------------------------------
-//
-// props fns (internal)
-
-typedef struct drmu_props_s {
-    struct drmu_env_s * du;
-    unsigned int n;
-    drmu_propinfo_t * info;
-    const drmu_propinfo_t ** by_name;
-} drmu_props_t;
-
-static void
-props_free(drmu_props_t * const props)
-{
-    free(props->info);  // As yet nothing else is allocated off this
-    free(props->by_name);
-    free(props);
-}
-
-static const drmu_propinfo_t *
-props_name_to_propinfo(const drmu_props_t * const props, const char * const name)
-{
-    unsigned int i = props->n / 2;
-    unsigned int a = 0;
-    unsigned int b = props->n;
-
-    while (a < b) {
-        const int r = strcmp(name, props->by_name[i]->prop.name);
-
-        if (r == 0)
-            return props->by_name[i];
-
-        if (r < 0) {
-            b = i;
-            i = (i + a) / 2;
-        } else {
-            a = i + 1;
-            i = (i + b) / 2;
-        }
-    }
-    return NULL;
-}
-
-static uint32_t
-props_name_to_id(const drmu_props_t * const props, const char * const name)
-{
-    return propinfo_prop_id(props_name_to_propinfo(props, name));
-}
-
-// Data must be freed later
-static int
-props_name_get_blob(const drmu_props_t * const props, const char * const name, void ** const ppdata, size_t * const plen)
-{
-    const drmu_propinfo_t * const pinfo = props_name_to_propinfo(props, name);
-
-    *ppdata = 0;
-    *plen = 0;
-
-    if (!pinfo)
-        return -ENOENT;
-    if ((pinfo->prop.flags & DRM_MODE_PROP_BLOB) == 0)
-        return -EINVAL;
-
-    return blob_data_read(props->du, (uint32_t)pinfo->val, ppdata, plen);
-}
-
-#if TRACE_PROP_NEW
-static void
-props_dump(const drmu_props_t * const props)
-{
-    if (props != NULL) {
-        unsigned int i;
-        drmu_env_t * const du = props->du;
-
-        for (i = 0; i != props->n; ++i) {
-            const drmu_propinfo_t * const inf = props->info + i;
-            const struct drm_mode_get_property * const p = &inf->prop;
-            char flagbuf[256];
-
-            flagbuf[0] = 0;
-            if (p->flags & DRM_MODE_PROP_PENDING)
-                strcat(flagbuf, ":pending");
-            if (p->flags & DRM_MODE_PROP_RANGE)
-                strcat(flagbuf, ":urange");
-            if (p->flags & DRM_MODE_PROP_IMMUTABLE)
-                strcat(flagbuf, ":immutable");
-            if (p->flags & DRM_MODE_PROP_ENUM)
-                strcat(flagbuf, ":enum");
-            if (p->flags & DRM_MODE_PROP_BLOB)
-                strcat(flagbuf, ":blob");
-            if (p->flags & DRM_MODE_PROP_BITMASK)
-                strcat(flagbuf, ":bitmask");
-            if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_OBJECT)
-                strcat(flagbuf, ":object");
-            else if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE)
-                strcat(flagbuf, ":srange");
-            else if ((p->flags & DRM_MODE_PROP_EXTENDED_TYPE) != 0)
-                strcat(flagbuf, ":?xtype?");
-            if (p->flags & ~(DRM_MODE_PROP_LEGACY_TYPE |
-                             DRM_MODE_PROP_EXTENDED_TYPE |
-                             DRM_MODE_PROP_PENDING |
-                             DRM_MODE_PROP_IMMUTABLE |
-                             DRM_MODE_PROP_ATOMIC))
-                strcat(flagbuf, ":?other?");
-            if (p->flags & DRM_MODE_PROP_ATOMIC)
-                strcat(flagbuf, ":atomic");
-
-
-            drmu_info(du, "Prop%02d/%02d: %#-4x %-16s val=%#-4"PRIx64" flags=%#x%s, values=%d, blobs=%d",
-                      i, props->n, p->prop_id,
-                      p->name, inf->val,
-                      p->flags, flagbuf,
-                      p->count_values,
-                      p->count_enum_blobs);
-        }
-    }
-}
-#endif
-
-static int
-props_qsort_by_name_cb(const void * va, const void * vb)
-{
-    const drmu_propinfo_t * const a = *(drmu_propinfo_t **)va;
-    const drmu_propinfo_t * const b = *(drmu_propinfo_t **)vb;
-    return strcmp(a->prop.name, b->prop.name);
-}
-
-// At the moment we don't need / want to fill in the values / blob arrays
-// we just want the name - will get the extra info if we need it
-static int
-propinfo_fill(drmu_env_t * const du, drmu_propinfo_t * const inf, uint32_t propid, uint64_t val)
-{
-    int rv;
-
-    inf->val = val;
-    inf->prop.prop_id = propid;
-    if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_GETPROPERTY, &inf->prop)) != 0)
-        drmu_err(du, "Failed to get property %d: %s", propid, strerror(-rv));
-    return rv;
-}
-
-static int
-props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype,
-                     uint32_t ** const ppPropids, uint64_t ** const ppValues)
-{
-    struct drm_mode_obj_get_properties obj_props = {
-        .obj_id = objid,
-        .obj_type = objtype,
-    };
-    uint64_t * values = NULL;
-    uint32_t * propids = NULL;
-    unsigned int n = 0;
-    int rv;
-
-    for (;;) {
-        if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &obj_props)) < 0) {
-            drmu_err(du, "drmModeObjectGetProperties failed: %s", strerror(-rv));
-            goto fail;
-        }
-
-        if (obj_props.count_props <= n)
-            break;
-
-        free(values);
-        values = NULL;
-        free(propids);
-        propids = NULL;
-        n = obj_props.count_props;
-        if ((obj_props.prop_values_ptr = io_alloc(values, n)) == 0 ||
-            (obj_props.props_ptr =       io_alloc(propids, n)) == 0) {
-            drmu_err(du, "obj/value array alloc failed");
-            rv = -ENOMEM;
-            goto fail;
-        }
-    }
-
-    *ppValues = values;
-    *ppPropids = propids;
-    return (int)n;
-
-fail:
-    free(values);
-    free(propids);
-    *ppPropids = NULL;
-    *ppValues = NULL;
-    return rv;
-}
-
-static drmu_props_t *
-props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype)
-{
-    drmu_props_t * const props = calloc(1, sizeof(*props));
-    int rv;
-    uint64_t * values;
-    uint32_t * propids;
-
-    if (props == NULL) {
-        drmu_err(du, "%s: Failed struct alloc", __func__);
-        return NULL;
-    }
-    props->du = du;
-
-    if ((rv = props_get_properties(du, objid, objtype, &propids, &values)) < 0)
-        goto fail;
-
-    props->n = rv;
-    if ((props->info = calloc(props->n, sizeof(*props->info))) == NULL ||
-        (props->by_name = malloc(props->n * sizeof(*props->by_name))) == NULL) {
-        drmu_err(du, "info/name array alloc failed");
-        goto fail;
-    }
-
-    for (unsigned int i = 0; i < props->n; ++i) {
-        drmu_propinfo_t * const inf = props->info + i;
-
-        props->by_name[i] = inf;
-        if (propinfo_fill(du, inf, propids[i], values[i]) != 0)
-            goto fail;
-    }
-
-    // Sort into name order for faster lookup
-    qsort(props->by_name, props->n, sizeof(*props->by_name), props_qsort_by_name_cb);
-
-    free(values);
-    free(propids);
-    return props;
-
-fail:
-    props_free(props);
-    free(values);
-    free(propids);
-    return NULL;
-}
-
 int
 drmu_atomic_obj_add_snapshot(drmu_atomic_t * const da, const uint32_t objid, const uint32_t objtype)
 {
@@ -2448,7 +2204,7 @@ drmu_atomic_obj_add_snapshot(drmu_atomic_t * const da, const uint32_t objid, con
     if (!du)
         return -EINVAL;
 
-    if ((props = props_new(du, objid, objtype)) == NULL)
+    if ((props = drmu_props_new(du, objid, objtype)) == NULL)
         return -ENOENT;
 
     for (i = 0; i != props->n; ++i) {
@@ -2460,7 +2216,7 @@ drmu_atomic_obj_add_snapshot(drmu_atomic_t * const da, const uint32_t objid, con
     rv = 0;
 
 fail:
-    props_free(props);
+    drmu_props_free(props);
     return rv;
 #else
     uint64_t * values;
@@ -2472,7 +2228,7 @@ fail:
     if (!du)
         return -EINVAL;
 
-    if ((rv = props_get_properties(du, objid, objtype, &propids, &values)) < 0)
+    if ((rv = drmu_props_get_properties(du, objid, objtype, &propids, &values)) < 0)
         goto fail;
     n = rv;
 
@@ -2486,42 +2242,6 @@ fail:
     free(propids);
     return rv;
 #endif
-}
-
-static int
-drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const drmu_props_t * props)
-{
-    unsigned int i;
-    int rv;
-    drmu_env_t * const du = drmu_atomic_env(da);
-
-    if (props == NULL)
-        return 0;
-    if (du == NULL)
-        return -EINVAL;
-
-    for (i = 0; i != props->n; ++i) {
-        if ((props->info[i].prop.flags & DRM_MODE_PROP_IMMUTABLE) != 0)
-            continue;
-
-        // Blobs, if set, are prone to running out of refs and vanishing, so we
-        // must copy. If we fail to copy the blob for any reason drop through
-        // to the generic add and hope that that will do
-        if ((props->info[i].prop.flags & DRM_MODE_PROP_BLOB) != 0 && props->info[i].val != 0) {
-            drmu_blob_t * b = drmu_blob_copy_id(du, (uint32_t)props->info[i].val);
-            if (b != NULL) {
-                rv = drmu_atomic_add_prop_blob(da, objid, props->info[i].prop.prop_id, b);
-                drmu_blob_unref(&b);
-                if (rv == 0)
-                    continue;
-            }
-        }
-
-        // Generic value
-        if ((rv = drmu_atomic_add_prop_value(da, objid, props->info[i].prop.prop_id, props->info[i].val)) != 0)
-            return rv;
-    }
-    return 0;
 }
 
 //----------------------------------------------------------------------------
@@ -2708,18 +2428,18 @@ crtc_init(drmu_env_t * const du, drmu_crtc_t * const dc, const unsigned int idx,
         return rv;
     }
 
-    props = props_new(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC);
+    props = drmu_props_new(du, dc->crtc.crtc_id, DRM_MODE_OBJECT_CRTC);
 
     if (props != NULL) {
 #if TRACE_PROP_NEW
         drmu_info(du, "CRTC id=%#x, idx=%d:", dc->crtc.crtc_id, dc->crtc_idx);
-        props_dump(props);
+        drmu_props_dump(props);
 #endif
-        dc->pid.mode_id = props_name_to_id(props, "MODE_ID");
-        dc->pid.background_color = drmu_prop_range_new(du, props_name_to_id(props, "BACKGROUND_COLOR"));
-        dc->pid.active = drmu_prop_range_new(du, props_name_to_id(props, "ACTIVE"));
+        dc->pid.mode_id = drmu_props_name_to_id(props, "MODE_ID");
+        dc->pid.background_color = drmu_prop_range_new(du, drmu_props_name_to_id(props, "BACKGROUND_COLOR"));
+        dc->pid.active = drmu_prop_range_new(du, drmu_props_name_to_id(props, "ACTIVE"));
 
-        props_free(props);
+        drmu_props_free(props);
     }
 
     return 0;
@@ -2948,7 +2668,7 @@ struct drmu_conn_s {
     uint64_t rot_vals[8];
     drmu_blob_t * hdr_metadata_blob;
 
-    uint32_t * writeback_fmts;
+    drmu_blob_t * wb_fmts_blob;
     uint32_t * writeback_fmts_sorted;
     unsigned int writeback_fmts_count;
 
@@ -3079,7 +2799,7 @@ const uint32_t *
 drmu_conn_writeback_formats(drmu_conn_t * const dn, unsigned int * const ppcount)
 {
     *ppcount = dn->writeback_fmts_count;
-    return dn->writeback_fmts;
+    return drmu_blob_data(dn->wb_fmts_blob);
 }
 
 static int
@@ -3171,11 +2891,10 @@ conn_uninit(drmu_conn_t * const dn)
 
     free(dn->modes);
     free(dn->enc_ids);
-    free(dn->writeback_fmts);
+    drmu_blob_unref(&dn->wb_fmts_blob);
     free(dn->writeback_fmts_sorted);
     dn->modes = NULL;
     dn->enc_ids = NULL;
-    dn->writeback_fmts = NULL;
     dn->writeback_fmts_sorted = NULL;
     dn->modes_size = 0;
     dn->enc_ids_size = 0;
@@ -3239,7 +2958,7 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         snprintf(dn->name, sizeof(dn->name)-1, "%s-%"PRIu32,
                  conn_type_names[dn->conn.connector_type], dn->conn.connector_type_id);
 
-    props = props_new(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR);
+    props = drmu_props_new(du, dn->conn.connector_id, DRM_MODE_OBJECT_CONNECTOR);
 
     // Spin over encoders to create a crtc mask
     dn->avail_crtc_mask = 0;
@@ -3253,31 +2972,32 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
     }
 
     if (props != NULL) {
-        void * wb_blob_data;
-        size_t wb_blob_len;
+        size_t wb_blob_len = 0;
 
 #if TRACE_PROP_NEW
         drmu_info(du, "Connector id=%d, type=%d.%d (%s), crtc_mask=%#x:",
                   dn->conn.connector_id, dn->conn.connector_type, dn->conn.connector_type_id, drmu_conn_name(dn),
                   dn->avail_crtc_mask);
-        props_dump(props);
+        drmu_props_dump(props);
 #endif
-        dn->pid.crtc_id             = drmu_prop_object_new_propinfo(du, dn->conn.connector_id, props_name_to_propinfo(props, "CRTC_ID"));
-        dn->pid.max_bpc             = drmu_prop_range_new(du, props_name_to_id(props, "max bpc"));
-        dn->pid.colorspace          = drmu_prop_enum_new(du, props_name_to_id(props, "Colorspace"));
-        dn->pid.broadcast_rgb       = drmu_prop_enum_new(du, props_name_to_id(props, "Broadcast RGB"));
-        dn->pid.rotation            = drmu_prop_bitmask_new(du, props_name_to_id(props, "rotation"));
-        dn->pid.hdr_output_metadata = props_name_to_id(props, "HDR_OUTPUT_METADATA");
-        dn->pid.writeback_fb_id     = props_name_to_id(props, "WRITEBACK_FB_ID");
-        dn->pid.writeback_out_fence_ptr = props_name_to_id(props, "WRITEBACK_OUT_FENCE_PTR");
+        dn->pid.crtc_id             = drmu_prop_object_new_propinfo(du, dn->conn.connector_id, drmu_props_name_to_propinfo(props, "CRTC_ID"));
+        dn->pid.max_bpc             = drmu_prop_range_new(du, drmu_props_name_to_id(props, "max bpc"));
+        dn->pid.colorspace          = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "Colorspace"));
+        dn->pid.broadcast_rgb       = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "Broadcast RGB"));
+        dn->pid.rotation            = drmu_prop_bitmask_new(du, drmu_props_name_to_id(props, "rotation"));
+        dn->pid.hdr_output_metadata = drmu_props_name_to_id(props, "HDR_OUTPUT_METADATA");
+        dn->pid.writeback_fb_id     = drmu_props_name_to_id(props, "WRITEBACK_FB_ID");
+        dn->pid.writeback_out_fence_ptr = drmu_props_name_to_id(props, "WRITEBACK_OUT_FENCE_PTR");
 
-        props_name_get_blob(props, "WRITEBACK_PIXEL_FORMATS", &wb_blob_data, &wb_blob_len);
-        props_free(props);
-        dn->writeback_fmts = wb_blob_data;
-        dn->writeback_fmts_count = wb_blob_len / sizeof(*dn->writeback_fmts);
-        if (dn->writeback_fmts != NULL &&
+        dn->wb_fmts_blob = blob_new_props_name(du, props, "WRITEBACK_PIXEL_FORMATS");
+        drmu_props_free(props);
+
+        wb_blob_len = drmu_blob_len(dn->wb_fmts_blob);
+        dn->writeback_fmts_count = wb_blob_len / sizeof(*dn->writeback_fmts_sorted);
+
+        if (wb_blob_len != 0 &&
             (dn->writeback_fmts_sorted = malloc(wb_blob_len)) != NULL) {
-            memcpy(dn->writeback_fmts_sorted, dn->writeback_fmts, wb_blob_len);
+            memcpy(dn->writeback_fmts_sorted, drmu_blob_data(dn->wb_fmts_blob), wb_blob_len);
             qsort(dn->writeback_fmts_sorted, dn->writeback_fmts_count,
                   sizeof(*dn->writeback_fmts_sorted), wb_fmt_cmp_cb);
         }
@@ -3763,26 +3483,26 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
         return rv;
     }
 
-    if ((props = props_new(du, dp->plane.plane_id, DRM_MODE_OBJECT_PLANE)) == NULL)
+    if ((props = drmu_props_new(du, dp->plane.plane_id, DRM_MODE_OBJECT_PLANE)) == NULL)
         return -EINVAL;
 
 #if TRACE_PROP_NEW
     drmu_info(du, "Plane id %d: (CRTC %#x, FB %#x, Possible CRTCs %#x)",
               plane_id, dp->plane.crtc_id, dp->plane.fb_id, dp->plane.possible_crtcs);
-    props_dump(props);
+    drmu_props_dump(props);
 #endif
 
-    if ((dp->pid.crtc_id = props_name_to_id(props, "CRTC_ID")) == 0 ||
-        (dp->pid.fb_id  = props_name_to_id(props, "FB_ID")) == 0 ||
-        (dp->pid.crtc_h = drmu_prop_range_new(du, props_name_to_id(props, "CRTC_H"))) == NULL ||
-        (dp->pid.crtc_w = drmu_prop_range_new(du, props_name_to_id(props, "CRTC_W"))) == NULL ||
-        (dp->pid.crtc_x = props_name_to_id(props, "CRTC_X")) == 0 ||
-        (dp->pid.crtc_y = props_name_to_id(props, "CRTC_Y")) == 0 ||
-        (dp->pid.src_h  = drmu_prop_range_new(du, props_name_to_id(props, "SRC_H"))) == NULL ||
-        (dp->pid.src_w  = drmu_prop_range_new(du, props_name_to_id(props, "SRC_W"))) == NULL ||
-        (dp->pid.src_x  = props_name_to_id(props, "SRC_X")) == 0 ||
-        (dp->pid.src_y  = props_name_to_id(props, "SRC_Y")) == 0 ||
-        props_name_get_blob(props, "IN_FORMATS", &dp->formats_in, &dp->formats_in_len) != 0)
+    if ((dp->pid.crtc_id = drmu_props_name_to_id(props, "CRTC_ID")) == 0 ||
+        (dp->pid.fb_id  = drmu_props_name_to_id(props, "FB_ID")) == 0 ||
+        (dp->pid.crtc_h = drmu_prop_range_new(du, drmu_props_name_to_id(props, "CRTC_H"))) == NULL ||
+        (dp->pid.crtc_w = drmu_prop_range_new(du, drmu_props_name_to_id(props, "CRTC_W"))) == NULL ||
+        (dp->pid.crtc_x = drmu_props_name_to_id(props, "CRTC_X")) == 0 ||
+        (dp->pid.crtc_y = drmu_props_name_to_id(props, "CRTC_Y")) == 0 ||
+        (dp->pid.src_h  = drmu_prop_range_new(du, drmu_props_name_to_id(props, "SRC_H"))) == NULL ||
+        (dp->pid.src_w  = drmu_prop_range_new(du, drmu_props_name_to_id(props, "SRC_W"))) == NULL ||
+        (dp->pid.src_x  = drmu_props_name_to_id(props, "SRC_X")) == 0 ||
+        (dp->pid.src_y  = drmu_props_name_to_id(props, "SRC_Y")) == 0 ||
+        drmu_props_name_get_blob(props, "IN_FORMATS", &dp->formats_in, &dp->formats_in_len) != 0)
     {
         drmu_err(du, "%s: failed to find required id", __func__);
         goto fail;
@@ -3806,41 +3526,41 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     }
 #endif
 
-    dp->pid.alpha            = drmu_prop_range_new(du, props_name_to_id(props, "alpha"));
-    dp->pid.color_encoding   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_ENCODING"));
-    dp->pid.color_range      = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_RANGE"));
-    dp->pid.pixel_blend_mode = drmu_prop_enum_new(du, props_name_to_id(props, "pixel blend mode"));
-    dp->pid.rotation         = drmu_prop_enum_new(du, props_name_to_id(props, "rotation"));
-    dp->pid.chroma_siting_h  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_H"));
-    dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
-    dp->pid.zpos             = drmu_prop_range_new(du, props_name_to_id(props, "zpos"));
-    dp->pid.color_pipeline   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_PIPELINE"));
+    dp->pid.alpha            = drmu_prop_range_new(du, drmu_props_name_to_id(props, "alpha"));
+    dp->pid.color_encoding   = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "COLOR_ENCODING"));
+    dp->pid.color_range      = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "COLOR_RANGE"));
+    dp->pid.pixel_blend_mode = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "pixel blend mode"));
+    dp->pid.rotation         = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "rotation"));
+    dp->pid.chroma_siting_h  = drmu_prop_range_new(du, drmu_props_name_to_id(props, "CHROMA_SITING_H"));
+    dp->pid.chroma_siting_v  = drmu_prop_range_new(du, drmu_props_name_to_id(props, "CHROMA_SITING_V"));
+    dp->pid.zpos             = drmu_prop_range_new(du, drmu_props_name_to_id(props, "zpos"));
+    dp->pid.color_pipeline   = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "COLOR_PIPELINE"));
 
     dp->rot_mask = rotation_make_array(dp->pid.rotation, dp->rot_vals);
 
     {
-        const drmu_propinfo_t * const pinfo = props_name_to_propinfo(props, "type");
-        drmu_prop_enum_t * etype = drmu_prop_enum_new(du, props_name_to_id(props, "type"));
+        const uint64_t ptype = drmu_propinfo_val(drmu_props_name_to_propinfo(props, "type"));
+        drmu_prop_enum_t * etype = drmu_prop_enum_new(du, drmu_props_name_to_id(props, "type"));
         const uint64_t * p;
 
-        if ((p = drmu_prop_enum_value(etype, "Primary")) && *p == pinfo->val)
+        if ((p = drmu_prop_enum_value(etype, "Primary")) && *p == ptype)
             dp->plane_type = DRMU_PLANE_TYPE_PRIMARY;
-        else if ((p = drmu_prop_enum_value(etype, "Cursor")) && *p == pinfo->val)
+        else if ((p = drmu_prop_enum_value(etype, "Cursor")) && *p == ptype)
             dp->plane_type = DRMU_PLANE_TYPE_CURSOR;
-        else if ((p = drmu_prop_enum_value(etype, "Overlay")) && *p == pinfo->val)
+        else if ((p = drmu_prop_enum_value(etype, "Overlay")) && *p == ptype)
             dp->plane_type = DRMU_PLANE_TYPE_OVERLAY;
         else {
-            drmu_debug(du, "Unexpected plane type: %"PRId64, pinfo->val);
+            drmu_debug(du, "Unexpected plane type: %"PRId64, ptype);
             dp->plane_type = DRMU_PLANE_TYPE_UNKNOWN;
         }
         drmu_prop_enum_delete(&etype);
     }
 
-    props_free(props);
+    drmu_props_free(props);
     return 0;
 
 fail:
-    props_free(props);
+    drmu_props_free(props);
     return -EINVAL;
 }
 
@@ -4162,7 +3882,7 @@ env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32
     if (!du->da_restore)
         return -EINVAL;
 
-    if ((props = props_new(du, obj_id, obj_type)) == NULL)
+    if ((props = drmu_props_new(du, obj_id, obj_type)) == NULL)
         return -ENOENT;
 
     if ((da = drmu_atomic_new(du)) == NULL) {
@@ -4173,12 +3893,12 @@ env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32
     if ((rv = drmu_atomic_props_add_save(da, obj_id, props)) != 0)
         goto fail;
 
-    props_free(props);
+    drmu_props_free(props);
     return drmu_atomic_env_restore_add_snapshot(&da);
 
 fail:
     if (props)
-        props_free(props);
+        drmu_props_free(props);
     return rv;
 }
 
