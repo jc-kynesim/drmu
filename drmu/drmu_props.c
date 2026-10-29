@@ -45,6 +45,12 @@ drmu_propinfo_prop_id(const drmu_propinfo_t * const pi)
     return pi == NULL ? 0 : pi->prop.prop_id;
 }
 
+uint32_t
+drmu_propinfo_prop_flags(const drmu_propinfo_t * const pi)
+{
+    return pi == NULL ? 0 : pi->prop.flags;
+}
+
 void
 drmu_props_free(drmu_props_t * const props)
 {
@@ -75,6 +81,14 @@ drmu_props_name_to_propinfo(const drmu_props_t * const props, const char * const
         }
     }
     return NULL;
+}
+
+const drmu_propinfo_t *
+drmu_props_propinfo_n(const drmu_props_t * const props, const unsigned int n)
+{
+    if (props == NULL || n >= props->n)
+        return NULL;
+    return props->info + n;
 }
 
 uint32_t
@@ -247,40 +261,4 @@ fail:
     free(values);
     free(propids);
     return NULL;
-}
-
-int
-drmu_atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const drmu_props_t * props)
-{
-    unsigned int i;
-    int rv;
-    drmu_env_t * const du = drmu_atomic_env(da);
-
-    if (props == NULL)
-        return 0;
-    if (du == NULL)
-        return -EINVAL;
-
-    for (i = 0; i != props->n; ++i) {
-        if ((props->info[i].prop.flags & DRM_MODE_PROP_IMMUTABLE) != 0)
-            continue;
-
-        // Blobs, if set, are prone to running out of refs and vanishing, so we
-        // must copy. If we fail to copy the blob for any reason drop through
-        // to the generic add and hope that that will do
-        if ((props->info[i].prop.flags & DRM_MODE_PROP_BLOB) != 0 && props->info[i].val != 0) {
-            drmu_blob_t * b = drmu_blob_copy_id(du, (uint32_t)props->info[i].val);
-            if (b != NULL) {
-                rv = drmu_atomic_add_prop_blob(da, objid, props->info[i].prop.prop_id, b);
-                drmu_blob_unref(&b);
-                if (rv == 0)
-                    continue;
-            }
-        }
-
-        // Generic value
-        if ((rv = drmu_atomic_add_prop_value(da, objid, props->info[i].prop.prop_id, props->info[i].val)) != 0)
-            return rv;
-    }
-    return 0;
 }
