@@ -3125,8 +3125,7 @@ typedef struct drmu_plane_s {
     int plane_type;
     struct drm_mode_get_plane plane;
 
-    void * formats_in;
-    size_t formats_in_len;
+    drmu_blob_t * formats_blob;
     const struct drm_format_modifier_blob * fmts_hdr;
     fmt_idx_t * fmt_idxs; // Sorted formats with original index
 
@@ -3267,7 +3266,7 @@ const uint32_t *
 drmu_plane_formats(const drmu_plane_t * const dp, unsigned int * const pCount)
 {
     *pCount = dp->fmts_hdr->count_formats;
-    return (const uint32_t *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset);
+    return (const uint32_t *)((const uint8_t *)drmu_blob_data(dp->formats_blob) + dp->fmts_hdr->formats_offset);
 }
 
 unsigned int
@@ -3318,7 +3317,7 @@ plane_format_find(const drmu_plane_t * const dp, const uint32_t format)
 bool
 drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t format, const uint64_t modifier)
 {
-    const struct drm_format_modifier * const mods = (const struct drm_format_modifier *)((const uint8_t *)dp->formats_in + dp->fmts_hdr->modifiers_offset);
+    const struct drm_format_modifier * const mods = (const struct drm_format_modifier *)((const uint8_t *)drmu_blob_data(dp->formats_blob) + dp->fmts_hdr->modifiers_offset);
     uint64_t modbase = modifier;
     int fmt_no = plane_format_find(dp, format);
     unsigned int i;
@@ -3462,8 +3461,7 @@ plane_uninit(drmu_plane_t * const dp)
     drmu_prop_enum_delete(&dp->pid.color_pipeline);
     free(dp->fmt_idxs);
     dp->fmt_idxs = NULL;
-    free(dp->formats_in);
-    dp->formats_in = NULL;
+    drmu_blob_unref(&dp->formats_blob);
 }
 
 
@@ -3502,12 +3500,12 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
         (dp->pid.src_w  = drmu_prop_range_new(du, drmu_props_name_to_id(props, "SRC_W"))) == NULL ||
         (dp->pid.src_x  = drmu_props_name_to_id(props, "SRC_X")) == 0 ||
         (dp->pid.src_y  = drmu_props_name_to_id(props, "SRC_Y")) == 0 ||
-        drmu_props_name_get_blob(props, "IN_FORMATS", &dp->formats_in, &dp->formats_in_len) != 0)
+        (dp->formats_blob = blob_new_props_name(du, props, "IN_FORMATS")) == NULL)
     {
         drmu_err(du, "%s: failed to find required id", __func__);
         goto fail;
     }
-    dp->fmts_hdr = dp->formats_in;
+    dp->fmts_hdr = drmu_blob_data(dp->formats_blob);
 
     if ((dp->fmt_idxs = malloc(sizeof(*dp->fmt_idxs) * dp->fmts_hdr->count_formats)) == NULL)
     {
@@ -3516,7 +3514,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     }
     for (i = 0; i != dp->fmts_hdr->count_formats; ++i)
         dp->fmt_idxs[i] = (fmt_idx_t){
-            .fmt = ((uint32_t*)((const uint8_t *)dp->formats_in + dp->fmts_hdr->formats_offset))[i],
+            .fmt = ((uint32_t*)((const uint8_t *)dp->fmts_hdr + dp->fmts_hdr->formats_offset))[i],
             .idx = i};
     qsort(dp->fmt_idxs, dp->fmts_hdr->count_formats, sizeof(*dp->fmt_idxs), fmt_idx_cmp);
 #if 0

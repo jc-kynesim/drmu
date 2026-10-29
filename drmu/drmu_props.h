@@ -6,8 +6,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-//#include <libdrm/drm_mode.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
