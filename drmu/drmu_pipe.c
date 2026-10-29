@@ -1,6 +1,7 @@
 #include "drmu_pipe.h"
 
 #include "drmu.h"
+#include "drmu_log.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -9,11 +10,13 @@
 struct drmu_pipe_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
     drmu_env_t * du;
+    drmu_blob_t * blob;
 };
 
 static void
 pipe_free(drmu_pipe_t * const pipe)
 {
+    drmu_blob_unref(&pipe->blob);
     free(pipe);
 }
 
@@ -52,5 +55,15 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid)
     atomic_init(&pipe->ref_count, 0);
     pipe->du = du;
 
+    if ((pipe->blob = drmu_blob_copy_id(du, pid)) == NULL) {
+        drmu_err(du, "%s: No blob for id %d", __func__, pid);
+        goto fail;
+    }
     return pipe;
+
+fail:
+    pipe_free(pipe);
+    return NULL;
 }
+
+

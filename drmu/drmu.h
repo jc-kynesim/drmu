@@ -107,6 +107,9 @@ typedef drmu_prop_enum_t drmu_prop_bitmask_t;
 const uint64_t * drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name);
 // Bitmask only - value as a (single-bit) bitmask - 0 if not found or not bitmask or pen == NULL
 uint64_t drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const name);
+// Retrieve the nth name, value pair. Sort order undefined.
+// Returns -EINVAL if pen == NULL, -ENOENT if no nth pair, 0 if OK
+int drmu_prop_enum_n(const drmu_prop_enum_t * const pen, unsigned int n, uint64_t *pVal, const char **pName);
 
 uint32_t drmu_prop_enum_id(const drmu_prop_enum_t * const pen);
 #define drmu_prop_bitmask_id drmu_prop_enum_id
@@ -500,6 +503,9 @@ bool drmu_plane_format_check(const drmu_plane_t * const dp, const uint32_t forma
 unsigned int drmu_plane_rotation_mask(const drmu_plane_t * const dp);
 // Is rot a valid rotation for this plane?
 bool drmu_plane_rotation_valid(const drmu_plane_t * const dp, const unsigned int rot);
+// Get the name & id of the nth color pipeline. pId & pName may be NULL
+// -EINVAL if no pipelines, -ENOENT if no more values, 0 OK
+int drmu_plane_color_pipeline(const drmu_plane_t * const dp, int n, uint32_t * pId, const char ** pName);
 
 // Alpha: -1 = no not set, 0 = transparent, 0xffff = opaque
 #define DRMU_PLANE_ALPHA_UNSET                  (-1)

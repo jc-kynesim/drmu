@@ -163,8 +163,8 @@ drmu_blob_len(const drmu_blob_t * const blob)
     return blob->len;
 }
 
-drmu_blob_t *
-drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len)
+static drmu_blob_t *
+blob_create(drmu_env_t * const du, void * data, const size_t len)
 {
     int rv;
     drmu_blob_t * blob = calloc(1, sizeof(*blob));
@@ -176,16 +176,12 @@ drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len)
 
     if (blob == NULL) {
         drmu_err(du, "%s: Unable to alloc blob", __func__);
+        free(data);
         return NULL;
     }
     blob->du = du;
-
-    if ((blob->data = malloc(len)) == NULL) {
-        drmu_err(du, "%s: Unable to alloc blob data", __func__);
-        goto fail;
-    }
+    blob->data = data;
     blob->len = len;
-    memcpy(blob->data, data, len);
 
     if ((rv = drmu_ioctl(du, DRM_IOCTL_MODE_CREATEPROPBLOB, &cblob)) != 0) {
         drmu_err(du, "%s: Unable to create blob: data=%p, len=%zu: %s", __func__,
@@ -200,6 +196,20 @@ drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len)
 fail:
     blob_free(blob);
     return NULL;
+}
+
+drmu_blob_t *
+drmu_blob_new(drmu_env_t * const du, const void * const data, const size_t len)
+{
+    void * bdata = malloc(len);
+
+    if (bdata == NULL) {
+        drmu_err(du, "%s: Unable to alloc %zu blob data", __func__, len);
+        return NULL;
+    }
+    memcpy(bdata, data, len);
+
+    return blob_create(du, bdata, len);
 }
 
 int
@@ -265,9 +275,8 @@ drmu_blob_copy_id(drmu_env_t * const du, uint32_t blob_id)
     drmu_blob_t * blob = NULL;
 
     if (blob_data_read(du, blob_id, &data, &len) == 0)
-        blob = drmu_blob_new(du, data, len);  // * This copies data - could just get it to take the malloc
+        blob = blob_create(du, data, len);
 
-    free(data);
     return blob;
 }
 
@@ -364,6 +373,22 @@ drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const n
     const uint64_t *const p = drmu_prop_enum_value(pen, name);
     return p == NULL || *p >= 64 || (pen->flags & DRM_MODE_PROP_BITMASK) == 0 ?
         (uint64_t)0 : (uint64_t)1 << *p;
+}
+
+int
+drmu_prop_enum_n(const drmu_prop_enum_t * const pen, unsigned int n, uint64_t *pVal, const char **pName)
+{
+    *pVal = 0;
+    *pName = "<none>";
+
+    if (pen == NULL)
+        return -EINVAL;
+    if (n > pen->n)
+        return -ENOENT;
+
+    *pVal = pen->enums[n].value;
+    *pName = pen->enums[n].name;
+    return 0;
 }
 
 uint32_t
@@ -2911,8 +2936,8 @@ struct drmu_conn_s {
     struct {
         drmu_prop_object_t * crtc_id;
         drmu_prop_range_t * max_bpc;
-        drmu_prop_enum_t * colorspace;
         drmu_prop_enum_t * broadcast_rgb;
+        drmu_prop_enum_t * colorspace;
         drmu_prop_bitmask_t * rotation;
         uint32_t hdr_output_metadata;
         uint32_t writeback_out_fence_ptr;
@@ -3404,6 +3429,7 @@ typedef struct drmu_plane_s {
         drmu_prop_range_t * chroma_siting_h;
         drmu_prop_range_t * chroma_siting_v;
         drmu_prop_range_t * zpos;
+        drmu_prop_enum_t * color_pipeline;
     } pid;
 
     unsigned int rot_mask;
@@ -3534,6 +3560,26 @@ bool
 drmu_plane_rotation_valid(const drmu_plane_t * const dp, const unsigned int rot)
 {
     return drmu_rotation_is_valid(rot) && ((dp->rot_mask >> rot) & 1) != 0;
+}
+
+int
+drmu_plane_color_pipeline(const drmu_plane_t * const dp, int n, uint32_t * pId, const char ** pName)
+{
+    uint64_t value;
+    const char * name;
+    int rv = drmu_prop_enum_n(dp->pid.color_pipeline, n, &value, &name);
+
+    if (pId != NULL)
+        *pId = (uint32_t)value;
+    if (pName != NULL)
+        *pName = name;
+
+    if (value > UINT32_MAX) {
+        drmu_err(dp->du, "%s: Id value out of range");
+        return -EINVAL;
+    }
+
+    return rv;
 }
 
 static int
@@ -3693,6 +3739,7 @@ plane_uninit(drmu_plane_t * const dp)
     drmu_prop_enum_delete(&dp->pid.pixel_blend_mode);
     drmu_prop_enum_delete(&dp->pid.rotation);
     drmu_prop_range_delete(&dp->pid.zpos);
+    drmu_prop_enum_delete(&dp->pid.color_pipeline);
     free(dp->fmt_idxs);
     dp->fmt_idxs = NULL;
     free(dp->formats_in);
@@ -3767,6 +3814,7 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
     dp->pid.chroma_siting_h  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_H"));
     dp->pid.chroma_siting_v  = drmu_prop_range_new(du, props_name_to_id(props, "CHROMA_SITING_V"));
     dp->pid.zpos             = drmu_prop_range_new(du, props_name_to_id(props, "zpos"));
+    dp->pid.color_pipeline   = drmu_prop_enum_new(du, props_name_to_id(props, "COLOR_PIPELINE"));
 
     dp->rot_mask = rotation_make_array(dp->pid.rotation, dp->rot_vals);
 
