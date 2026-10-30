@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,6 +28,8 @@ struct drmu_propinfo_s {
 };
 
 struct drmu_props_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
+
     struct drmu_env_s * du;
     unsigned int n;
     drmu_propinfo_t * info;
@@ -51,12 +54,35 @@ drmu_propinfo_prop_flags(const drmu_propinfo_t * const pi)
     return pi == NULL ? 0 : pi->prop.flags;
 }
 
-void
-drmu_props_free(drmu_props_t * const props)
+static void
+props_free(drmu_props_t * const props)
 {
     free(props->info);  // As yet nothing else is allocated off this
     free(props->by_name);
     free(props);
+}
+
+void
+drmu_props_unref(drmu_props_t ** const ppProps)
+{
+    drmu_props_t * const props = *ppProps;
+
+    if (props == NULL)
+        return;
+    *ppProps = NULL;
+
+    if (atomic_fetch_sub(&props->ref_count, 1) != 0)
+        return;
+
+    props_free(props);
+}
+
+drmu_props_t *
+drmu_props_ref(drmu_props_t * const props)
+{
+    if (props != NULL)
+        atomic_fetch_add(&props->ref_count, 1);
+    return props;
 }
 
 const drmu_propinfo_t *
@@ -259,7 +285,7 @@ drmu_props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objty
     return props;
 
 fail:
-    drmu_props_free(props);
+    props_free(props);
     free(values);
     free(propids);
     return NULL;

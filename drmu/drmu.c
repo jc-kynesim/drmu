@@ -2387,7 +2387,7 @@ crtc_init(drmu_env_t * const du, drmu_crtc_t * const dc, const unsigned int idx,
         dc->pid.background_color = drmu_prop_range_new(du, drmu_props_name_to_id(props, "BACKGROUND_COLOR"));
         dc->pid.active = drmu_prop_range_new(du, drmu_props_name_to_id(props, "ACTIVE"));
 
-        drmu_props_free(props);
+        drmu_props_unref(&props);
     }
 
     return 0;
@@ -2938,7 +2938,7 @@ conn_init(drmu_env_t * const du, drmu_conn_t * const dn, unsigned int conn_idx, 
         dn->pid.writeback_out_fence_ptr = drmu_props_name_to_id(props, "WRITEBACK_OUT_FENCE_PTR");
 
         dn->wb_fmts_blob = blob_new_props_name(du, props, "WRITEBACK_PIXEL_FORMATS");
-        drmu_props_free(props);
+        drmu_props_unref(&props);
 
         wb_blob_len = drmu_blob_len(dn->wb_fmts_blob);
         dn->writeback_fmts_count = wb_blob_len / sizeof(*dn->writeback_fmts_sorted);
@@ -3502,11 +3502,11 @@ plane_init(drmu_env_t * const du, drmu_plane_t * const dp, const uint32_t plane_
         drmu_prop_enum_delete(&etype);
     }
 
-    drmu_props_free(props);
+    drmu_props_unref(&props);
     return 0;
 
 fail:
-    drmu_props_free(props);
+    drmu_props_unref(&props);
     return -EINVAL;
 }
 
@@ -3880,12 +3880,12 @@ env_object_state_save(drmu_env_t * const du, const uint32_t obj_id, const uint32
     if ((rv = atomic_props_add_save(da, obj_id, props)) != 0)
         goto fail;
 
-    drmu_props_free(props);
+    drmu_props_unref(&props);
     return drmu_atomic_env_restore_add_snapshot(&da);
 
 fail:
     if (props)
-        drmu_props_free(props);
+        drmu_props_unref(&props);
     return rv;
 }
 

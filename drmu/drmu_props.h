@@ -23,7 +23,8 @@ uint32_t drmu_propinfo_prop_id(const drmu_propinfo_t * const pi);
 uint32_t drmu_propinfo_prop_flags(const drmu_propinfo_t * const pi);
 
 drmu_props_t * drmu_props_new(struct drmu_env_s * const du, const uint32_t objid, const uint32_t objtype);
-void drmu_props_free(drmu_props_t * const props);
+void drmu_props_unref(drmu_props_t ** const ppProps);
+drmu_props_t * drmu_props_ref(drmu_props_t * const props);
 
 const drmu_propinfo_t * drmu_props_name_to_propinfo(const drmu_props_t * const props, const char * const name);
 const drmu_propinfo_t * drmu_props_propinfo_n(const drmu_props_t * const props, const unsigned int n);
