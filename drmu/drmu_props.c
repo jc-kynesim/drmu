@@ -170,8 +170,10 @@ propinfo_fill(drmu_env_t * const du, drmu_propinfo_t * const inf, uint32_t propi
     return rv;
 }
 
-int
-drmu_props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype,
+// Returns number of props on success, -errno on failure
+// *ppPropids & *ppValues must be freed later
+static int
+props_get_properties(drmu_env_t * const du, const uint32_t objid, const uint32_t objtype,
                      uint32_t ** const ppPropids, uint64_t ** const ppValues)
 {
     struct drm_mode_obj_get_properties obj_props = {
@@ -231,7 +233,7 @@ drmu_props_new(drmu_env_t * const du, const uint32_t objid, const uint32_t objty
     }
     props->du = du;
 
-    if ((rv = drmu_props_get_properties(du, objid, objtype, &propids, &values)) < 0)
+    if ((rv = props_get_properties(du, objid, objtype, &propids, &values)) < 0)
         goto fail;
 
     props->n = rv;

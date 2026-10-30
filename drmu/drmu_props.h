@@ -31,11 +31,6 @@ const drmu_propinfo_t * drmu_props_propinfo_n(const drmu_props_t * const props, 
 uint32_t drmu_props_name_to_id(const drmu_props_t * const props, const char * const name);
 void drmu_props_dump(const drmu_props_t * const props);
 
-// Returns number of props on success, -errno on failure
-// *ppPropids & *ppValues must be freed later
-int drmu_props_get_properties(struct drmu_env_s * const du, const uint32_t objid, const uint32_t objtype,
-                              uint32_t ** const ppPropids, uint64_t ** const ppValues);
-
 #ifdef __cplusplus
 }
 #endif
