@@ -2192,58 +2192,6 @@ drmu_atomic_add_prop_fb(drmu_atomic_t * const da, const uint32_t obj_id, const u
     return rv;
 }
 
-int
-drmu_atomic_obj_add_snapshot(drmu_atomic_t * const da, const uint32_t objid, const uint32_t objtype)
-{
-#if 0
-    drmu_env_t * const du = drmu_atomic_env(da);
-    drmu_props_t * props = NULL;
-    unsigned int i;
-    int rv;
-
-    if (!du)
-        return -EINVAL;
-
-    if ((props = drmu_props_new(du, objid, objtype)) == NULL)
-        return -ENOENT;
-
-    for (i = 0; i != props->n; ++i) {
-        if ((props->info[i].prop.flags & (DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_ATOMIC)) != 0 || props->info[i].prop.prop_id == 2)
-            continue;
-        if ((rv = drmu_atomic_add_prop_generic(da, objid, props->info[i].prop.prop_id, props->info[i].val, 0, 0, NULL)) != 0)
-            goto fail;
-    }
-    rv = 0;
-
-fail:
-    drmu_props_free(props);
-    return rv;
-#else
-    uint64_t * values;
-    uint32_t * propids;
-    int rv;
-    unsigned int i, n;
-    drmu_env_t * const du = drmu_atomic_env(da);
-
-    if (!du)
-        return -EINVAL;
-
-    if ((rv = drmu_props_get_properties(du, objid, objtype, &propids, &values)) < 0)
-        goto fail;
-    n = rv;
-
-    for (i = 0; i != n; ++i) {
-        if ((rv = drmu_atomic_add_prop_value(da, objid, propids[i], values[i])) != 0)
-            goto fail;
-    }
-
-fail:
-    free(values);
-    free(propids);
-    return rv;
-#endif
-}
-
 //----------------------------------------------------------------------------
 //
 // Rotation util

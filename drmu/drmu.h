@@ -368,14 +368,6 @@ void drmu_prop_object_unref(drmu_prop_object_t ** ppobj);
 drmu_prop_object_t * drmu_prop_object_new_propinfo(drmu_env_t * const du, const uint32_t obj_id, const struct drmu_propinfo_s * const pi);
 int drmu_atomic_add_prop_object(struct drmu_atomic_s * const da, drmu_prop_object_t * obj, uint32_t val);
 
-// Props
-
-// Grab all the props of an object and add to an atomic
-// * Does not add references to any properties (BO or FB) currently, it maybe
-//   should but if so we need to avoid accidentally closing BOs that we inherit
-//   from outside when we delete the atomic.
-int drmu_atomic_obj_add_snapshot(struct drmu_atomic_s * const da, const uint32_t objid, const uint32_t objtype);
-
 // CRTC
 
 struct _drmModeModeInfo;
