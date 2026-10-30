@@ -2,21 +2,26 @@
 
 #include "drmu.h"
 #include "drmu_log.h"
+#include "drmu_props.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 
+#ifndef DRM_MODE_OBJECT_COLOROP
+#define DRM_MODE_OBJECT_COLOROP 0xfafafafa
+#endif
+
 struct drmu_pipe_s {
     atomic_int ref_count;  // 0 == 1 ref for ease of init
     drmu_env_t * du;
-    drmu_blob_t * blob;
+    drmu_props_t * props;
 };
 
 static void
 pipe_free(drmu_pipe_t * const pipe)
 {
-    drmu_blob_unref(&pipe->blob);
+    drmu_props_unref(&pipe->props);
     free(pipe);
 }
 
@@ -47,7 +52,6 @@ drmu_pipe_t *
 drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid)
 {
     drmu_pipe_t * const pipe = calloc(1, sizeof(*pipe));
-    (void)pid;
 
     if (pipe == NULL)
         return NULL;
@@ -55,10 +59,11 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid)
     atomic_init(&pipe->ref_count, 0);
     pipe->du = du;
 
-    if ((pipe->blob = drmu_blob_copy_id(du, pid)) == NULL) {
-        drmu_err(du, "%s: No blob for id %d", __func__, pid);
+    if ((pipe->props = drmu_props_new(du, pid, DRM_MODE_OBJECT_COLOROP)) != NULL) {
+        drmu_err(du, "%s: Cannot retrieve props for id %u", __func__, pid);
         goto fail;
     }
+
     return pipe;
 
 fail:
