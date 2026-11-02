@@ -23,6 +23,7 @@
 #include "drmu_fourcc.h"
 #include "drmu_log.h"
 #include "drmu_output.h"
+#include "drmu_pipe.h"
 #include "drmu_scan.h"
 #include "drmu_util.h"
 #include "drmu_writeback.h"
@@ -635,6 +636,37 @@ planes_print_fmts(const char * const name, const unsigned int n1, const unsigned
 }
 
 static void
+list_pipes(drmu_env_t * const du)
+{
+    unsigned int i;
+    drmu_plane_t * dp;
+
+    for (i = 0; (dp = drmu_env_plane_find_n(du, i)) != NULL ; ++i) {
+        unsigned int j;
+        uint32_t pid;
+        const char * name;
+
+        printf("Plane %d\n", i);
+
+        for (j = 0; drmu_plane_color_pipeline(dp, j, &pid, &name) == 0; ++j) {
+            drmu_pipe_t *pipe;
+
+            printf("  Pipe[%d]: id=%3d  %s\n", j, pid, name);
+            pipe = drmu_pipe_new_pid(du, pid);
+            if (pipe == NULL) {
+                printf("    None\n");
+                continue;
+            }
+            drmu_pipe_unref(&pipe);
+        }
+
+        if (j == 0)
+            printf("  None\n");
+
+    }
+}
+
+static void
 list_fmts(drmu_env_t * const du)
 {
     unsigned int n = 0;
@@ -986,6 +1018,13 @@ static const struct option longopts[] =
         .flag = NULL,
         .val = OPT_WBFILE
     },
+#define OPT_LIST_PIPES 268
+    {
+        .name = "pipes",
+        .has_arg = 0,
+        .flag = NULL,
+        .val = OPT_LIST_PIPES
+    },
     {
         .name = NULL,
         .has_arg = 0,
@@ -1005,6 +1044,7 @@ enum test_type_e {
     TEST_LIST_FORMATS,
     TEST_FILE,
     TEST_LIST_CONNS,
+    TEST_LIST_PIPES,
 };
 
 int main(int argc, char *argv[])
@@ -1079,6 +1119,9 @@ int main(int argc, char *argv[])
                 break;
             case OPT_LIST_CONNS:
                 test_type = TEST_LIST_CONNS;
+                break;
+            case OPT_LIST_PIPES:
+                test_type = TEST_LIST_PIPES;
                 break;
             case OPT_SIZE:
             {
@@ -1293,6 +1336,10 @@ int main(int argc, char *argv[])
 
     if (test_type == TEST_LIST_FORMATS) {
         list_fmts(du);
+        goto done_du_dout;
+    }
+    if (test_type == TEST_LIST_PIPES) {
+        list_pipes(du);
         goto done_du_dout;
     }
 
