@@ -4,24 +4,171 @@
 #include "drmu_log.h"
 #include "drmu_props.h"
 
+#include <inttypes.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#include <libdrm/drm_mode.h>
 
 #ifndef DRM_MODE_OBJECT_COLOROP
 #define DRM_MODE_OBJECT_COLOROP 0xfafafafa
 #endif
 
-struct drmu_pipe_s {
-    atomic_int ref_count;  // 0 == 1 ref for ease of init
-    drmu_env_t * du;
+typedef enum drmu_colorop_type_e {
+    DRMU_COLOROP_TYPE_UNKNOWN = 0,
+    DRMU_COLOROP_TYPE_1D_CURVE,
+    DRMU_COLOROP_TYPE_1D_LUT,
+    DRMU_COLOROP_TYPE_3X4_MATRIX,
+    DRMU_COLOROP_TYPE_MULTIPLIER,
+    DRMU_COLOROP_TYPE_3D_LUT,
+    DRMU_COLOROP_TYPE_COUNT   // Must be last
+} drmu_colorop_type_t;
+
+// MUST be same order as enum
+const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
+    "????",
+    "1D Curve",
+    "1D LUT",
+    "3x4 Matrix",
+    "Multiplier",
+    "3D LOT",
+};
+
+drmu_colorop_type_t
+colorop_type_name_to_n(const char * name)
+{
+    unsigned int i;
+
+    for (i = 1; i != (unsigned int)DRMU_COLOROP_TYPE_COUNT; ++i)
+        if (strcmp(name, colorop_type_names[i]) == 0)
+            return (drmu_colorop_type_t)i;
+    return DRMU_COLOROP_TYPE_UNKNOWN;
+}
+
+struct drmu_colorop_s {
     drmu_props_t * props;
+    drmu_colorop_type_t type;
+    uint32_t next_id;
+    bool bypass;
+    drmu_prop_enum_t * type_enum;
+
+    union {
+        struct {
+            drmu_prop_enum_t * curve_enum;
+        } curve_1d;
+        struct {
+            drmu_prop_range_t * range;
+            uint64_t val;
+        } mul;
+    } op;
 };
 
 static void
-pipe_free(drmu_pipe_t * const pipe)
+colorop_free(drmu_colorop_t * const cop)
 {
-    drmu_props_unref(&pipe->props);
+    if (cop == NULL)
+        return;
+
+    switch (cop->type) {
+        case DRMU_COLOROP_TYPE_1D_CURVE:
+            drmu_prop_enum_delete(&cop->op.curve_1d.curve_enum);
+            break;
+        case DRMU_COLOROP_TYPE_MULTIPLIER:
+            drmu_prop_range_delete(&cop->op.mul.range);
+            break;
+        case DRMU_COLOROP_TYPE_UNKNOWN:
+        case DRMU_COLOROP_TYPE_1D_LUT:
+        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+        case DRMU_COLOROP_TYPE_3D_LUT:
+        case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
+            break;
+    }
+
+    drmu_props_unref(&cop->props);
+    drmu_prop_enum_delete(&cop->type_enum);
+    free(cop);
+}
+
+uint32_t
+drmu_colorop_next_id(const drmu_colorop_t * const cop)
+{
+    return cop->next_id;
+}
+
+static drmu_colorop_t *
+colorop_new(drmu_env_t * const du, const uint32_t pid)
+{
+    drmu_colorop_t * cop = calloc(1, sizeof(*cop));
+    uint64_t type_val;
+    const char * type_name;
+
+    if (cop == NULL)
+        return NULL;
+
+    if ((cop->props = drmu_props_new(du, pid, DRM_MODE_OBJECT_ANY)) == NULL) {
+        drmu_err(du, "%s: Cannot retrieve props for id %u", __func__, pid);
+        goto fail;
+    }
+
+    drmu_props_dump(cop->props);
+
+    cop->next_id = (uint32_t)drmu_propinfo_val(drmu_props_name_to_propinfo(cop->props, "NEXT"));
+    cop->bypass = drmu_propinfo_val(drmu_props_name_to_propinfo(cop->props, "BYPASS")) != 0;
+    type_val = drmu_propinfo_val(drmu_props_name_to_propinfo(cop->props, "TYPE"));
+    cop->type_enum = drmu_prop_enum_new(du, drmu_props_name_to_id(cop->props, "TYPE"));
+    if ((type_name = drmu_prop_enum_value_name(cop->type_enum, type_val)) == NULL) {
+        drmu_err(du, "%s: Cannot get type", __func__);
+        goto fail;
+    }
+    cop->type = colorop_type_name_to_n(type_name);
+
+    switch (cop->type) {
+        case DRMU_COLOROP_TYPE_1D_CURVE:
+            if ((cop->op.curve_1d.curve_enum = drmu_prop_enum_new(du, drmu_props_name_to_id(cop->props, "CURVE_1D_TYPE"))) == NULL) {
+                drmu_err(du, "1d Curve type missing");
+                goto fail;
+            }
+            break;
+        case DRMU_COLOROP_TYPE_MULTIPLIER:
+            if ((cop->op.mul.range = drmu_prop_range_new(du, drmu_props_name_to_id(cop->props, "MULTIPLIER"))) == NULL) {
+                drmu_err(du, "Multiplier range missing");
+                goto fail;
+            }
+            break;
+        case DRMU_COLOROP_TYPE_UNKNOWN:
+        case DRMU_COLOROP_TYPE_1D_LUT:
+        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+        case DRMU_COLOROP_TYPE_3D_LUT:
+        case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
+            drmu_warn(du, "Unsupported type %"PRId64"->%d %s", type_val, (int)cop->type, type_name);
+            break;
+    }
+
+    return cop;
+
+fail:
+    colorop_free(cop);
+    return NULL;
+}
+
+struct drmu_pipe_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
+    drmu_env_t * du;
+
+    unsigned int cop_n;
+    unsigned int cop_size;
+    drmu_colorop_t **cops;
+};
+
+static void
+pipe_free(drmu_pipe_t * pipe)
+{
+    unsigned int i;
+
+    for (i = 0; i != pipe->cop_n; ++i)
+        colorop_free(pipe->cops[i]);
+    free(pipe->cops);
     free(pipe);
 }
 
@@ -49,19 +196,41 @@ drmu_pipe_ref(drmu_pipe_t * const pipe)
 }
 
 drmu_pipe_t *
-drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid)
+drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid0)
 {
-    drmu_pipe_t * const pipe = calloc(1, sizeof(*pipe));
+    unsigned int i;
+    drmu_pipe_t * pipe;
+    uint32_t pid = pid0;
 
-    if (pipe == NULL)
+    if (pid == 0)
         return NULL;
 
-    atomic_init(&pipe->ref_count, 0);
-    pipe->du = du;
+    if ((pipe = calloc(1, sizeof(*pipe))) == NULL) {
+        drmu_err(du, "Pipe struct failed");
+        return NULL;
+    }
 
-    if ((pipe->props = drmu_props_new(du, pid, DRM_MODE_OBJECT_COLOROP)) != NULL) {
-        drmu_err(du, "%s: Cannot retrieve props for id %u", __func__, pid);
-        goto fail;
+    atomic_init(&pipe->ref_count, 0);
+
+    for (i = 0; pid != 0; ++i) {
+        if (i >= pipe->cop_size) {
+            size_t new_n = pipe->cop_size < 8 ? 8 : pipe->cop_size * 2;
+            void * new_a = realloc(pipe->cops, new_n * sizeof(*pipe->cops));
+            if (new_a == NULL) {
+                drmu_err(du, "Pipe cop alloc failed");
+                goto fail;
+            }
+            pipe->cop_size = new_n;
+            pipe->cops = new_a;
+        }
+
+        if ((pipe->cops[i] = colorop_new(du, pid)) == NULL) {
+            drmu_err(du, "Pipe colorop[%d] failed creation", i);
+            goto fail;
+        }
+        pipe->cop_n = i;
+
+        pid = drmu_colorop_next_id(pipe->cops[i]);
     }
 
     return pipe;
@@ -71,4 +240,7 @@ fail:
     return NULL;
 }
 
-
+drmu_colorop_t * drmu_pipe_colorop_n(const drmu_pipe_t * const pipe, unsigned int n)
+{
+    return pipe == NULL || n >= pipe->cop_n ? NULL : pipe->cops[n];
+}
