@@ -105,6 +105,8 @@ typedef drmu_prop_enum_t drmu_prop_bitmask_t;
 
 // Ptr to value of the named enum/bit, NULL if not found or pen == NULL. If bitmask then bit number
 const uint64_t * drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name);
+// Value to name, NULL if not found
+const char * drmu_prop_enum_value_name(const drmu_prop_enum_t * const pen, const uint64_t val);
 // Bitmask only - value as a (single-bit) bitmask - 0 if not found or not bitmask or pen == NULL
 uint64_t drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const name);
 // Retrieve the nth name, value pair. Sort order undefined.

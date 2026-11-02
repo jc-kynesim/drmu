@@ -357,6 +357,20 @@ drmu_prop_enum_value(const drmu_prop_enum_t * const pen, const char * const name
     return NULL;
 }
 
+const char *
+drmu_prop_enum_value_name(const drmu_prop_enum_t * const pen, const uint64_t val)
+{
+    unsigned int i;
+
+    if (pen == NULL)
+        return NULL;
+
+    for (i = 0; i != pen->n; ++i)
+        if (pen->enums[i].value == val)
+            return pen->enums[i].name;
+    return NULL;
+}
+
 uint64_t
 drmu_prop_bitmask_value(const drmu_prop_enum_t * const pen, const char * const name)
 {
@@ -373,7 +387,7 @@ drmu_prop_enum_n(const drmu_prop_enum_t * const pen, unsigned int n, uint64_t *p
 
     if (pen == NULL)
         return -EINVAL;
-    if (n > pen->n)
+    if (n >= pen->n)
         return -ENOENT;
 
     *pVal = pen->enums[n].value;
