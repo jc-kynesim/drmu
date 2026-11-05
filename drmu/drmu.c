@@ -694,7 +694,7 @@ drmu_prop_object_t *
 drmu_prop_object_new_propinfo(drmu_env_t * const du, const uint32_t obj_id, const drmu_propinfo_t * const pi)
 {
     const uint64_t val = drmu_propinfo_val(pi);
-    const uint32_t prop_id = drmu_propinfo_prop_id(pi);
+    const uint32_t prop_id = drmu_propinfo_id(pi);
 
     if (obj_id == 0 || prop_id == 0)
         return NULL;
@@ -3846,8 +3846,8 @@ atomic_props_add_save(drmu_atomic_t * const da, const uint32_t objid, const drmu
         return -EINVAL;
 
     for (i = 0; (pi = drmu_props_propinfo_n(props, i)) != NULL; ++i) {
-        const uint32_t flags = drmu_propinfo_prop_flags(pi);
-        const uint32_t pid = drmu_propinfo_prop_id(pi);
+        const uint32_t flags = drmu_propinfo_flags(pi);
+        const uint32_t pid = drmu_propinfo_id(pi);
         const uint64_t val = drmu_propinfo_val(pi);
 
         if ((flags & DRM_MODE_PROP_IMMUTABLE) != 0)

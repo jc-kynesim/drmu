@@ -19,8 +19,8 @@ struct drmu_props_s;
 typedef struct drmu_props_s drmu_props_t;
 
 uint64_t drmu_propinfo_val(const drmu_propinfo_t * const pi);
-uint32_t drmu_propinfo_prop_id(const drmu_propinfo_t * const pi);
-uint32_t drmu_propinfo_prop_flags(const drmu_propinfo_t * const pi);
+uint32_t drmu_propinfo_id(const drmu_propinfo_t * const pi);
+uint32_t drmu_propinfo_flags(const drmu_propinfo_t * const pi);
 
 drmu_props_t * drmu_props_new(struct drmu_env_s * const du, const uint32_t objid, const uint32_t objtype);
 void drmu_props_unref(drmu_props_t ** const ppProps);

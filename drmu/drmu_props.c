@@ -43,13 +43,13 @@ drmu_propinfo_val(const drmu_propinfo_t * const pi)
 }
 
 uint32_t
-drmu_propinfo_prop_id(const drmu_propinfo_t * const pi)
+drmu_propinfo_id(const drmu_propinfo_t * const pi)
 {
     return pi == NULL ? 0 : pi->prop.prop_id;
 }
 
 uint32_t
-drmu_propinfo_prop_flags(const drmu_propinfo_t * const pi)
+drmu_propinfo_flags(const drmu_propinfo_t * const pi)
 {
     return pi == NULL ? 0 : pi->prop.flags;
 }
@@ -120,7 +120,7 @@ drmu_props_propinfo_n(const drmu_props_t * const props, const unsigned int n)
 uint32_t
 drmu_props_name_to_id(const drmu_props_t * const props, const char * const name)
 {
-    return drmu_propinfo_prop_id(drmu_props_name_to_propinfo(props, name));
+    return drmu_propinfo_id(drmu_props_name_to_propinfo(props, name));
 }
 
 void
