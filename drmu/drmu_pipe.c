@@ -4,6 +4,7 @@
 #include "drmu_log.h"
 #include "drmu_props.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -263,6 +264,93 @@ drmu_colorop_new(drmu_colorop_type_t type)
     return dco;
 }
 
+drmu_colorop_type_t
+drmu_colorop_type(const drmu_colorop_t * const dco)
+{
+    return dco == NULL ? DRMU_COLOROP_TYPE_UNKNOWN : dco->type;
+}
+
+void
+drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass)
+{
+    dco->bypass = bypass;
+}
+
+
+struct drmu_colorop_seq_s {
+    atomic_int ref_count;
+
+    unsigned int ops_size;
+    unsigned int ops_n;
+    drmu_colorop_t ** ops;
+};
+
+static void
+colorop_seq_free(drmu_colorop_seq_t * const cs)
+{
+    unsigned int i;
+
+    for (i = 0; i != cs->ops_n; ++i)
+        drmu_colorop_unref(cs->ops + i);
+    free(cs->ops);
+    free(cs);
+}
+
+void
+drmu_colorop_seq_unref(drmu_colorop_seq_t ** const ppCs)
+{
+    drmu_colorop_seq_t * const cs = *ppCs;
+
+    if (cs == NULL)
+        return;
+    *ppCs = NULL;
+
+    if (atomic_fetch_sub(&cs->ref_count, 1) != 0)
+        return;
+
+    colorop_seq_free(cs);
+}
+
+drmu_colorop_seq_t *
+drmu_colorop_seq_ref(drmu_colorop_seq_t * const cs)
+{
+    if (cs != NULL)
+        atomic_fetch_add(&cs->ref_count, 1);
+    return cs;
+}
+
+
+drmu_colorop_seq_t *
+drmu_colorop_seq_new()
+{
+    drmu_colorop_seq_t * cs = calloc(1, sizeof(*cs));
+
+    if (cs == NULL)
+       return NULL;
+
+    return cs;
+}
+
+int
+drmu_colorop_seq_add_tail(drmu_colorop_seq_t * const cs, drmu_colorop_t * const dco)
+{
+    if (dco == NULL)
+        return 0;
+    if (cs->ops_n >= cs->ops_size) {
+        unsigned int new_size = cs->ops_size < 8 ? 8 : cs->ops_size * 2;
+        drmu_colorop_t * new_ops = realloc(cs->ops, sizeof(*cs->ops) * new_size);
+        if (new_ops == NULL)
+            return -ENOMEM;
+    }
+    cs->ops[cs->ops_n++] = drmu_colorop_ref(dco);
+    return 0;
+}
+
+drmu_colorop_t *
+drmu_colorop_seq_n(drmu_colorop_seq_t * const cs, const unsigned int n)
+{
+    return cs == NULL || cs->ops_n <= n ? NULL : cs->ops[n];
+}
 
 struct drmu_pipe_colorop_s {
     drmu_props_t * props;
@@ -274,6 +362,7 @@ struct drmu_pipe_colorop_s {
     union {
         struct {
             drmu_prop_enum_t * curve_enum;
+            uint64_t curve_val;
         } curve_1d;
         struct {
             drmu_prop_range_t * range;
@@ -314,10 +403,35 @@ pipe_colorop_next_id(const drmu_pipe_colorop_t * const pco)
     return pco->next_id;
 }
 
+drmu_colorop_t *
+pipe_colorop_colorop_derive(const drmu_pipe_colorop_t * const pco)
+{
+   drmu_colorop_t * dco = drmu_colorop_new(pco->type);
+
+   if (dco == NULL)
+       return NULL;
+
+   drmu_colorop_bypass_set(dco, pco->bypass);
+
+   switch (pco->type) {
+       case DRMU_COLOROP_TYPE_1D_CURVE:
+       case DRMU_COLOROP_TYPE_MULTIPLIER:
+       case DRMU_COLOROP_TYPE_UNKNOWN:
+       case DRMU_COLOROP_TYPE_1D_LUT:
+       case DRMU_COLOROP_TYPE_3X4_MATRIX:
+       case DRMU_COLOROP_TYPE_3D_LUT:
+       case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
+           break;
+   }
+
+   return dco;
+}
+
 static drmu_pipe_colorop_t *
 pipe_colorop_new(drmu_env_t * const du, const uint32_t pid)
 {
     drmu_pipe_colorop_t * cop = calloc(1, sizeof(*cop));
+    const drmu_propinfo_t * pi;
     uint64_t type_val;
     const char * type_name;
 
@@ -343,16 +457,22 @@ pipe_colorop_new(drmu_env_t * const du, const uint32_t pid)
 
     switch (cop->type) {
         case DRMU_COLOROP_TYPE_1D_CURVE:
-            if ((cop->op.curve_1d.curve_enum = drmu_prop_enum_new(du, drmu_props_name_to_id(cop->props, "CURVE_1D_TYPE"))) == NULL) {
-                drmu_err(du, "1d Curve type missing");
-                goto fail;
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "CURVE_1D_TYPE")) == NULL) {
+                 drmu_err(du, "1d Curve type missing");
+                 goto fail;
             }
+            if ((cop->op.curve_1d.curve_enum = drmu_prop_enum_new(du, drmu_propinfo_id(pi))) == NULL)
+                goto fail;
+            cop->op.curve_1d.curve_val = drmu_propinfo_val(pi);
             break;
         case DRMU_COLOROP_TYPE_MULTIPLIER:
-            if ((cop->op.mul.range = drmu_prop_range_new(du, drmu_props_name_to_id(cop->props, "MULTIPLIER"))) == NULL) {
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "MULTIPLIER")) == NULL) {
                 drmu_err(du, "Multiplier range missing");
                 goto fail;
             }
+            if ((cop->op.mul.range = drmu_prop_range_new(du, drmu_propinfo_id(pi))) == NULL)
+                goto fail;
+            cop->op.mul.val = drmu_propinfo_val(pi);
             break;
         case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_1D_LUT:
@@ -455,6 +575,31 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid0)
 
 fail:
     pipe_free(pipe);
+    return NULL;
+}
+
+drmu_colorop_seq_t *
+drmu_pipe_colorop_seq_load(drmu_pipe_t * const pipe)
+{
+    int rv;
+    unsigned int i;
+    drmu_colorop_seq_t * cs = drmu_colorop_seq_new();
+
+    for (i = 0; i != pipe->cop_n; ++i) {
+        drmu_pipe_colorop_t * pco = pipe->cops[i];
+        drmu_colorop_t * dco = pipe_colorop_colorop_derive(pco);
+
+        rv = drmu_colorop_seq_add_tail(cs, dco);
+        drmu_colorop_unref(&dco);
+        if (rv != 0) {
+            drmu_err(pipe->du, "Failed to add colorop");
+            goto fail;
+        }
+    }
+    return cs;
+
+fail:
+    drmu_colorop_seq_unref(&cs);
     return NULL;
 }
 
