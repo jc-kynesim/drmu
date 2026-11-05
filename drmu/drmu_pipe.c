@@ -172,16 +172,6 @@ enum drm_colorop_lut1d_interpolation_type {
 };
 #endif
 
-typedef enum drmu_colorop_type_e {
-    DRMU_COLOROP_TYPE_UNKNOWN = 0,
-    DRMU_COLOROP_TYPE_1D_CURVE,
-    DRMU_COLOROP_TYPE_1D_LUT,
-    DRMU_COLOROP_TYPE_3X4_MATRIX,
-    DRMU_COLOROP_TYPE_MULTIPLIER,
-    DRMU_COLOROP_TYPE_3D_LUT,
-    DRMU_COLOROP_TYPE_COUNT   // Must be last
-} drmu_colorop_type_t;
-
 // MUST be same order as enum
 const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
     "????",
@@ -204,6 +194,77 @@ colorop_type_name_to_n(const char * name)
 }
 
 struct drmu_colorop_s {
+    atomic_int ref_count;  // 0 == 1 ref for ease of init
+
+    drmu_colorop_type_t type;
+    bool bypass;
+
+    union {
+        struct {
+            uint64_t curve;
+        } curve_1d;
+        struct {
+            int64_t val;
+        } mul;
+    } op;
+};
+
+static void
+colorop_free(drmu_colorop_t * const cop)
+{
+    switch (cop->type) {
+        case DRMU_COLOROP_TYPE_1D_CURVE:
+        case DRMU_COLOROP_TYPE_MULTIPLIER:
+        case DRMU_COLOROP_TYPE_UNKNOWN:
+        case DRMU_COLOROP_TYPE_1D_LUT:
+        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+        case DRMU_COLOROP_TYPE_3D_LUT:
+        case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
+            break;
+    }
+
+    free(cop);
+}
+void
+drmu_colorop_unref(drmu_colorop_t ** const ppDco)
+{
+    drmu_colorop_t * const dco = *ppDco;
+
+    if (dco == NULL)
+        return;
+    *ppDco = NULL;
+
+    if (atomic_fetch_sub(&dco->ref_count, 1) != 0)
+        return;
+
+    colorop_free(dco);
+}
+
+drmu_colorop_t *
+drmu_colorop_ref(drmu_colorop_t * const dco)
+{
+    if (dco != NULL)
+        atomic_fetch_add(&dco->ref_count, 1);
+    return dco;
+}
+
+
+drmu_colorop_t *
+drmu_colorop_new(drmu_colorop_type_t type)
+{
+    drmu_colorop_t * dco = calloc(1, sizeof(*dco));
+
+    if (dco == NULL)
+            return NULL;
+
+    dco->type = type;
+    dco->bypass = true;
+
+    return dco;
+}
+
+
+struct drmu_pipe_colorop_s {
     drmu_props_t * props;
     drmu_colorop_type_t type;
     uint32_t next_id;
@@ -222,7 +283,7 @@ struct drmu_colorop_s {
 };
 
 static void
-colorop_free(drmu_colorop_t * const cop)
+pipe_colorop_free(drmu_pipe_colorop_t * const cop)
 {
     if (cop == NULL)
         return;
@@ -247,16 +308,16 @@ colorop_free(drmu_colorop_t * const cop)
     free(cop);
 }
 
-uint32_t
-drmu_colorop_next_id(const drmu_colorop_t * const cop)
+static uint32_t
+pipe_colorop_next_id(const drmu_pipe_colorop_t * const pco)
 {
-    return cop->next_id;
+    return pco->next_id;
 }
 
-static drmu_colorop_t *
-colorop_new(drmu_env_t * const du, const uint32_t pid)
+static drmu_pipe_colorop_t *
+pipe_colorop_new(drmu_env_t * const du, const uint32_t pid)
 {
-    drmu_colorop_t * cop = calloc(1, sizeof(*cop));
+    drmu_pipe_colorop_t * cop = calloc(1, sizeof(*cop));
     uint64_t type_val;
     const char * type_name;
 
@@ -305,7 +366,7 @@ colorop_new(drmu_env_t * const du, const uint32_t pid)
     return cop;
 
 fail:
-    colorop_free(cop);
+    pipe_colorop_free(cop);
     return NULL;
 }
 
@@ -315,7 +376,7 @@ struct drmu_pipe_s {
 
     unsigned int cop_n;
     unsigned int cop_size;
-    drmu_colorop_t **cops;
+    drmu_pipe_colorop_t **cops;
 };
 
 static void
@@ -324,7 +385,7 @@ pipe_free(drmu_pipe_t * pipe)
     unsigned int i;
 
     for (i = 0; i != pipe->cop_n; ++i)
-        colorop_free(pipe->cops[i]);
+        pipe_colorop_free(pipe->cops[i]);
     free(pipe->cops);
     free(pipe);
 }
@@ -381,13 +442,13 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid0)
             pipe->cops = new_a;
         }
 
-        if ((pipe->cops[i] = colorop_new(du, pid)) == NULL) {
+        if ((pipe->cops[i] = pipe_colorop_new(du, pid)) == NULL) {
             drmu_err(du, "Pipe colorop[%d] failed creation", i);
             goto fail;
         }
         pipe->cop_n = i;
 
-        pid = drmu_colorop_next_id(pipe->cops[i]);
+        pid = pipe_colorop_next_id(pipe->cops[i]);
     }
 
     return pipe;
@@ -397,7 +458,8 @@ fail:
     return NULL;
 }
 
-drmu_colorop_t * drmu_pipe_colorop_n(const drmu_pipe_t * const pipe, unsigned int n)
+const drmu_pipe_colorop_t *
+drmu_pipe_colorop_n(const drmu_pipe_t * const pipe, unsigned int n)
 {
     return pipe == NULL || n >= pipe->cop_n ? NULL : pipe->cops[n];
 }
