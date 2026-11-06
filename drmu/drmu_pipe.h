@@ -43,7 +43,11 @@ void drmu_colorop_unref(drmu_colorop_t ** const ppDco);
 drmu_colorop_t * drmu_colorop_ref(drmu_colorop_t * const dco);
 
 drmu_colorop_type_t drmu_colorop_type(const drmu_colorop_t * const dco);
-void drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass);
+bool drmu_colorop_bypass(const drmu_colorop_t * const dco);
+int drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass);
+
+int drmu_colorop_1d_curve_type_set(drmu_colorop_t * const dco, const char * const curve_name);
+const char * drmu_colorop_1d_curve_type(const drmu_colorop_t * const dco);
 
 drmu_colorop_seq_t * drmu_colorop_seq_new();
 void drmu_colorop_seq_unref(drmu_colorop_seq_t ** const ppCs);

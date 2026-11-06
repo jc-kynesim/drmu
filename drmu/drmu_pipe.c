@@ -202,7 +202,7 @@ struct drmu_colorop_s {
 
     union {
         struct {
-            uint64_t curve;
+            char * curve_name;
         } curve_1d;
         struct {
             int64_t val;
@@ -211,10 +211,12 @@ struct drmu_colorop_s {
 };
 
 static void
-colorop_free(drmu_colorop_t * const cop)
+colorop_free(drmu_colorop_t * const dco)
 {
-    switch (cop->type) {
+    switch (dco->type) {
         case DRMU_COLOROP_TYPE_1D_CURVE:
+            free(dco->op.curve_1d.curve_name);
+            break;
         case DRMU_COLOROP_TYPE_MULTIPLIER:
         case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_1D_LUT:
@@ -224,7 +226,7 @@ colorop_free(drmu_colorop_t * const cop)
             break;
     }
 
-    free(cop);
+    free(dco);
 }
 void
 drmu_colorop_unref(drmu_colorop_t ** const ppDco)
@@ -249,6 +251,26 @@ drmu_colorop_ref(drmu_colorop_t * const dco)
     return dco;
 }
 
+drmu_colorop_type_t
+drmu_colorop_type(const drmu_colorop_t * const dco)
+{
+    return dco == NULL ? DRMU_COLOROP_TYPE_UNKNOWN : dco->type;
+}
+
+int
+drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass)
+{
+    if (dco == NULL)
+        return -EINVAL;
+    dco->bypass = bypass;
+    return 0;
+}
+
+bool
+drmu_colorop_bypass(const drmu_colorop_t * const dco)
+{
+    return dco == NULL ? true : dco->bypass;
+}
 
 drmu_colorop_t *
 drmu_colorop_new(drmu_colorop_type_t type)
@@ -264,18 +286,33 @@ drmu_colorop_new(drmu_colorop_type_t type)
     return dco;
 }
 
-drmu_colorop_type_t
-drmu_colorop_type(const drmu_colorop_t * const dco)
+// 1d_curve ------------------------------------------------------------------
+
+int
+drmu_colorop_1d_curve_type_set(drmu_colorop_t * const dco, const char * const curve_name)
 {
-    return dco == NULL ? DRMU_COLOROP_TYPE_UNKNOWN : dco->type;
+    char * name;
+
+    if (dco == NULL || dco->type != DRMU_COLOROP_TYPE_1D_CURVE ||
+        curve_name == NULL || curve_name[0] == 0)
+        return -EINVAL;
+
+    if ((name = strdup(curve_name)) == NULL)
+        return -ENOMEM;
+
+    free(dco->op.curve_1d.curve_name);
+    dco->op.curve_1d.curve_name = name;
+    return 0;
 }
 
-void
-drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass)
+const char *
+drmu_colorop_1d_curve_type(const drmu_colorop_t * const dco)
 {
-    dco->bypass = bypass;
+    return dco == NULL || dco->type != DRMU_COLOROP_TYPE_1D_CURVE ? NULL :
+        dco->op.curve_1d.curve_name;
 }
 
+// colorop_seq ===============================================================
 
 struct drmu_colorop_seq_s {
     atomic_int ref_count;
