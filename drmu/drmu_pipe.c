@@ -180,7 +180,7 @@ static const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
     "1D LUT",
     "3x4 Matrix",
     "Multiplier",
-    "3D LOT",
+    "3D LUT",
 };
 
 const char *
@@ -383,9 +383,11 @@ drmu_colorop_seq_add_tail(drmu_colorop_seq_t * const cs, drmu_colorop_t * const 
         return 0;
     if (cs->ops_n >= cs->ops_size) {
         unsigned int new_size = cs->ops_size < 8 ? 8 : cs->ops_size * 2;
-        drmu_colorop_t * new_ops = realloc(cs->ops, sizeof(*cs->ops) * new_size);
+        drmu_colorop_t ** new_ops = realloc(cs->ops, sizeof(*cs->ops) * new_size);
         if (new_ops == NULL)
             return -ENOMEM;
+        cs->ops = new_ops;
+        cs->ops_size = new_size;
     }
     cs->ops[cs->ops_n++] = drmu_colorop_ref(dco);
     return 0;
@@ -415,6 +417,18 @@ struct drmu_pipe_colorop_s {
             drmu_prop_range_t * range;
             uint64_t val;
         } mul;
+        struct {
+            uint64_t size;
+            drmu_prop_enum_t * interpolation_enum;
+            uint64_t interpolation_val;
+            drmu_blob_t * data;
+        } lut_1d;
+        struct {
+            uint64_t size;
+            drmu_prop_enum_t * interpolation_enum;
+            uint64_t interpolation_val;
+            drmu_blob_t * data;
+        } lut_3d;
     } op;
 };
 
@@ -431,10 +445,16 @@ pipe_colorop_free(drmu_pipe_colorop_t * const cop)
         case DRMU_COLOROP_TYPE_MULTIPLIER:
             drmu_prop_range_delete(&cop->op.mul.range);
             break;
-        case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_1D_LUT:
-        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+            drmu_prop_enum_delete(&cop->op.lut_1d.interpolation_enum);
+            drmu_blob_unref(&cop->op.lut_1d.data);
+            break;
         case DRMU_COLOROP_TYPE_3D_LUT:
+            drmu_prop_enum_delete(&cop->op.lut_3d.interpolation_enum);
+            drmu_blob_unref(&cop->op.lut_3d.data);
+            break;
+        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+        case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
             break;
     }
@@ -524,10 +544,63 @@ pipe_colorop_new(drmu_env_t * const du, const uint32_t pid)
                 goto fail;
             cop->op.mul.val = drmu_propinfo_val(pi);
             break;
-        case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_1D_LUT:
-        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "SIZE")) == NULL) {
+                drmu_err(du, "1D LUT size missing");
+                goto fail;
+            }
+            cop->op.lut_1d.size = drmu_propinfo_val(pi);
+
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "LUT1D_INTERPOLATION")) == NULL) {
+                drmu_err(du, "1D LUT Interpolation missing");
+                goto fail;
+            }
+            if ((cop->op.lut_1d.interpolation_enum = drmu_prop_enum_new(du, drmu_propinfo_id(pi))) == NULL)
+                goto fail;
+            cop->op.lut_1d.interpolation_val = drmu_propinfo_val(pi);
+
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "DATA")) == NULL) {
+                drmu_err(du, "1D LUT Data missing");
+                goto fail;
+            }
+            if (drmu_propinfo_val(pi) == 0) {
+                cop->op.lut_1d.data = NULL;
+            }
+            else if ((cop->op.lut_1d.data = drmu_blob_copy_id(du, drmu_propinfo_id(pi))) == NULL) {
+                drmu_err(du, "1D LUT Blob data failed");
+                goto fail;
+            }
+            break;
         case DRMU_COLOROP_TYPE_3D_LUT:
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "SIZE")) == NULL) {
+                drmu_err(du, "3D LUT size missing");
+                goto fail;
+            }
+            cop->op.lut_3d.size = drmu_propinfo_val(pi);
+
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "LUT3D_INTERPOLATION")) == NULL) {
+                drmu_err(du, "3D LUT Interpolation missing");
+                goto fail;
+            }
+            if ((cop->op.lut_3d.interpolation_enum = drmu_prop_enum_new(du, drmu_propinfo_id(pi))) == NULL)
+                goto fail;
+            cop->op.lut_3d.interpolation_val = drmu_propinfo_val(pi);
+
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "DATA")) == NULL) {
+                drmu_err(du, "3D LUT Data missing");
+                goto fail;
+            }
+            if (drmu_propinfo_val(pi) == 0) {
+                cop->op.lut_3d.data = NULL;
+            }
+            else if ((cop->op.lut_3d.data = drmu_blob_copy_id(du, drmu_propinfo_id(pi))) == NULL) {
+                drmu_err(du, "3D LUT Blob data failed");
+                goto fail;
+            }
+            break;
+
+        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+        case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
             drmu_warn(du, "Unsupported type %"PRId64"->%d %s", type_val, (int)cop->type, type_name);
             break;
@@ -603,7 +676,7 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid0)
     for (i = 0; pid != 0; ++i) {
         if (i >= pipe->cop_size) {
             size_t new_n = pipe->cop_size < 8 ? 8 : pipe->cop_size * 2;
-            void * new_a = realloc(pipe->cops, new_n * sizeof(*pipe->cops));
+            drmu_pipe_colorop_t ** new_a = realloc(pipe->cops, new_n * sizeof(*pipe->cops));
             if (new_a == NULL) {
                 drmu_err(du, "Pipe cop alloc failed");
                 goto fail;
@@ -616,7 +689,7 @@ drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid0)
             drmu_err(du, "Pipe colorop[%d] failed creation", i);
             goto fail;
         }
-        pipe->cop_n = i;
+        pipe->cop_n = i + 1;
 
         pid = pipe_colorop_next_id(pipe->cops[i]);
     }
