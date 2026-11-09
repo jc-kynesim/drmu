@@ -174,7 +174,7 @@ enum drm_colorop_lut1d_interpolation_type {
 #endif
 
 // MUST be same order as enum
-const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
+static const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
     "????",
     "1D Curve",
     "1D LUT",
@@ -182,6 +182,14 @@ const char * const colorop_type_names[DRMU_COLOROP_TYPE_COUNT] = {
     "Multiplier",
     "3D LOT",
 };
+
+const char *
+drmu_colorop_type_str(const drmu_colorop_type_t ctype)
+{
+    return ctype <= DRMU_COLOROP_TYPE_UNKNOWN || ctype >= DRMU_COLOROP_TYPE_COUNT ?
+        colorop_type_names[DRMU_COLOROP_TYPE_UNKNOWN] : colorop_type_names[(unsigned int)ctype];
+
+}
 
 drmu_colorop_type_t
 colorop_type_name_to_n(const char * name)
@@ -389,6 +397,8 @@ drmu_colorop_seq_n(drmu_colorop_seq_t * const cs, const unsigned int n)
     return cs == NULL || cs->ops_n <= n ? NULL : cs->ops[n];
 }
 
+// pipe_colorop ==============================================================
+
 struct drmu_pipe_colorop_s {
     drmu_props_t * props;
     drmu_colorop_type_t type;
@@ -452,6 +462,9 @@ pipe_colorop_colorop_derive(const drmu_pipe_colorop_t * const pco)
 
    switch (pco->type) {
        case DRMU_COLOROP_TYPE_1D_CURVE:
+           drmu_colorop_1d_curve_type_set(dco,
+               drmu_prop_enum_value_name(pco->op.curve_1d.curve_enum, pco->op.curve_1d.curve_val));
+           break;
        case DRMU_COLOROP_TYPE_MULTIPLIER:
        case DRMU_COLOROP_TYPE_UNKNOWN:
        case DRMU_COLOROP_TYPE_1D_LUT:

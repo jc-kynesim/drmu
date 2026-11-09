@@ -37,6 +37,9 @@ typedef enum drmu_colorop_type_e {
     DRMU_COLOROP_TYPE_COUNT   // Must be last
 } drmu_colorop_type_t;
 
+// Enum -> string utility fn
+const char * drmu_colorop_type_str(const drmu_colorop_type_t ctype);
+
 // Value functions
 drmu_colorop_t * drmu_colorop_new(drmu_colorop_type_t type);
 void drmu_colorop_unref(drmu_colorop_t ** const ppDco);
@@ -61,6 +64,7 @@ drmu_pipe_t * drmu_pipe_new_pid(struct drmu_env_s * const du, const uint32_t pid
 void drmu_pipe_unref(drmu_pipe_t ** ppPipe);
 drmu_pipe_t * drmu_pipe_ref(drmu_pipe_t * pipe);
 
+drmu_colorop_seq_t * drmu_pipe_colorop_seq_load(drmu_pipe_t * const pipe);
 const drmu_pipe_colorop_t * drmu_pipe_colorop_n(const drmu_pipe_t * const pipe, unsigned int n);
 
 #ifdef __cplusplus

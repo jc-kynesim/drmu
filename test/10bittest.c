@@ -650,6 +650,7 @@ list_pipes(drmu_env_t * const du)
 
         for (j = 0; drmu_plane_color_pipeline(dp, j, &pid, &name) == 0; ++j) {
             drmu_pipe_t *pipe;
+            drmu_colorop_seq_t *seq;
 
             printf("  Pipe[%d]: id=%3d  %s\n", j, pid, name);
             pipe = drmu_pipe_new_pid(du, pid);
@@ -657,6 +658,20 @@ list_pipes(drmu_env_t * const du)
                 printf("    None\n");
                 continue;
             }
+
+            if ((seq = drmu_pipe_colorop_seq_load(pipe)) == NULL) {
+                printf("    ** Error **\n");
+            }
+            else {
+                unsigned int k;
+                drmu_colorop_t * dco;
+                for (k = 0; (dco = drmu_colorop_seq_n(seq, k)) != NULL; ++k) {
+                    drmu_colorop_type_t type = drmu_colorop_type(dco);
+                    printf("      [%2d] %s\n", k, drmu_colorop_type_str(type));
+                }
+            }
+
+            drmu_colorop_seq_unref(&seq);
             drmu_pipe_unref(&pipe);
         }
 
