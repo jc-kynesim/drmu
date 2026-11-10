@@ -668,6 +668,30 @@ list_pipes(drmu_env_t * const du)
                 for (k = 0; (dco = drmu_colorop_seq_n(seq, k)) != NULL; ++k) {
                     drmu_colorop_type_t type = drmu_colorop_type(dco);
                     printf("      [%2d] %s\n", k, drmu_colorop_type_str(type));
+                    printf("        Bypass: %s\n", drmu_colorop_bypass(dco) ? "True" : "False");
+                    switch (type) {
+                        case DRMU_COLOROP_TYPE_1D_CURVE:
+                            printf("        Curve:  %s\n", drmu_colorop_1d_curve_type(dco));
+                            break;
+                        case DRMU_COLOROP_TYPE_MULTIPLIER:
+                            printf("        Value:  %g\n", drmu_colorop_multiplier(dco));
+                            break;
+                        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+                        {
+                            unsigned int x, y;
+                            const double (*vals)[4] = drmu_colorop_3x4_matrix(dco);
+                            for (y = 0; y != 3; ++y) {
+                                printf("        %s  ", y == 0 ? "Value:" : "      ");
+                                for (x = 0; x != 4; ++x)
+                                    printf(" %15.8g", vals[y][x]);
+                                printf("\n");
+                            }
+                            break;
+                        }
+                        default:
+                            printf("        Unknown\n");
+                            break;
+                    }
                 }
             }
 
