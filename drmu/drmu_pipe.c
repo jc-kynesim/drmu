@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -213,8 +214,11 @@ struct drmu_colorop_s {
             char * curve_name;
         } curve_1d;
         struct {
-            int64_t val;
+            double val;
         } mul;
+        struct {
+            double vals[3][4];
+        } matrix_3x4;
     } op;
 };
 
@@ -319,6 +323,44 @@ drmu_colorop_1d_curve_type(const drmu_colorop_t * const dco)
     return dco == NULL || dco->type != DRMU_COLOROP_TYPE_1D_CURVE ? NULL :
         dco->op.curve_1d.curve_name;
 }
+
+// multiplier ----------------------------------------------------------------
+
+int
+drmu_colorop_multiplier_set(drmu_colorop_t * const dco, double val)
+{
+    if (dco == NULL || dco->type != DRMU_COLOROP_TYPE_MULTIPLIER)
+        return -EINVAL;
+    dco->op.mul.val = val;
+    return 0;
+}
+
+double
+drmu_colorop_multiplier(const drmu_colorop_t * const dco)
+{
+    return dco == NULL || dco->type != DRMU_COLOROP_TYPE_MULTIPLIER ? 0.0 : dco->op.mul.val;
+}
+
+// 3x4 matrix  ---------------------------------------------------------------
+
+int
+drmu_colorop_3x4_matrix_set(drmu_colorop_t * const dco, double vals[3][4])
+{
+    if (dco == NULL || dco->type != DRMU_COLOROP_TYPE_3X4_MATRIX)
+        return -EINVAL;
+    memcpy(dco->op.matrix_3x4.vals, vals, sizeof(dco->op.matrix_3x4.vals));
+    return 0;
+}
+
+const double (*
+drmu_colorop_3x4_matrix(const drmu_colorop_t * const dco))[4]
+{
+    static const double zeros[3][4];
+    if (dco == NULL || dco->type != DRMU_COLOROP_TYPE_3X4_MATRIX)
+        return zeros;
+    return dco->op.matrix_3x4.vals;
+}
+
 
 // colorop_seq ===============================================================
 
@@ -429,6 +471,9 @@ struct drmu_pipe_colorop_s {
             uint64_t interpolation_val;
             drmu_blob_t * data;
         } lut_3d;
+        struct {
+            drmu_blob_t * data;
+        } matrix_3x4;
     } op;
 };
 
@@ -454,6 +499,8 @@ pipe_colorop_free(drmu_pipe_colorop_t * const cop)
             drmu_blob_unref(&cop->op.lut_3d.data);
             break;
         case DRMU_COLOROP_TYPE_3X4_MATRIX:
+            drmu_blob_unref(&cop->op.matrix_3x4.data);
+            break;
         case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
             break;
@@ -468,6 +515,14 @@ static uint32_t
 pipe_colorop_next_id(const drmu_pipe_colorop_t * const pco)
 {
     return pco->next_id;
+}
+
+static inline double s3132_to_double(const uint32_t val)
+{
+    double r = val & (~(uint64_t)1 << 63);
+    if ((val & ((uint64_t)1 << 63)) != 0)
+        r = -r;
+    return ldexp(r, -32);
 }
 
 drmu_colorop_t *
@@ -486,10 +541,27 @@ pipe_colorop_colorop_derive(const drmu_pipe_colorop_t * const pco)
                drmu_prop_enum_value_name(pco->op.curve_1d.curve_enum, pco->op.curve_1d.curve_val));
            break;
        case DRMU_COLOROP_TYPE_MULTIPLIER:
-       case DRMU_COLOROP_TYPE_UNKNOWN:
-       case DRMU_COLOROP_TYPE_1D_LUT:
+           drmu_colorop_multiplier_set(dco, s3132_to_double(pco->op.mul.val));
+           break;
        case DRMU_COLOROP_TYPE_3X4_MATRIX:
+           if (pco->op.matrix_3x4.data != NULL) {
+               double vals[3][4];
+               const uint64_t *p = drmu_blob_data(pco->op.matrix_3x4.data);
+               unsigned int x, y;
+
+               if (drmu_blob_len(pco->op.matrix_3x4.data) != sizeof(uint64_t) * 12) {
+                   drmu_colorop_unref(&dco);
+                   return NULL;
+               }
+               for (y = 0; y != 3; ++y)
+                   for (x = 0; x != 4; ++x)
+                       vals[y][x] = s3132_to_double(*p++);
+               drmu_colorop_3x4_matrix_set(dco, vals);
+           }
+           break;
+       case DRMU_COLOROP_TYPE_1D_LUT:
        case DRMU_COLOROP_TYPE_3D_LUT:
+       case DRMU_COLOROP_TYPE_UNKNOWN:
        case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
            break;
    }
@@ -598,8 +670,20 @@ pipe_colorop_new(drmu_env_t * const du, const uint32_t pid)
                 goto fail;
             }
             break;
-
         case DRMU_COLOROP_TYPE_3X4_MATRIX:
+            if ((pi = drmu_props_name_to_propinfo(cop->props, "DATA")) == NULL) {
+                drmu_err(du, "3x4 Matrix Data missing");
+                goto fail;
+            }
+            if (drmu_propinfo_val(pi) == 0) {
+                cop->op.matrix_3x4.data = NULL;
+            }
+            else if ((cop->op.matrix_3x4.data = drmu_blob_copy_id(du, drmu_propinfo_id(pi))) == NULL) {
+                drmu_err(du, "3x4 Matrix Blob data failed");
+                goto fail;
+            }
+            break;
+
         case DRMU_COLOROP_TYPE_UNKNOWN:
         case DRMU_COLOROP_TYPE_COUNT:  // Avoid warning
             drmu_warn(du, "Unsupported type %"PRId64"->%d %s", type_val, (int)cop->type, type_name);

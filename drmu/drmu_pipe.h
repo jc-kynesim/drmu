@@ -27,6 +27,8 @@ typedef struct drmu_pipe_colorop_s drmu_pipe_colorop_t;
 
 struct drmu_env_s;
 
+struct drm_color_lut32;
+
 typedef enum drmu_colorop_type_e {
     DRMU_COLOROP_TYPE_UNKNOWN = 0,
     DRMU_COLOROP_TYPE_1D_CURVE,
@@ -51,6 +53,17 @@ int drmu_colorop_bypass_set(drmu_colorop_t * const dco, const bool bypass);
 
 int drmu_colorop_1d_curve_type_set(drmu_colorop_t * const dco, const char * const curve_name);
 const char * drmu_colorop_1d_curve_type(const drmu_colorop_t * const dco);
+
+int drmu_colorop_multiplier_set(drmu_colorop_t * const dco, double val);
+double drmu_colorop_multiplier(const drmu_colorop_t * const dco);
+
+int drmu_colorop_3x4_matrix_set(drmu_colorop_t * const dco, double vals[3][4]);
+const double (*drmu_colorop_3x4_matrix(const drmu_colorop_t * const dco))[4];
+
+const char * drmu_colorop_1d_lut_interpolation(const drmu_colorop_t * const dco);
+unsigned int drmu_colourop_1d_lut_size(const drmu_colorop_t * const dco);
+const struct drm_color_lut32 *drmu_colourop_1d_lut_data(const drmu_colorop_t * const dco);
+
 
 drmu_colorop_seq_t * drmu_colorop_seq_new();
 void drmu_colorop_seq_unref(drmu_colorop_seq_t ** const ppCs);
